@@ -61,7 +61,6 @@ func TestExecute_PlaceholderCommands(t *testing.T) {
 		want string
 	}{
 		{[]string{"init"}, "project initialization is not implemented yet"},
-		{[]string{"status"}, "status inspection is not implemented yet"},
 		{[]string{"doctor"}, "diagnostics are not implemented yet"},
 	}
 
@@ -108,12 +107,14 @@ func TestExecute_CommandHelp(t *testing.T) {
 func TestExecute_UnknownCommand(t *testing.T) {
 	t.Parallel()
 
-	var stdout, stderr bytes.Buffer
-	err := cli.Execute(&stdout, &stderr, []string{"start"})
-	if err == nil {
-		t.Fatal("expected error for unknown command")
-	}
-	if !strings.Contains(err.Error(), "unknown command: start") {
-		t.Fatalf("unexpected error: %v", err)
+	for _, cmd := range []string{"start", "change"} {
+		var stdout, stderr bytes.Buffer
+		err := cli.Execute(&stdout, &stderr, []string{cmd})
+		if err == nil {
+			t.Fatalf("expected error for unknown command %q", cmd)
+		}
+		if !strings.Contains(err.Error(), "unknown command: "+cmd) {
+			t.Fatalf("unexpected error for %q: %v", cmd, err)
+		}
 	}
 }

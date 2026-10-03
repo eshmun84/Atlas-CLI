@@ -13,12 +13,14 @@ Slice 1 shipped a minimal Go CLI foundation:
 | `atlas` | Show root help |
 | `atlas --version` | Print CLI version |
 | `atlas init` | Placeholder (initialization not implemented yet) |
-| `atlas status` | Placeholder (status inspection not implemented yet) |
+| `atlas status` | Read-only workspace status report |
 | `atlas doctor` | Placeholder (diagnostics not implemented yet) |
 
 Slice 2 added an internal config schema foundation (`internal/config`): defaults, validation, YAML load/save, path constants, and a mutability model. No project files are materialized yet.
 
 Slice 3 added internal read-only workspace discovery (`internal/workspace`): filesystem markers, Git repo/branch/remotes, technology signals, and local tool availability. Nothing is materialized or mutated.
+
+Slice 4 wired `atlas status` to that discovery package for a concise read-only status report. It does not create `.atlas`, `AGENTS.md`, or any other project files.
 
 ## Requirements
 
