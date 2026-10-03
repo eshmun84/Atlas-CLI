@@ -13,15 +13,14 @@ var (
 	colorText   = lipgloss.Color("252")
 	colorFail   = lipgloss.Color("196")
 	colorBorder = lipgloss.Color("63")
+	colorSelBg  = lipgloss.Color("33")
+	colorActive = lipgloss.Color("39")
 )
 
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(colorAccent)
-
-	subtitleStyle = lipgloss.NewStyle().
-			Foreground(colorMuted)
 
 	mutedStyle = lipgloss.NewStyle().
 			Foreground(colorMuted)
@@ -34,11 +33,23 @@ var (
 
 	failBadge = lipgloss.NewStyle().Bold(true).Foreground(colorFail)
 
-	frameStyle = lipgloss.NewStyle().
+	sidebarItemStyle = lipgloss.NewStyle().
+				Foreground(colorText)
+
+	sidebarSelectedStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("15")).
+				Background(colorSelBg)
+
+	sidebarActiveStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(colorActive)
+
+	panelBorder = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorBorder)
 
-	errorFrameStyle = lipgloss.NewStyle().
+	errorBorder = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorFail)
 )

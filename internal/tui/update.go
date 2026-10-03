@@ -11,17 +11,18 @@ import (
 // Init loads workspace-backed screens when needed.
 func (m Model) Init() tea.Cmd {
 	if needsWorkspace(m.route) {
-		return m.loadCmd(m.route)
+		return m.loadCmd()
 	}
 	return nil
 }
 
-// Update handles resize, navigation, and async loads.
+// Update handles resize, sidebar navigation, scrolling, and loads.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.contentOffset = clampOffset(m.contentOffset, m.maxContentOffset())
 		return m, nil
 
 	case tea.KeyMsg:
@@ -38,6 +39,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.loadErr = msg.err
 			m.ready = true
+			m.contentOffset = 0
 			return m, nil
 		}
 		m.loadErr = nil
@@ -45,104 +47,117 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.discovery = msg.discovery
 		m.report = msg.report
 		m.ready = true
+		m.contentOffset = 0
 		return m, nil
 	}
 	return m, nil
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.route == RouteError {
+		return m.handleErrorKey(msg)
+	}
+
 	if isForceQuit(msg) {
 		m.quitting = true
 		return m, tea.Quit
 	}
 	if isEsc(msg) {
-		if m.route == RouteHome {
+		if m.route == DefaultRoute {
 			m.quitting = true
 			return m, tea.Quit
 		}
-		return m.goBack()
+		return m.setRoute(DefaultRoute)
 	}
 	if isHelpKey(msg) {
-		if m.route != RouteHelp {
-			m.previous = m.route
-			m.route = RouteHelp
-			m.ready = true
-			m.loadErr = nil
-		}
-		return m, nil
+		return m.setRoute(RouteHelp)
 	}
-	if isHomeKey(msg) && m.route != RouteHome {
-		m.previous = RouteHome
-		m.route = RouteHome
-		m.ready = true
-		m.loadErr = nil
-		return m, nil
+	if isDefaultRouteKey(msg) {
+		return m.setRoute(DefaultRoute)
 	}
 
-	if m.route == RouteHome {
-		return m.handleHomeKey(msg)
-	}
-	return m, nil
-}
-
-func (m Model) handleHomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
-		m.selected = clampSelected(m.selected - 1)
+		m.sidebarIndex = clampSidebar(m.sidebarIndex - 1)
+		return m, nil
 	case "down", "j":
-		m.selected = clampSelected(m.selected + 1)
+		m.sidebarIndex = clampSidebar(m.sidebarIndex + 1)
+		return m, nil
 	case "enter":
-		item := HomeItems[m.selected]
+		item := SidebarItems[m.sidebarIndex]
 		if item.Exit {
 			m.quitting = true
 			return m, tea.Quit
 		}
-		return m.openRoute(item.Route)
+		return m.setRoute(item.Route)
+	case "pgup", "pgdown", "home", "end":
+		return m.scroll(msg.String()), nil
 	}
 	return m, nil
 }
 
-func (m Model) openRoute(route Route) (Model, tea.Cmd) {
-	m.previous = m.route
+func (m Model) handleErrorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case isForceQuit(msg), isEsc(msg), msg.String() == "enter":
+		m.quitting = true
+		return m, tea.Quit
+	default:
+		// Ignore navigation/help keys on the error dialog.
+		return m, nil
+	}
+}
+
+func (m Model) setRoute(route Route) (Model, tea.Cmd) {
+	if m.route == route && m.ready {
+		if route != RouteError {
+			m.sidebarIndex = indexForRoute(route)
+		}
+		return m, nil
+	}
 	m.route = route
+	if route != RouteError {
+		m.sidebarIndex = indexForRoute(route)
+	}
 	m.loadErr = nil
+	m.contentOffset = 0
 	if needsWorkspace(route) {
 		m.ready = false
-		return m, m.loadCmd(route)
+		return m, m.loadCmd()
 	}
 	m.ready = true
 	return m, nil
 }
 
-func (m Model) goBack() (Model, tea.Cmd) {
-	target := m.previous
-	if target == m.route {
-		target = RouteHome
+func (m Model) scroll(key string) Model {
+	maxOff := m.maxContentOffset()
+	switch key {
+	case "pgup":
+		m.contentOffset = clampOffset(m.contentOffset-m.contentViewportHeight(), maxOff)
+	case "pgdown":
+		m.contentOffset = clampOffset(m.contentOffset+m.contentViewportHeight(), maxOff)
+	case "home":
+		m.contentOffset = 0
+	case "end":
+		m.contentOffset = maxOff
 	}
-	m.previous = RouteHome
-	m.route = target
-	m.ready = !needsWorkspace(target)
-	m.loadErr = nil
-	if needsWorkspace(target) {
-		return m, m.loadCmd(target)
-	}
-	return m, nil
+	return m
 }
 
-func (m Model) loadCmd(route Route) tea.Cmd {
+func (m Model) loadCmd() tea.Cmd {
 	getwd := m.getwd
 	discover := m.discover
+	route := m.route
 	return func() tea.Msg {
 		root, err := getwd()
 		if err != nil {
-			return loadedMsg{route: route, err: fmt.Errorf("resolve working directory: %w", err)}
+			return loadedMsg{err: fmt.Errorf("resolve working directory: %w", err)}
 		}
 		result, err := discover(root)
 		if err != nil {
-			return loadedMsg{route: route, err: fmt.Errorf("workspace discovery failed: %w", err)}
+			return loadedMsg{err: fmt.Errorf("workspace discovery failed: %w", err)}
 		}
 
-		msg := loadedMsg{route: route, discovery: result}
+		msg := loadedMsg{discovery: result}
 		switch route {
 		case RouteInitPlan:
 			plan, err := initplan.Build(root, result)

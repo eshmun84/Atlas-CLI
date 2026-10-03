@@ -1,32 +1,32 @@
 package tui
 
-// Route identifies the initial TUI screen.
+// Route identifies the active content panel.
 type Route int
 
 const (
-	RouteHome Route = iota
-	RouteHelp
+	RouteStatus Route = iota
 	RouteInitPlan
-	RouteStatus
 	RouteDoctor
+	RouteHelp
 	RouteError
 )
 
+// DefaultRoute is the content shown for plain `atlas`.
+const DefaultRoute = RouteStatus
+
 func (r Route) String() string {
 	switch r {
-	case RouteHome:
-		return "home"
-	case RouteHelp:
-		return "help"
-	case RouteInitPlan:
-		return "init"
 	case RouteStatus:
-		return "status"
+		return "Status"
+	case RouteInitPlan:
+		return "Init / Setup"
 	case RouteDoctor:
-		return "doctor"
+		return "Doctor"
+	case RouteHelp:
+		return "Help"
 	case RouteError:
-		return "error"
+		return "Error"
 	default:
-		return "unknown"
+		return "Unknown"
 	}
 }

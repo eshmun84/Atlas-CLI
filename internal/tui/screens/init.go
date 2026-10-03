@@ -19,6 +19,8 @@ var (
 // InitPlan renders the dry-run initialization plan screen.
 func InitPlan(plan initplan.Plan) string {
 	var b strings.Builder
+	fmt.Fprintln(&b, initHead.Render("Atlas Init Plan"))
+	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, initHead.Render("Project"))
 	fmt.Fprintf(&b, "  Name: %s\n", plan.ProjectName)
 	fmt.Fprintf(&b, "  Mode: %s\n", plan.ProjectMode)

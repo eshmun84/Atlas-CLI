@@ -19,8 +19,8 @@ func TestResolve_Routes(t *testing.T) {
 		route   tui.Route
 		unknown string
 	}{
-		{nil, cli.ModeTUI, tui.RouteHome, ""},
-		{[]string{}, cli.ModeTUI, tui.RouteHome, ""},
+		{nil, cli.ModeTUI, tui.DefaultRoute, ""},
+		{[]string{}, cli.ModeTUI, tui.DefaultRoute, ""},
 		{[]string{"help"}, cli.ModeTUI, tui.RouteHelp, ""},
 		{[]string{"--help"}, cli.ModeTUI, tui.RouteHelp, ""},
 		{[]string{"-h"}, cli.ModeTUI, tui.RouteHelp, ""},
@@ -31,7 +31,7 @@ func TestResolve_Routes(t *testing.T) {
 		{[]string{"start"}, cli.ModeTUI, tui.RouteError, "start"},
 		{[]string{"change"}, cli.ModeTUI, tui.RouteError, "change"},
 		{[]string{"change", "new"}, cli.ModeTUI, tui.RouteError, "change new"},
-		{[]string{"--version"}, cli.ModeVersion, tui.RouteHome, ""},
+		{[]string{"--version"}, cli.ModeVersion, tui.DefaultRoute, ""},
 	}
 
 	for _, tc := range cases {
@@ -75,7 +75,7 @@ func TestExecute_LaunchesTUIRoutes(t *testing.T) {
 		route   tui.Route
 		unknown string
 	}{
-		{nil, tui.RouteHome, ""},
+		{nil, tui.DefaultRoute, ""},
 		{[]string{"help"}, tui.RouteHelp, ""},
 		{[]string{"--help"}, tui.RouteHelp, ""},
 		{[]string{"-h"}, tui.RouteHelp, ""},

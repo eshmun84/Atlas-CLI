@@ -24,6 +24,6 @@ func isHelpKey(msg tea.KeyMsg) bool {
 	}
 }
 
-func isHomeKey(msg tea.KeyMsg) bool {
+func isDefaultRouteKey(msg tea.KeyMsg) bool {
 	return msg.String() == "b"
 }

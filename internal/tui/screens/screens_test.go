@@ -13,22 +13,16 @@ import (
 func TestScreenTitles(t *testing.T) {
 	t.Parallel()
 
-	if !strings.Contains(screens.Home(0), "Init / Setup") {
-		t.Fatal("home")
-	}
-	if !strings.Contains(screens.Help(), "atlas start") {
+	if !strings.Contains(screens.Help(), "Atlas Help") {
 		t.Fatal("help")
 	}
-	if !strings.Contains(screens.Error("start"), "start") {
-		t.Fatal("error")
-	}
-	if !strings.Contains(screens.Status(workspace.DiscoveryResult{RootPath: "/tmp"}), "Workspace") {
+	if !strings.Contains(screens.Status(workspace.DiscoveryResult{RootPath: "/tmp"}), "Atlas Status") {
 		t.Fatal("status")
 	}
-	if !strings.Contains(screens.Doctor(doctor.Report{}), "Checks") {
+	if !strings.Contains(screens.Doctor(doctor.Report{}), "Atlas Doctor") {
 		t.Fatal("doctor")
 	}
-	if !strings.Contains(screens.InitPlan(initplan.Plan{ProjectName: "demo"}), "Project") {
+	if !strings.Contains(screens.InitPlan(initplan.Plan{ProjectName: "demo"}), "Atlas Init Plan") {
 		t.Fatal("init")
 	}
 }

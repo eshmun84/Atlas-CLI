@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
@@ -16,14 +17,14 @@ type Options struct {
 	Discover       func(string) (workspace.DiscoveryResult, error)
 }
 
-// Model is the full-screen Bubble Tea application model.
+// Model is the sidebar shell Bubble Tea model.
 type Model struct {
 	width  int
 	height int
 
-	route    Route
-	previous Route
-	selected int
+	route         Route
+	sidebarIndex  int
+	contentOffset int
 
 	unknownCommand string
 	plan           initplan.Plan
@@ -38,7 +39,6 @@ type Model struct {
 }
 
 type loadedMsg struct {
-	route     Route
 	plan      initplan.Plan
 	discovery workspace.DiscoveryResult
 	report    doctor.Report
@@ -56,20 +56,21 @@ func NewModel(opts Options) Model {
 		discover = workspace.Discover
 	}
 
-	m := Model{
+	route := opts.Route
+	if route != RouteStatus && route != RouteInitPlan && route != RouteDoctor && route != RouteHelp && route != RouteError {
+		route = DefaultRoute
+	}
+
+	return Model{
 		width:          MinWidth,
 		height:         MinHeight,
-		route:          opts.Route,
-		selected:       0,
+		route:          route,
+		sidebarIndex:   indexForRoute(route),
 		unknownCommand: opts.UnknownCommand,
 		getwd:          getwd,
 		discover:       discover,
-		ready:          !needsWorkspace(opts.Route),
+		ready:          !needsWorkspace(route),
 	}
-	if opts.Route != RouteHome {
-		m.previous = RouteHome
-	}
-	return m
 }
 
 func needsWorkspace(route Route) bool {
@@ -81,20 +82,18 @@ func needsWorkspace(route Route) bool {
 	}
 }
 
-// Route returns the current screen route.
-func (m Model) Route() Route { return m.route }
-
-// Previous returns the previous route used for back navigation.
-func (m Model) Previous() Route { return m.previous }
-
-// Width returns the current terminal width.
-func (m Model) Width() int { return m.width }
-
-// Height returns the current terminal height.
-func (m Model) Height() int { return m.height }
-
-// Selected returns the Home menu index.
-func (m Model) Selected() int { return m.selected }
-
-// Quitting reports whether the model requested exit.
-func (m Model) Quitting() bool { return m.quitting }
+func (m Model) Route() Route       { return m.route }
+func (m Model) Width() int         { return m.width }
+func (m Model) Height() int        { return m.height }
+func (m Model) SidebarIndex() int  { return m.sidebarIndex }
+func (m Model) ContentOffset() int { return m.contentOffset }
+func (m Model) Quitting() bool     { return m.quitting }
+func (m Model) ProjectName() string {
+	if m.plan.ProjectName != "" {
+		return m.plan.ProjectName
+	}
+	if m.discovery.RootPath != "" {
+		return filepath.Base(m.discovery.RootPath)
+	}
+	return "—"
+}

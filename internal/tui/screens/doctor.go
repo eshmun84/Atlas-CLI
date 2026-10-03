@@ -18,6 +18,8 @@ var (
 // Doctor renders the diagnostics screen with color-coded badges.
 func Doctor(report doctor.Report) string {
 	var b strings.Builder
+	fmt.Fprintln(&b, docHead.Render("Atlas Doctor"))
+	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, docHead.Render("Checks"))
 	if len(report.Checks) == 0 {
 		fmt.Fprintln(&b, "  none")

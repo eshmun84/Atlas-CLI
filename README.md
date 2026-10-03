@@ -4,23 +4,28 @@ Atlas is a governed AI-assisted software engineering framework.
 
 Atlas is **not** a coding agent. The CLI is a launcher; the primary interface is a full-screen interactive TUI.
 
-## TUI-first (Slice 7)
+## TUI-first
 
 Atlas is TUI-first.
 
-`atlas --version` is the only normal console output. Every other command launches a full-screen TUI (alternate screen, resize-aware, keyboard navigable).
+`atlas --version` is the only normal console output. Every other command launches a full-screen TUI shell with:
+
+- left sidebar navigation
+- right content panel
+- shared header and footer
+- scrollable content (`PgUp` / `PgDn`)
 
 | Command | Behavior |
 | --- | --- |
 | `atlas --version` | Console: print version only |
-| `atlas` | Full-screen TUI Home (selectable menu) |
-| `atlas help` / `--help` / `-h` | Full-screen TUI Help |
-| `atlas init` / `atlas init --dry-run` | Full-screen TUI Init Plan (dry-run) |
-| `atlas status` | Full-screen TUI Status |
-| `atlas doctor` | Full-screen TUI Doctor |
-| `atlas start` / `atlas change` | Full-screen TUI Error / Help |
+| `atlas` | TUI shell, Status content |
+| `atlas help` / `--help` / `-h` | TUI shell, Help |
+| `atlas init` / `atlas init --dry-run` | TUI shell, Init Plan (dry-run) |
+| `atlas status` | TUI shell, Status |
+| `atlas doctor` | TUI shell, Doctor |
+| `atlas start` / `atlas change` | Header + centered Error dialog + footer (Salir) |
 
-Home is keyboard navigable (`↑/↓`, `enter`). `h` opens Help, `b` returns Home, `q` quits.
+Sidebar entries: Init / Setup, Status, Doctor, Help, Exit.
 
 `atlas start` and `atlas change` are intentionally unsupported. They are not real commands.
 
@@ -45,7 +50,7 @@ make clean
 cmd/atlas/           # process entrypoint
 internal/app/        # application wiring
 internal/cli/        # arg parse + TUI launcher
-internal/tui/        # full-screen Bubble Tea + Lip Gloss TUI
+internal/tui/        # sidebar shell Bubble Tea + Lip Gloss TUI
 internal/config/     # config schema
 internal/doctor/     # diagnostics model
 internal/initplan/   # init dry-run planning

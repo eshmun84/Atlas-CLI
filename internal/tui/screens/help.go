@@ -4,12 +4,12 @@ import "github.com/charmbracelet/lipgloss"
 
 var helpHead = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("51"))
 
-// Help renders Atlas TUI help.
+// Help renders Atlas TUI help for the content panel.
 func Help() string {
-	return helpHead.Render("TUI-first") + `
+	return helpHead.Render("Atlas Help") + `
 
+TUI-first shell with sidebar navigation.
 The only normal console output is: atlas --version
-All other commands launch this full-screen TUI.
 
 ` + helpHead.Render("Supported routes") + `
   atlas
@@ -28,10 +28,11 @@ All other commands launch this full-screen TUI.
 These are not Atlas CLI commands.
 
 ` + helpHead.Render("Keyboard") + `
-  ↑/↓ or k/j   move Home selection
+  ↑/↓ or k/j   move sidebar selection
   enter        open selected item
+  PgUp/PgDn    scroll content
+  Home/End     jump content
   h / ?        Help
-  b            Home
-  esc          back (quit from Home)
+  b / esc      Status (quit from Status)
   q / ctrl+c   quit`
 }

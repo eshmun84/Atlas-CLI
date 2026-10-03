@@ -26,7 +26,7 @@ type Action struct {
 // Resolve maps CLI args to a launcher action. It does not render reports.
 func Resolve(args []string) Action {
 	if len(args) == 0 {
-		return Action{Mode: ModeTUI, Route: tui.RouteHome}
+		return Action{Mode: ModeTUI, Route: tui.DefaultRoute}
 	}
 
 	switch args[0] {

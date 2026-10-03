@@ -19,6 +19,8 @@ var (
 func Status(result workspace.DiscoveryResult) string {
 	var b strings.Builder
 
+	fmt.Fprintln(&b, statusHead.Render("Atlas Status"))
+	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, statusHead.Render("Workspace"))
 	fmt.Fprintf(&b, "  Root: %s\n\n", result.RootPath)
 
