@@ -53,7 +53,7 @@ func TestExecute_Version(t *testing.T) {
 	}
 }
 
-func TestExecute_PlaceholderCommands(t *testing.T) {
+func TestExecute_InitIsNotPlaceholder(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
@@ -61,10 +61,12 @@ func TestExecute_PlaceholderCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := strings.TrimSpace(stdout.String())
-	want := "project initialization is not implemented yet"
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	out := stdout.String()
+	if strings.Contains(out, "project initialization is not implemented yet") {
+		t.Fatal("init still prints placeholder")
+	}
+	if !strings.Contains(out, "Atlas Init Plan") {
+		t.Fatalf("expected init plan, got %q", out)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
