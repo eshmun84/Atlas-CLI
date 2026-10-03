@@ -56,27 +56,18 @@ func TestExecute_Version(t *testing.T) {
 func TestExecute_PlaceholderCommands(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		args []string
-		want string
-	}{
-		{[]string{"init"}, "project initialization is not implemented yet"},
-		{[]string{"doctor"}, "diagnostics are not implemented yet"},
+	var stdout, stderr bytes.Buffer
+	err := cli.Execute(&stdout, &stderr, []string{"init"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-
-	for _, tc := range cases {
-		var stdout, stderr bytes.Buffer
-		err := cli.Execute(&stdout, &stderr, tc.args)
-		if err != nil {
-			t.Fatalf("%v: unexpected error: %v", tc.args, err)
-		}
-		got := strings.TrimSpace(stdout.String())
-		if got != tc.want {
-			t.Fatalf("%v: got %q, want %q", tc.args, got, tc.want)
-		}
-		if stderr.Len() != 0 {
-			t.Fatalf("%v: expected empty stderr, got %q", tc.args, stderr.String())
-		}
+	got := strings.TrimSpace(stdout.String())
+	want := "project initialization is not implemented yet"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected empty stderr, got %q", stderr.String())
 	}
 }
 
