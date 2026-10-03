@@ -4,9 +4,9 @@ Atlas is a governed AI-assisted software engineering framework.
 
 Atlas is **not** a coding agent. The CLI initializes Atlas in a project, configures it, reports status, runs diagnostics, and prepares runtime governance for AI agents.
 
-## Current MVP scope (Slice 1)
+## Current MVP scope
 
-This repository currently ships a minimal Go CLI foundation:
+Slice 1 shipped a minimal Go CLI foundation:
 
 | Command | Behavior |
 | --- | --- |
@@ -16,7 +16,7 @@ This repository currently ships a minimal Go CLI foundation:
 | `atlas status` | Placeholder (status inspection not implemented yet) |
 | `atlas doctor` | Placeholder (diagnostics not implemented yet) |
 
-No command mutates the filesystem in this slice.
+Slice 2 added an internal config schema foundation (`internal/config`): defaults, validation, YAML load/save, path constants, and a mutability model. No project files are materialized yet.
 
 ## Requirements
 
@@ -46,6 +46,7 @@ go test ./...
 cmd/atlas/           # CLI entrypoint
 internal/app/        # application wiring
 internal/cli/        # command routing and handlers
+internal/config/     # config schema, defaults, validation, I/O
 internal/version/    # version string
 ```
 
