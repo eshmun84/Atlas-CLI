@@ -3,53 +3,30 @@ package cli
 import (
 	"fmt"
 	"io"
-	"strings"
 
+	"github.com/eshmun84/Atlas-CLI/internal/tui"
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 )
 
-const rootUsage = `Atlas CLI — governed AI-assisted software engineering.
+// RunTUI launches the TUI. Overridable in tests.
+var RunTUI = tui.Run
 
-Usage:
-  atlas [command]
-
-Available Commands:
-  init        Initialize Atlas in a project
-  status      Show Atlas project status
-  doctor      Run Atlas diagnostics
-
-Flags:
-  -h, --help      Show help
-      --version   Print Atlas version
-
-Use "atlas [command] --help" for more information about a command.
-`
-
-// Execute parses args and runs the matching Atlas command.
-// args should not include the program name.
+// Execute launches the resolved action.
+// Only --version writes normal console output.
 func Execute(stdout, stderr io.Writer, args []string) error {
-	if len(args) == 0 {
-		fmt.Fprint(stdout, rootUsage)
-		return nil
-	}
+	_ = stderr
 
-	switch args[0] {
-	case "-h", "--help", "help":
-		fmt.Fprint(stdout, rootUsage)
-		return nil
-	case "--version", "-version", "version":
+	action := Resolve(args)
+	switch action.Mode {
+	case ModeVersion:
 		fmt.Fprintln(stdout, version.Version)
 		return nil
-	case "init":
-		return runInit(stdout, args[1:])
-	case "status":
-		return runStatus(stdout, args[1:])
-	case "doctor":
-		return runDoctor(stdout, args[1:])
+	case ModeTUI:
+		return RunTUI(tui.Options{
+			Route:          action.Route,
+			UnknownCommand: action.UnknownCommand,
+		})
 	default:
-		if strings.HasPrefix(args[0], "-") {
-			return fmt.Errorf("unknown flag: %s\n\nRun 'atlas --help' for usage", args[0])
-		}
-		return fmt.Errorf("unknown command: %s\n\nRun 'atlas --help' for usage", args[0])
+		return fmt.Errorf("unknown launcher mode")
 	}
 }

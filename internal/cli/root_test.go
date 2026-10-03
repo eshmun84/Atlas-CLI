@@ -6,108 +6,143 @@ import (
 	"testing"
 
 	"github.com/eshmun84/Atlas-CLI/internal/cli"
+	"github.com/eshmun84/Atlas-CLI/internal/tui"
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 )
 
-func TestExecute_RootHelp(t *testing.T) {
+func TestResolve_Routes(t *testing.T) {
 	t.Parallel()
 
-	cases := [][]string{
-		nil,
-		{},
-		{"--help"},
-		{"-h"},
-		{"help"},
+	cases := []struct {
+		args    []string
+		mode    cli.Mode
+		route   tui.Route
+		unknown string
+	}{
+		{nil, cli.ModeTUI, tui.RouteHome, ""},
+		{[]string{}, cli.ModeTUI, tui.RouteHome, ""},
+		{[]string{"help"}, cli.ModeTUI, tui.RouteHelp, ""},
+		{[]string{"--help"}, cli.ModeTUI, tui.RouteHelp, ""},
+		{[]string{"-h"}, cli.ModeTUI, tui.RouteHelp, ""},
+		{[]string{"init"}, cli.ModeTUI, tui.RouteInitPlan, ""},
+		{[]string{"init", "--dry-run"}, cli.ModeTUI, tui.RouteInitPlan, ""},
+		{[]string{"status"}, cli.ModeTUI, tui.RouteStatus, ""},
+		{[]string{"doctor"}, cli.ModeTUI, tui.RouteDoctor, ""},
+		{[]string{"start"}, cli.ModeTUI, tui.RouteError, "start"},
+		{[]string{"change"}, cli.ModeTUI, tui.RouteError, "change"},
+		{[]string{"change", "new"}, cli.ModeTUI, tui.RouteError, "change new"},
+		{[]string{"--version"}, cli.ModeVersion, tui.RouteHome, ""},
 	}
 
-	for _, args := range cases {
-		var stdout, stderr bytes.Buffer
-		err := cli.Execute(&stdout, &stderr, args)
-		if err != nil {
-			t.Fatalf("args %v: unexpected error: %v", args, err)
+	for _, tc := range cases {
+		action := cli.Resolve(tc.args)
+		if action.Mode != tc.mode {
+			t.Fatalf("args %v: mode = %v, want %v", tc.args, action.Mode, tc.mode)
 		}
-		out := stdout.String()
-		if !strings.Contains(out, "Usage:") {
-			t.Fatalf("args %v: expected usage output, got %q", args, out)
+		if tc.mode == cli.ModeTUI && action.Route != tc.route {
+			t.Fatalf("args %v: route = %v, want %v", tc.args, action.Route, tc.route)
 		}
-		if !strings.Contains(out, "init") || !strings.Contains(out, "status") || !strings.Contains(out, "doctor") {
-			t.Fatalf("args %v: expected command list in help, got %q", args, out)
-		}
-		if stderr.Len() != 0 {
-			t.Fatalf("args %v: expected empty stderr, got %q", args, stderr.String())
+		if action.UnknownCommand != tc.unknown {
+			t.Fatalf("args %v: unknown = %q, want %q", tc.args, action.UnknownCommand, tc.unknown)
 		}
 	}
 }
 
-func TestExecute_Version(t *testing.T) {
-	t.Parallel()
+func TestExecute_VersionOnlyConsoleOutput(t *testing.T) {
+	prev := cli.RunTUI
+	cli.RunTUI = func(tui.Options) error {
+		t.Fatal("TUI should not launch for --version")
+		return nil
+	}
+	defer func() { cli.RunTUI = prev }()
 
 	var stdout, stderr bytes.Buffer
-	err := cli.Execute(&stdout, &stderr, []string{"--version"})
-	if err != nil {
+	if err := cli.Execute(&stdout, &stderr, []string{"--version"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := strings.TrimSpace(stdout.String())
 	if got != version.Version {
-		t.Fatalf("got version %q, want %q", got, version.Version)
-	}
-}
-
-func TestExecute_InitIsNotPlaceholder(t *testing.T) {
-	t.Parallel()
-
-	var stdout, stderr bytes.Buffer
-	err := cli.Execute(&stdout, &stderr, []string{"init"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	out := stdout.String()
-	if strings.Contains(out, "project initialization is not implemented yet") {
-		t.Fatal("init still prints placeholder")
-	}
-	if !strings.Contains(out, "Atlas Init Plan") {
-		t.Fatalf("expected init plan, got %q", out)
+		t.Fatalf("got %q, want %q", got, version.Version)
 	}
 	if stderr.Len() != 0 {
-		t.Fatalf("expected empty stderr, got %q", stderr.String())
+		t.Fatalf("stderr should be empty, got %q", stderr.String())
 	}
 }
 
-func TestExecute_CommandHelp(t *testing.T) {
-	t.Parallel()
-
+func TestExecute_LaunchesTUIRoutes(t *testing.T) {
 	cases := []struct {
-		args []string
-		want string
+		args    []string
+		route   tui.Route
+		unknown string
 	}{
-		{[]string{"init", "--help"}, "Initialize Atlas in a project"},
-		{[]string{"status", "-h"}, "Show Atlas project status"},
-		{[]string{"doctor", "--help"}, "Run Atlas diagnostics"},
+		{nil, tui.RouteHome, ""},
+		{[]string{"help"}, tui.RouteHelp, ""},
+		{[]string{"--help"}, tui.RouteHelp, ""},
+		{[]string{"-h"}, tui.RouteHelp, ""},
+		{[]string{"init"}, tui.RouteInitPlan, ""},
+		{[]string{"init", "--dry-run"}, tui.RouteInitPlan, ""},
+		{[]string{"status"}, tui.RouteStatus, ""},
+		{[]string{"doctor"}, tui.RouteDoctor, ""},
+		{[]string{"start"}, tui.RouteError, "start"},
+		{[]string{"change"}, tui.RouteError, "change"},
+		{[]string{"change", "new"}, tui.RouteError, "change new"},
 	}
 
 	for _, tc := range cases {
-		var stdout, stderr bytes.Buffer
-		err := cli.Execute(&stdout, &stderr, tc.args)
+		var launched tui.Options
+		prev := cli.RunTUI
+		cli.RunTUI = func(opts tui.Options) error {
+			launched = opts
+			return nil
+		}
+
+		var stdout bytes.Buffer
+		err := cli.Execute(&stdout, nil, tc.args)
+		cli.RunTUI = prev
+
 		if err != nil {
 			t.Fatalf("%v: unexpected error: %v", tc.args, err)
 		}
-		if !strings.Contains(stdout.String(), tc.want) {
-			t.Fatalf("%v: expected help containing %q, got %q", tc.args, tc.want, stdout.String())
+		if stdout.Len() != 0 {
+			t.Fatalf("%v: expected no console report, got %q", tc.args, stdout.String())
+		}
+		if launched.Route != tc.route {
+			t.Fatalf("%v: route = %v, want %v", tc.args, launched.Route, tc.route)
+		}
+		if launched.UnknownCommand != tc.unknown {
+			t.Fatalf("%v: unknown = %q, want %q", tc.args, launched.UnknownCommand, tc.unknown)
 		}
 	}
 }
 
-func TestExecute_UnknownCommand(t *testing.T) {
-	t.Parallel()
+func TestExecute_NoLongConsoleReports(t *testing.T) {
+	prev := cli.RunTUI
+	cli.RunTUI = func(tui.Options) error { return nil }
+	defer func() { cli.RunTUI = prev }()
 
-	for _, cmd := range []string{"start", "change"} {
-		var stdout, stderr bytes.Buffer
-		err := cli.Execute(&stdout, &stderr, []string{cmd})
-		if err == nil {
-			t.Fatalf("expected error for unknown command %q", cmd)
+	for _, args := range [][]string{
+		{"init"},
+		{"status"},
+		{"doctor"},
+		{"help"},
+	} {
+		var stdout bytes.Buffer
+		if err := cli.Execute(&stdout, nil, args); err != nil {
+			t.Fatalf("%v: %v", args, err)
 		}
-		if !strings.Contains(err.Error(), "unknown command: "+cmd) {
-			t.Fatalf("unexpected error for %q: %v", cmd, err)
+		out := stdout.String()
+		for _, banned := range []string{
+			"Atlas Init Plan",
+			"Atlas Status",
+			"Atlas Doctor",
+			"Atlas Help",
+			"project initialization is not implemented yet",
+			"status inspection is not implemented yet",
+			"diagnostics are not implemented yet",
+		} {
+			if strings.Contains(out, banned) {
+				t.Fatalf("%v leaked console content %q: %q", args, banned, out)
+			}
 		}
 	}
 }

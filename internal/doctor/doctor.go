@@ -1,14 +1,10 @@
 package doctor
 
 import (
-	"errors"
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
-
-// ErrUnhealthy is returned by the CLI when doctor finds one or more FAIL checks.
-var ErrUnhealthy = errors.New("doctor: one or more checks failed")
 
 // Report is the full doctor diagnostics result.
 type Report struct {
