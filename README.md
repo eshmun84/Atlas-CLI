@@ -18,6 +18,8 @@ Slice 1 shipped a minimal Go CLI foundation:
 
 Slice 2 added an internal config schema foundation (`internal/config`): defaults, validation, YAML load/save, path constants, and a mutability model. No project files are materialized yet.
 
+Slice 3 added internal read-only workspace discovery (`internal/workspace`): filesystem markers, Git repo/branch/remotes, technology signals, and local tool availability. Nothing is materialized or mutated.
+
 ## Requirements
 
 - Go 1.22+ (developed with Go 1.27)
@@ -47,10 +49,11 @@ cmd/atlas/           # CLI entrypoint
 internal/app/        # application wiring
 internal/cli/        # command routing and handlers
 internal/config/     # config schema, defaults, validation, I/O
+internal/workspace/  # read-only workspace discovery
 internal/version/    # version string
 ```
 
-## Out of scope (later slices)
+## Intentionally out of scope
 
 - Project materialization (`AGENTS.md`, `.atlas/`, rules, memory, adapters)
 - TUI
@@ -58,4 +61,4 @@ internal/version/    # version string
 - Assets registry / marketplace
 - Cursor/OpenCode adapters
 - OpenSpec, MCP, Jira, Git/GitHub automation
-- Daily workflow commands such as `atlas start` or `atlas change new`
+- Daily workflow commands such as `atlas start` or `atlas change new`; these are intentionally excluded from Atlas CLI.
