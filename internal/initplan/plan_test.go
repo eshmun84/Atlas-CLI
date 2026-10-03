@@ -121,6 +121,98 @@ func TestBuild_DoesNotCreateFiles(t *testing.T) {
 	}
 }
 
+func TestBuildWithOptions_DefaultMatchesBuild(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	result := workspace.DiscoveryResult{RootPath: root}
+
+	base, err := initplan.Build(root, result)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	withOpts, err := initplan.BuildWithOptions(root, result, initplan.Options{})
+	if err != nil {
+		t.Fatalf("BuildWithOptions: %v", err)
+	}
+	if base.ProjectMode != withOpts.ProjectMode {
+		t.Fatalf("mode = %q, want %q", withOpts.ProjectMode, base.ProjectMode)
+	}
+	if base.ProjectName != withOpts.ProjectName {
+		t.Fatalf("name = %q, want %q", withOpts.ProjectName, base.ProjectName)
+	}
+}
+
+func TestBuildWithOptions_ProjectNameOverride(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	plan, err := initplan.BuildWithOptions(root, workspace.DiscoveryResult{RootPath: root}, initplan.Options{
+		ProjectName: "CustomName",
+	})
+	if err != nil {
+		t.Fatalf("BuildWithOptions: %v", err)
+	}
+	if plan.ProjectName != "CustomName" {
+		t.Fatalf("name = %q, want CustomName", plan.ProjectName)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".atlas")); !os.IsNotExist(err) {
+		t.Fatalf(".atlas should not be created, stat err = %v", err)
+	}
+}
+
+func TestBuildWithOptions_ModeOverride(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	result := workspace.DiscoveryResult{RootPath: root}
+
+	base, err := initplan.Build(root, result)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if base.ProjectMode != config.ModeExisting {
+		t.Fatalf("detected mode = %q, want existing", base.ProjectMode)
+	}
+
+	forcedNew, err := initplan.BuildWithOptions(root, result, initplan.Options{ModeOverride: "new"})
+	if err != nil {
+		t.Fatalf("new override: %v", err)
+	}
+	if forcedNew.ProjectMode != config.ModeGreenfield {
+		t.Fatalf("new override mode = %q, want %q", forcedNew.ProjectMode, config.ModeGreenfield)
+	}
+
+	forcedExisting, err := initplan.BuildWithOptions(root, result, initplan.Options{ModeOverride: "existing"})
+	if err != nil {
+		t.Fatalf("existing override: %v", err)
+	}
+	if forcedExisting.ProjectMode != config.ModeExisting {
+		t.Fatalf("existing override mode = %q, want %q", forcedExisting.ProjectMode, config.ModeExisting)
+	}
+
+	auto, err := initplan.BuildWithOptions(root, result, initplan.Options{ModeOverride: "auto"})
+	if err != nil {
+		t.Fatalf("auto override: %v", err)
+	}
+	if auto.ProjectMode != base.ProjectMode {
+		t.Fatalf("auto override mode = %q, want %q", auto.ProjectMode, base.ProjectMode)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, ".atlas")); !os.IsNotExist(err) {
+		t.Fatalf(".atlas should not be created, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("AGENTS.md should not be created, stat err = %v", err)
+	}
+}
+
 func assertStep(t *testing.T, plan initplan.Plan, path, status, reason string) {
 	t.Helper()
 	for _, step := range plan.Steps {

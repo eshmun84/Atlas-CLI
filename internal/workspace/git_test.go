@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -48,14 +49,19 @@ func TestDiscoverGit_RepoBranchAndRemotes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discoverGit: %v", err)
 	}
-	if len(warnings) != 0 {
-		t.Fatalf("unexpected warnings: %v", warnings)
+	for _, warning := range warnings {
+		if !strings.Contains(warning, "default branch") {
+			t.Fatalf("unexpected warning: %v", warnings)
+		}
 	}
 	if !info.IsRepo {
 		t.Fatal("expected IsRepo=true")
 	}
 	if info.CurrentBranch != "feature/slice-3" {
 		t.Fatalf("branch = %q, want feature/slice-3", info.CurrentBranch)
+	}
+	if info.DefaultRemote != "origin" || info.DefaultRemoteURL != "https://example.com/atlas.git" {
+		t.Fatalf("default remote = %q %q", info.DefaultRemote, info.DefaultRemoteURL)
 	}
 	if len(info.Remotes) != 1 {
 		t.Fatalf("remotes = %#v, want 1 entry", info.Remotes)

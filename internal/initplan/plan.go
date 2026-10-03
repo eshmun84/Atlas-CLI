@@ -43,8 +43,21 @@ type plannedFile struct {
 	fallback string
 }
 
+// Options tunes dry-run plan inference. Empty Options preserves default behavior.
+type Options struct {
+	// ModeOverride forces project mode for plan preview: "", "auto", "new", or "existing".
+	ModeOverride string
+	// ProjectName overrides the inferred folder-based project name when non-empty.
+	ProjectName string
+}
+
 // Build infers a dry-run init plan from a discovered workspace.
 func Build(root string, result workspace.DiscoveryResult) (Plan, error) {
+	return BuildWithOptions(root, result, Options{})
+}
+
+// BuildWithOptions infers a dry-run init plan, optionally overriding project mode.
+func BuildWithOptions(root string, result workspace.DiscoveryResult, opts Options) (Plan, error) {
 	if root == "" {
 		return Plan{}, fmt.Errorf("root path is required")
 	}
@@ -55,7 +68,14 @@ func Build(root string, result workspace.DiscoveryResult) (Plan, error) {
 	}
 
 	name := inferProjectName(absRoot)
-	mode, err := inferProjectMode(absRoot, result.Files)
+	if opts.ProjectName != "" {
+		name = opts.ProjectName
+	}
+	detected, err := inferProjectMode(absRoot, result.Files)
+	if err != nil {
+		return Plan{}, err
+	}
+	mode, err := applyModeOverride(detected, opts.ModeOverride)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -63,17 +83,26 @@ func Build(root string, result workspace.DiscoveryResult) (Plan, error) {
 	defaults := config.DefaultConfig(name)
 	defaults.Project.Mode = mode
 
+	warnings := []string{
+		"This is a dry-run plan.",
+		"No files were created.",
+		"Materialization will require explicit approval in a later slice.",
+	}
+	if len(result.RuntimeArtifacts) > 0 {
+		warnings = append(warnings,
+			"Existing runtime/adaptor artifacts were detected.",
+			"Atlas will not merge them; future init will back them up and replace them.",
+			"AGENTS.md will use Atlas-managed sections plus a preserved user section on later updates.",
+		)
+	}
+
 	plan := Plan{
 		RootPath:          absRoot,
 		ProjectName:       name,
 		ProjectMode:       mode,
 		ConfigStorageMode: defaults.Governance.StorageMode,
 		MemoryProvider:    defaults.Memory.Provider,
-		Warnings: []string{
-			"This is a dry-run plan.",
-			"No files were created.",
-			"Materialization will require explicit approval in a later slice.",
-		},
+		Warnings:          warnings,
 	}
 
 	files := []plannedFile{
@@ -114,6 +143,19 @@ func inferProjectMode(root string, files workspace.FileInfo) (string, error) {
 		return config.ModeGreenfield, nil
 	}
 	return config.ModeExisting, nil
+}
+
+func applyModeOverride(detected, override string) (string, error) {
+	switch override {
+	case "", "auto":
+		return detected, nil
+	case "new":
+		return config.ModeGreenfield, nil
+	case "existing":
+		return config.ModeExisting, nil
+	default:
+		return "", fmt.Errorf("invalid mode override %q", override)
+	}
 }
 
 func isEmptyDir(root string) (bool, error) {

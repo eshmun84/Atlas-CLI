@@ -9,9 +9,12 @@ import (
 
 // GitInfo describes Git repository state discovered for a workspace.
 type GitInfo struct {
-	IsRepo        bool
-	CurrentBranch string
-	Remotes       []GitRemote
+	IsRepo           bool
+	CurrentBranch    string
+	DefaultRemote    string
+	DefaultRemoteURL string
+	DefaultBranch    string
+	Remotes          []GitRemote
 }
 
 // GitRemote is a Git remote name/URL pair.
@@ -56,7 +59,57 @@ func discoverGit(root string) (GitInfo, []string, error) {
 		info.Remotes = parseRemotes(remoteOut)
 	}
 
+	info.DefaultRemote, info.DefaultRemoteURL = pickDefaultRemote(gitPath, root, info.Remotes)
+
+	if info.DefaultRemote != "" {
+		branch, err := defaultRemoteBranch(gitPath, root, info.DefaultRemote)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("unable to determine default branch: %v", err))
+		} else {
+			info.DefaultBranch = branch
+		}
+	}
+
 	return info, warnings, nil
+}
+
+func pickDefaultRemote(gitPath, root string, remotes []GitRemote) (name, url string) {
+	if len(remotes) == 0 {
+		return "", ""
+	}
+	for _, remote := range remotes {
+		if remote.Name == "origin" {
+			if remote.URL != "" {
+				return remote.Name, remote.URL
+			}
+			break
+		}
+	}
+	// Prefer origin even if URL came only from get-url.
+	if u, err := runGit(gitPath, root, "remote", "get-url", "origin"); err == nil {
+		if trimmed := strings.TrimSpace(u); trimmed != "" {
+			return "origin", trimmed
+		}
+	}
+	return remotes[0].Name, remotes[0].URL
+}
+
+func defaultRemoteBranch(gitPath, root, remote string) (string, error) {
+	ref := "refs/remotes/" + remote + "/HEAD"
+	out, err := runGit(gitPath, root, "symbolic-ref", ref)
+	if err != nil {
+		return "", err
+	}
+	out = strings.TrimSpace(out)
+	prefix := "refs/remotes/" + remote + "/"
+	if strings.HasPrefix(out, prefix) {
+		return strings.TrimPrefix(out, prefix), nil
+	}
+	parts := strings.Split(out, "/")
+	if len(parts) == 0 {
+		return "", fmt.Errorf("unexpected symbolic-ref %q", out)
+	}
+	return parts[len(parts)-1], nil
 }
 
 func isInsideWorkTree(gitPath, root string) bool {

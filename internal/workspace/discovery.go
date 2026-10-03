@@ -11,10 +11,13 @@ import (
 type DiscoveryResult struct {
 	RootPath string
 
-	Git          GitInfo
-	Files        FileInfo
-	Technologies []Technology
-	Tools        []ToolInfo
+	Git              GitInfo
+	Files            FileInfo
+	Technologies     []Technology
+	Libraries        []Library
+	RuntimeArtifacts []string
+	Atlas            AtlasStatus
+	Tools            []ToolInfo
 
 	Warnings []string
 }
@@ -51,6 +54,9 @@ func Discover(root string) (DiscoveryResult, error) {
 	}
 	result.Files = files
 	result.Technologies = DiscoverTechnologies(files)
+	result.Libraries = DiscoverLibraries(absRoot, files)
+	result.RuntimeArtifacts = DiscoverRuntimeArtifacts(absRoot)
+	result.Atlas = EvaluateAtlasStatus(absRoot, files)
 	result.Tools = DiscoverTools()
 
 	gitInfo, warnings, err := discoverGit(absRoot)

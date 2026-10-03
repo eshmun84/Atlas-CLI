@@ -4,22 +4,28 @@ package tui
 type Route int
 
 const (
-	RouteStatus Route = iota
+	RouteDashboard Route = iota
 	RouteInitPlan
+	RouteConfigure
+	RouteStatus
 	RouteDoctor
 	RouteHelp
 	RouteError
 )
 
 // DefaultRoute is the content shown for plain `atlas`.
-const DefaultRoute = RouteStatus
+const DefaultRoute = RouteDashboard
 
 func (r Route) String() string {
 	switch r {
-	case RouteStatus:
-		return "Status"
+	case RouteDashboard:
+		return "Dashboard"
 	case RouteInitPlan:
 		return "Init / Setup"
+	case RouteConfigure:
+		return "Configure"
+	case RouteStatus:
+		return "Status"
 	case RouteDoctor:
 		return "Doctor"
 	case RouteHelp:

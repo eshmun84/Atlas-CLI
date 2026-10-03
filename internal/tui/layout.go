@@ -27,7 +27,6 @@ func (m Model) contentViewportHeight() int {
 func (m Model) contentWidth() int {
 	inner := max(m.width-2, 1)
 	side := sidebarWidth(m.width)
-	// sidebar + vertical gap + content
 	return max(inner-side-1, 1)
 }
 
@@ -68,14 +67,31 @@ func (m Model) rawContent() string {
 	switch m.route {
 	case RouteHelp:
 		return screens.Help()
+	case RouteDashboard:
+		return screens.Dashboard(m.discovery)
 	case RouteInitPlan:
-		return screens.InitPlan(m.plan)
+		return screens.InitPlan(screens.InitView{
+			Plan:            m.plan,
+			DetectedName:    m.detectedName,
+			DetectedMode:    m.detectedMode,
+			RecommendedMode: string(m.recommendedMode),
+			DraftName:       m.nameInput.Value(),
+			NameInputView:   m.nameInput.View(),
+			ModeConfirmed:   string(m.initModeConfirmed),
+			Decision:        string(m.initDecision),
+			Artifacts:       m.discovery.RuntimeArtifacts,
+			ActiveField:     m.initField,
+			ContentFocused:  m.focus == FocusContent,
+			StepConfirmed:   m.initStepConfirmed,
+		})
+	case RouteConfigure:
+		return screens.Configure(m.discovery)
 	case RouteStatus:
 		return screens.Status(m.discovery)
 	case RouteDoctor:
 		return screens.Doctor(m.report)
 	default:
-		return screens.Status(m.discovery)
+		return screens.Dashboard(m.discovery)
 	}
 }
 
@@ -97,15 +113,21 @@ func (m Model) visibleContent() string {
 func (m Model) renderSidebar() string {
 	w := sidebarWidth(m.width)
 	h := m.contentViewportHeight()
+	items := m.Sidebar()
 	var b strings.Builder
-	for i, item := range SidebarItems {
+	for i, item := range items {
 		label := "  " + item.Label
 		cursor := " "
 		style := sidebarItemStyle
 		if i == m.sidebarIndex {
 			cursor = "›"
-			style = sidebarSelectedStyle
-			label = " " + item.Label + " "
+			if m.focus == FocusSidebar {
+				style = sidebarSelectedStyle
+				label = " " + item.Label + " "
+			} else {
+				style = sidebarIdleSelectedStyle
+				label = " " + item.Label
+			}
 		} else if !item.Exit && item.Route == m.route {
 			style = sidebarActiveStyle
 		}
@@ -128,9 +150,12 @@ func (m Model) renderHeader() string {
 }
 
 func (m Model) renderFooter() string {
-	text := "↑/↓ menu  Enter select  PgUp/PgDn scroll  h help  b status  q quit"
-	if m.route == RouteError {
+	text := "↑/↓ menu  Enter select  PgUp/PgDn scroll  h help  b dash  q quit"
+	switch m.route {
+	case RouteError:
 		text = "Enter/q/Esc salir"
+	case RouteInitPlan:
+		text = "Tab focus  ↑/↓ fields  ←/→ edit name  Enter select/Next  r reset  b dash  q quit"
 	}
 	return footerStyle.Width(max(m.width-2, 1)).Render(text)
 }

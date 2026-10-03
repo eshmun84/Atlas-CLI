@@ -45,6 +45,10 @@ var (
 				Bold(true).
 				Foreground(colorActive)
 
+	sidebarIdleSelectedStyle = lipgloss.NewStyle().
+					Bold(true).
+					Foreground(colorActive)
+
 	panelBorder = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorBorder)

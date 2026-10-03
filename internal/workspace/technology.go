@@ -28,6 +28,7 @@ func DiscoverTechnologies(files FileInfo) []Technology {
 
 	if files.HasGoMod {
 		add("Go", "go.mod")
+		add("Go modules", "go.mod")
 	}
 	if files.HasPackageJSON {
 		add("Node.js", "package.json")

@@ -7,17 +7,20 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/tui"
+	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"gopkg.in/yaml.v3"
 )
 
 func TestDefaultModelRoute(t *testing.T) {
 	m := tui.NewModel(tui.Options{Route: tui.DefaultRoute})
-	if m.Route() != tui.RouteStatus {
-		t.Fatalf("route = %v, want status", m.Route())
+	if m.Route() != tui.RouteDashboard {
+		t.Fatalf("route = %v, want dashboard", m.Route())
 	}
-	if got := sidebarLabel(m.SidebarIndex()); got != "Status" {
-		t.Fatalf("sidebar selected = %q, want Status", got)
+	if got := sidebarLabel(m, m.SidebarIndex()); got != "Dashboard" {
+		t.Fatalf("sidebar selected = %q, want Dashboard", got)
 	}
 }
 
@@ -43,9 +46,8 @@ func TestSidebarNavigationAndEnter(t *testing.T) {
 		t.Fatalf("up index = %d, want %d", m.SidebarIndex(), start)
 	}
 
-	// Move to Doctor (index 2) and enter.
 	m = sized(tui.NewModel(tui.Options{Route: tui.DefaultRoute}))
-	for sidebarLabel(m.SidebarIndex()) != "Doctor" {
+	for sidebarLabel(m, m.SidebarIndex()) != "Doctor" {
 		m = mustModel(m.Update(key("j")))
 	}
 	m, cmd := apply(m, key("enter"))
@@ -57,7 +59,7 @@ func TestSidebarNavigationAndEnter(t *testing.T) {
 
 func TestSidebarEnterExitQuits(t *testing.T) {
 	m := sized(tui.NewModel(tui.Options{Route: tui.DefaultRoute}))
-	for sidebarLabel(m.SidebarIndex()) != "Exit" {
+	for sidebarLabel(m, m.SidebarIndex()) != "Exit" {
 		m = mustModel(m.Update(key("down")))
 	}
 	updated, cmd := m.Update(key("enter"))
@@ -70,10 +72,40 @@ func TestSidebarEnterExitQuits(t *testing.T) {
 	}
 }
 
+func TestSidebarInitVsConfigure(t *testing.T) {
+	root := t.TempDir()
+	uninit := loadWorkspace(t, tui.Options{
+		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	labels := sidebarLabels(uninit)
+	if !contains(labels, "Init / Setup") || contains(labels, "Configure") {
+		t.Fatalf("uninitialized sidebar = %v", labels)
+	}
+
+	writeValidAtlasConfig(t, root)
+	initd := loadWorkspace(t, tui.Options{
+		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	labels = sidebarLabels(initd)
+	if !contains(labels, "Configure") || contains(labels, "Init / Setup") {
+		t.Fatalf("initialized sidebar = %v", labels)
+	}
+
+	cfg := loadWorkspace(t, tui.Options{
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	view := cfg.View()
+	for _, want := range []string{"Configure", "Config path", "demo", "read-only"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("configure missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestDirectRouteSelectsSidebar(t *testing.T) {
 	m := tui.NewModel(tui.Options{Route: tui.RouteDoctor})
-	if sidebarLabel(m.SidebarIndex()) != "Doctor" {
-		t.Fatalf("sidebar = %q, want Doctor", sidebarLabel(m.SidebarIndex()))
+	if sidebarLabel(m, m.SidebarIndex()) != "Doctor" {
+		t.Fatalf("sidebar = %q, want Doctor", sidebarLabel(m, m.SidebarIndex()))
 	}
 }
 
@@ -92,7 +124,7 @@ func TestBReturnsDefaultRoute(t *testing.T) {
 	m, cmd := apply(m, key("b"))
 	m = applyCmd(t, m, cmd)
 	if m.Route() != tui.DefaultRoute {
-		t.Fatalf("route = %v, want default status", m.Route())
+		t.Fatalf("route = %v, want dashboard", m.Route())
 	}
 }
 
@@ -115,7 +147,7 @@ func TestEscQuitsFromDefault(t *testing.T) {
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model := updated.(tui.Model)
 	if !model.Quitting() {
-		t.Fatal("esc from status should quit")
+		t.Fatal("esc from dashboard should quit")
 	}
 	if cmd == nil {
 		t.Fatal("expected quit cmd")
@@ -127,7 +159,7 @@ func TestEscReturnsToDefaultFromChild(t *testing.T) {
 	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = applyCmd(t, m, cmd)
 	if m.Route() != tui.DefaultRoute {
-		t.Fatalf("esc route = %v, want status", m.Route())
+		t.Fatalf("esc route = %v, want dashboard", m.Route())
 	}
 	if m.Quitting() {
 		t.Fatal("esc from help should not quit")
@@ -141,7 +173,6 @@ func TestContentScrolling(t *testing.T) {
 		Getwd:    func() (string, error) { return root, nil },
 		Discover: workspace.Discover,
 	})
-	// Force a short viewport so doctor content scrolls.
 	m = mustModel(m.Update(tea.WindowSizeMsg{Width: 100, Height: 24}))
 	if m.ContentOffset() != 0 {
 		t.Fatalf("initial offset = %d", m.ContentOffset())
@@ -172,18 +203,38 @@ func TestContentScrolling(t *testing.T) {
 
 func TestShellViews(t *testing.T) {
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module demo\n\ngo 1.22\n\nrequire github.com/charmbracelet/bubbletea v1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# agents"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	status := loadWorkspace(t, tui.Options{
-		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	dash := loadWorkspace(t, tui.Options{
+		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
-	assertShell(t, status.View(), "Atlas Status")
+	assertShell(t, dash.View(), "Dashboard")
+	if !strings.Contains(dash.View(), "Suggested next action") {
+		t.Fatalf("dashboard missing next action:\n%s", dash.View())
+	}
 	assertNoMutation(t, root)
 
 	initM := loadWorkspace(t, tui.Options{
 		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
-	assertShell(t, initM.View(), "Atlas Init Plan")
+	assertShell(t, initM.View(), "Init / Setup")
+	assertInitWizardView(t, initM.View())
 	assertNoMutation(t, root)
+
+	status := loadWorkspace(t, tui.Options{
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	assertShell(t, status.View(), "Atlas Status")
+	for _, want := range []string{"Technologies", "Libraries", "Bubble Tea"} {
+		if !strings.Contains(status.View(), want) {
+			t.Fatalf("status missing %q:\n%s", want, status.View())
+		}
+	}
 
 	doc := loadWorkspace(t, tui.Options{
 		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
@@ -192,6 +243,174 @@ func TestShellViews(t *testing.T) {
 
 	help := sized(tui.NewModel(tui.Options{Route: tui.RouteHelp}))
 	assertShell(t, help.View(), "Atlas Help")
+}
+
+func TestInitFocusNameModeDecision(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# agents"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := loadWorkspace(t, tui.Options{
+		Route:    tui.RouteInitPlan,
+		Getwd:    func() (string, error) { return root, nil },
+		Discover: workspace.Discover,
+	})
+	if m.Focus() != tui.FocusSidebar {
+		t.Fatalf("initial focus = %v", m.Focus())
+	}
+	if strings.Contains(m.View(), "Auto-detect") {
+		t.Fatal("Auto-detect must not be selectable")
+	}
+	if m.InitModeConfirmed() != tui.InitModeExisting {
+		t.Fatalf("recommended confirmed mode = %q, want existing", m.InitModeConfirmed())
+	}
+	baseName := m.DraftName()
+	if baseName == "" {
+		t.Fatal("expected detected folder name")
+	}
+
+	m = mustModel(m.Update(key("tab")))
+	if m.Focus() != tui.FocusContent {
+		t.Fatalf("focus = %v, want content", m.Focus())
+	}
+	if m.InitField() != screens.InitFieldName {
+		t.Fatalf("active field = %d, want name", m.InitField())
+	}
+
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")}))
+	if !strings.HasSuffix(m.DraftName(), "X") {
+		t.Fatalf("draft name = %q, want suffix X", m.DraftName())
+	}
+
+	// Cursor movement: edit inside the string.
+	m = mustModel(m.Update(key("left")))
+	pos := m.NameCursor()
+	if pos != len(m.DraftName())-1 {
+		t.Fatalf("cursor = %d, want %d", pos, len(m.DraftName())-1)
+	}
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Y")}))
+	name := m.DraftName()
+	if !strings.Contains(name, "Y") || !strings.HasSuffix(name, "X") {
+		t.Fatalf("inline edit failed: %q", name)
+	}
+
+	m = mustModel(m.Update(key("down"))) // mode new
+	m = mustModel(m.Update(key("enter")))
+	if m.InitModeConfirmed() != tui.InitModeNew {
+		t.Fatalf("mode = %q, want new", m.InitModeConfirmed())
+	}
+
+	m = mustModel(m.Update(key("down"))) // mode existing
+	m = mustModel(m.Update(key("enter")))
+	if m.InitModeConfirmed() != tui.InitModeExisting {
+		t.Fatalf("mode = %q, want existing", m.InitModeConfirmed())
+	}
+
+	// Move to cancel decision when artifacts exist.
+	for m.InitField() != screens.InitFieldDecisionCancel {
+		prev := m.InitField()
+		m = mustModel(m.Update(key("down")))
+		if m.InitField() == prev {
+			t.Fatalf("could not reach cancel field, stuck at %d", prev)
+		}
+	}
+	m = mustModel(m.Update(key("enter")))
+	if m.InitDecision() != tui.InitDecisionCancel {
+		t.Fatalf("decision = %q, want cancel", m.InitDecision())
+	}
+	m = mustModel(m.Update(key("home")))
+	m = mustModel(m.Update(key("end")))
+	if !strings.Contains(m.View(), "Initialization canceled") {
+		t.Fatalf("missing canceled message:\n%s", m.View())
+	}
+
+	m = mustModel(m.Update(key("r")))
+	if m.DraftName() != baseName || m.InitModeConfirmed() != tui.InitModeExisting || m.InitDecision() != tui.InitDecisionInitialize {
+		t.Fatalf("reset failed: name=%q mode=%q decision=%q", m.DraftName(), m.InitModeConfirmed(), m.InitDecision())
+	}
+	assertNoMutation(t, root)
+
+	m = mustModel(m.Update(key("tab")))
+	if m.Focus() != tui.FocusSidebar {
+		t.Fatalf("tab back focus = %v", m.Focus())
+	}
+}
+
+func TestInitNoArtifactsHidesGateAndNextConfirms(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := loadWorkspace(t, tui.Options{
+		Route:    tui.RouteInitPlan,
+		Getwd:    func() (string, error) { return root, nil },
+		Discover: workspace.Discover,
+	})
+	view := m.View()
+	for _, want := range []string{
+		"No existing runtime/adaptor artifacts detected.",
+		"Atlas can initialize normally.",
+		"Next",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	for _, banned := range []string{
+		"Do not initialize Atlas",
+		"Initialize Atlas — backup and replace",
+		"Initialization Decision",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
+	}
+
+	m = mustModel(m.Update(key("tab")))
+	for m.InitField() != screens.InitFieldNext {
+		prev := m.InitField()
+		m = mustModel(m.Update(key("down")))
+		if m.InitField() == prev {
+			t.Fatalf("could not reach Next, stuck at %d", prev)
+		}
+	}
+	m = mustModel(m.Update(key("enter")))
+	if !m.InitStepConfirmed() {
+		t.Fatal("expected step confirmed")
+	}
+	view = m.View()
+	for _, want := range []string{
+		"Step ready.",
+		"Next wizard step is not implemented in this slice.",
+		"No files were changed.",
+		"Action",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing step confirmation %q:\n%s", want, view)
+		}
+	}
+	assertNoMutation(t, root)
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("AGENTS.md should not be created, stat err = %v", err)
+	}
+}
+
+func TestInitContentFocusGlobalKeys(t *testing.T) {
+	root := t.TempDir()
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m = mustModel(m.Update(key("tab")))
+	m, cmd := apply(m, key("b"))
+	m = applyCmd(t, m, cmd)
+	if m.Route() != tui.DefaultRoute {
+		t.Fatalf("b route = %v, want dashboard", m.Route())
+	}
 }
 
 func TestErrorDialogView(t *testing.T) {
@@ -212,7 +431,7 @@ func TestErrorDialogView(t *testing.T) {
 			t.Fatalf("missing %q in error layout:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"Init / Setup", "Status", "Doctor", "Help", "Exit", "Atlas Help"} {
+	for _, banned := range []string{"Init / Setup", "Status", "Doctor", "Help", "Exit", "Dashboard", "Configure"} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("error layout must not contain %q:\n%s", banned, view)
 		}
@@ -256,7 +475,7 @@ func TestSmallTerminalView(t *testing.T) {
 
 func assertShell(t *testing.T, view, contentTitle string) {
 	t.Helper()
-	for _, want := range []string{"Atlas", "Init / Setup", "Status", "Doctor", "Help", "Exit", contentTitle} {
+	for _, want := range []string{"Atlas", "Dashboard", "Status", "Doctor", "Help", "Exit", contentTitle} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in view:\n%s", want, view)
 		}
@@ -266,8 +485,46 @@ func assertShell(t *testing.T, view, contentTitle string) {
 	}
 }
 
+func assertInitWizardView(t *testing.T, view string) {
+	t.Helper()
+	for _, want := range []string{
+		"Project Identity",
+		"Project name:",
+		"Project Detection",
+		"Project Mode",
+		"New project",
+		"Existing project",
+		"Runtime Artifacts",
+		"Initialize Atlas — backup and replace",
+		"Do not initialize Atlas",
+		"Plan Preview",
+		"No files will be created in this step.",
+		"Action",
+		"Next",
+		"Tab focus",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in init view:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Auto-detect") {
+		t.Fatalf("Auto-detect must not appear:\n%s", view)
+	}
+	if idxName := strings.Index(view, "Project name:"); idxName < 0 {
+		t.Fatal("missing project name label")
+	}
+	if !strings.Contains(view, "╭") && !strings.Contains(view, "┌") {
+		t.Fatalf("expected bordered input/button chrome:\n%s", view)
+	}
+	planIdx := strings.Index(view, "Plan Preview")
+	actionIdx := strings.Index(view, "Action")
+	if planIdx < 0 || actionIdx < 0 || actionIdx < planIdx {
+		t.Fatalf("Action must appear after Plan Preview: plan=%d action=%d", planIdx, actionIdx)
+	}
+}
+
 func sized(m tui.Model) tui.Model {
-	return mustModel(m.Update(tea.WindowSizeMsg{Width: 100, Height: 32}))
+	return mustModel(m.Update(tea.WindowSizeMsg{Width: 120, Height: 60}))
 }
 
 func loadWorkspace(t *testing.T, opts tui.Options) tui.Model {
@@ -301,8 +558,16 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
 		return tea.KeyMsg{Type: tea.KeyDown}
+	case "left":
+		return tea.KeyMsg{Type: tea.KeyLeft}
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "tab":
+		return tea.KeyMsg{Type: tea.KeyTab}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
 	case "pgup":
 		return tea.KeyMsg{Type: tea.KeyPgUp}
 	case "pgdown":
@@ -316,19 +581,50 @@ func key(s string) tea.KeyMsg {
 	}
 }
 
-func sidebarLabel(index int) string {
-	if index < 0 || index >= len(tui.SidebarItems) {
+func sidebarLabel(m tui.Model, index int) string {
+	items := m.Sidebar()
+	if index < 0 || index >= len(items) {
 		return ""
 	}
-	return tui.SidebarItems[index].Label
+	return items[index].Label
+}
+
+func sidebarLabels(m tui.Model) []string {
+	items := m.Sidebar()
+	labels := make([]string, len(items))
+	for i, item := range items {
+		labels[i] = item.Label
+	}
+	return labels
+}
+
+func contains(list []string, want string) bool {
+	for _, item := range list {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+func writeValidAtlasConfig(t *testing.T, root string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, ".atlas"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.DefaultConfig("demo")
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".atlas", "config.yaml"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertNoMutation(t *testing.T, root string) {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join(root, ".atlas")); !os.IsNotExist(err) {
-		t.Fatalf(".atlas should not exist, stat err = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
-		t.Fatalf("AGENTS.md should not exist, stat err = %v", err)
+		t.Fatalf(".atlas should not be created, stat err = %v", err)
 	}
 }

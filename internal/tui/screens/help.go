@@ -28,11 +28,15 @@ The only normal console output is: atlas --version
 These are not Atlas CLI commands.
 
 ` + helpHead.Render("Keyboard") + `
-  ↑/↓ or k/j   move sidebar selection
-  enter        open selected item
+  Tab          toggle sidebar/content focus (Init / Setup)
+  ↑/↓ or k/j   sidebar menu, or Init fields when content focused
+  ←/→          move cursor in project name, or select control
+  type         edit project name when name field is focused
+  enter        open sidebar item, confirm selection, or Next
+  r            restore detected name + recommended mode
   PgUp/PgDn    scroll content
-  Home/End     jump content
+  Home/End     jump content / name edges
   h / ?        Help
-  b / esc      Status (quit from Status)
-  q / ctrl+c   quit`
+  b / esc      Dashboard (quit from Dashboard)
+  q / ctrl+c   quit (q types while editing project name)`
 }

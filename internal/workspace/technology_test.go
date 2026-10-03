@@ -30,6 +30,7 @@ func TestDiscoverTechnologies_MapsKnownFiles(t *testing.T) {
 
 	want := map[string]string{
 		"Go":                 "go.mod",
+		"Go modules":         "go.mod",
 		"Node.js":            "package.json",
 		"PHP":                "composer.json",
 		"Python":             "pyproject.toml",

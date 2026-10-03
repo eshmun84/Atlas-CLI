@@ -18,14 +18,25 @@ Atlas is TUI-first.
 | Command | Behavior |
 | --- | --- |
 | `atlas --version` | Console: print version only |
-| `atlas` | TUI shell, Status content |
+| `atlas` | TUI shell, Dashboard |
 | `atlas help` / `--help` / `-h` | TUI shell, Help |
-| `atlas init` / `atlas init --dry-run` | TUI shell, Init Plan (dry-run) |
+| `atlas init` / `atlas init --dry-run` | TUI shell, Init / Setup |
 | `atlas status` | TUI shell, Status |
 | `atlas doctor` | TUI shell, Doctor |
 | `atlas start` / `atlas change` | Header + centered Error dialog + footer (Salir) |
 
-Sidebar entries: Init / Setup, Status, Doctor, Help, Exit.
+Sidebar entries:
+
+- Not initialized: Dashboard, Init / Setup, Status, Doctor, Help, Exit
+- Initialized (valid `.atlas/config.yaml`): Dashboard, Configure, Status, Doctor, Help, Exit
+
+Init / Setup includes an interactive in-memory draft:
+
+- editable project name (defaults to folder name)
+- New project or Existing project mode (auto-detection is recommendation/reset only)
+- runtime/adaptor artifact warning when recognized files/dirs exist
+- Atlas does not merge old runtime artifacts; future init will back them up and replace them
+- no materialization happens yet — `.atlas` and `AGENTS.md` are still not created
 
 `atlas start` and `atlas change` are intentionally unsupported. They are not real commands.
 

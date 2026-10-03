@@ -22,11 +22,15 @@ func Status(result workspace.DiscoveryResult) string {
 	fmt.Fprintln(&b, statusHead.Render("Atlas Status"))
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, statusHead.Render("Workspace"))
-	fmt.Fprintf(&b, "  Root: %s\n\n", result.RootPath)
+	fmt.Fprintf(&b, "  Root: %s\n", result.RootPath)
+	fmt.Fprintf(&b, "  Atlas state: %s\n\n", result.Atlas.State)
 
 	fmt.Fprintln(&b, statusHead.Render("Git"))
 	fmt.Fprintf(&b, "  Repository: %s\n", yesNo(result.Git.IsRepo))
-	fmt.Fprintf(&b, "  Branch: %s\n", displayBranch(result.Git.CurrentBranch))
+	fmt.Fprintf(&b, "  Current branch: %s\n", displayOrUnknown(result.Git.CurrentBranch))
+	fmt.Fprintf(&b, "  Default remote: %s\n", displayOrUnknown(result.Git.DefaultRemote))
+	fmt.Fprintf(&b, "  Remote URL: %s\n", displayOrUnknown(result.Git.DefaultRemoteURL))
+	fmt.Fprintf(&b, "  Default branch: %s\n", displayOrUnknown(result.Git.DefaultBranch))
 	fmt.Fprintln(&b, "  Remotes:")
 	if len(result.Git.Remotes) == 0 {
 		fmt.Fprintln(&b, "    none detected")
@@ -57,6 +61,26 @@ func Status(result workspace.DiscoveryResult) string {
 	}
 
 	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, statusHead.Render("Libraries"))
+	if len(result.Libraries) == 0 {
+		fmt.Fprintln(&b, "  none detected")
+	} else {
+		for _, lib := range result.Libraries {
+			fmt.Fprintf(&b, "  - %s (%s)\n", lib.Name, lib.Module)
+		}
+	}
+
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, statusHead.Render("Runtime Artifacts"))
+	if len(result.RuntimeArtifacts) == 0 {
+		fmt.Fprintln(&b, "  none detected")
+	} else {
+		for _, path := range result.RuntimeArtifacts {
+			fmt.Fprintf(&b, "  - %s\n", path)
+		}
+	}
+
+	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, statusHead.Render("Tools"))
 	for _, tool := range result.Tools {
 		fmt.Fprintf(&b, "  %s: %s\n", tool.Name, availability(tool.Available))
@@ -73,11 +97,11 @@ func Status(result workspace.DiscoveryResult) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func displayBranch(branch string) string {
-	if strings.TrimSpace(branch) == "" {
-		return "none"
+func displayOrUnknown(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "unknown"
 	}
-	return branch
+	return v
 }
 
 func yesNo(v bool) string {
