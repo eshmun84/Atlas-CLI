@@ -33,20 +33,23 @@ Sidebar entries:
 - Not initialized: Dashboard, Init / Setup, MCP, Status, Doctor, Help, Exit
 - Initialized (valid `.atlas/config.yaml`): Dashboard, Configure, MCP, Status, Doctor, Help, Exit
 
-Init / Setup is a two-step in-memory wizard:
+Init / Setup is a three-step in-memory wizard:
 
 1. **Project Setup** — project name, New/Existing mode, runtime artifact gate
-2. **Initial Configuration** — sectioned selector with Governance, Adapters, Source Control, and Memory
+2. **Initial Configuration** — sectioned selector with Governance, Adapters, Source Control, Memory, and MCP
+3. **Review / Materialization Plan** — preview of planned creates, backups, replacements, and preservations
 
-Init Step 1, Init Step 2, Configure, and MCP place their action row immediately after the screen content. The global footer follows that row. On tall terminals the extra space stays below the shell, not between the action row and the footer.
+Init Step 1, Init Step 2, Init Step 3, Configure, and MCP place their action row immediately after the screen content. The global footer follows that row. On tall terminals the extra space stays below the shell, not between the action row and the footer.
 
-Init Step 2 uses vertical checkbox/radio-style rows. Arrow keys move focus only. Values change only with Space or Enter. Workflow currently supports SDD only. Spec engine supports OpenSpec or None. Source Control includes Atlas governance files (Local only / Versioned). Memory strategy supports SQLite, Context Capsule, or SQLite + Context Capsule. Runtime and Skills/Registry stay internal Atlas behavior. There is no Project Stack configuration in init.
+Init Step 2 uses vertical checkbox/radio-style rows. Arrow keys move focus only. Values change only with Space or Enter. Workflow currently supports SDD only. Spec engine supports OpenSpec or None. Source Control includes Atlas governance files (Local only / Versioned). Memory strategy supports SQLite, Context Capsule, or SQLite + Context Capsule. MCP follows Memory and uses the same in-memory MCP draft as the standalone MCP screen. Runtime and Skills/Registry stay internal Atlas behavior. There is no Project Stack configuration in init.
+
+Init Step 3 is preview-only. It summarizes the in-memory project setup, configuration, and MCP draft. Apply / materialization is not implemented. No files are written.
 
 Configure uses the same visible sections in post-init mode. Edits stay in memory only.
 
-MCP is a separate left-menu screen (not part of Init Step 2). It starts with no configured integrations. Jira, Context7, and Custom are kinds available in the Add MCP form, not default configured servers. Added entries and enabled state are in-memory only. MCP does not connect to servers, validate credentials, or persist files yet.
+MCP can be configured from Init Step 2 or from the standalone MCP sidebar screen. Both use the same in-memory MCP draft. Built-in MCPs are Jira, Context7, and Chrome DevTools (multi-select). Add MCP creates a custom MCP entry with Name, Transport (stdio / http / sse), Command or URL, Arguments, and Environment references. Custom entries can be removed in memory with `d`. Custom is not a built-in row. Review summarizes selected built-ins and custom entries. MCP does not connect to servers, validate credentials, or persist files yet.
 
-No configuration is persisted yet. No materialization exists yet. Review / Materialization Plan is not implemented yet. `.atlas` and `AGENTS.md` are still not created.
+No configuration is persisted yet. No materialization exists yet. `.atlas` and `AGENTS.md` are still not created.
 
 `atlas start` and `atlas change` are intentionally unsupported. They are not real commands.
 
@@ -82,8 +85,7 @@ internal/version/    # version string
 ## Intentionally out of scope
 
 - Project materialization (`AGENTS.md`, `.atlas/`, rules, memory, adapters)
-- Review / Materialization Plan wizard step
-- Interactive init apply/force
+- Interactive init apply / file writes
 - SQLite memory creation
 - Assets registry / marketplace
 - Cursor/OpenCode adapters

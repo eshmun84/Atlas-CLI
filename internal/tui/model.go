@@ -60,7 +60,9 @@ type Model struct {
 	initModeConfirmed   InitMode
 	initDecision        InitDecision
 	initHydrated        bool
-	initConfigConfirmed bool
+	initReviewPlan      initplan.MaterializationPlan
+	initReviewMessage   string
+	initReviewFooterIdx int
 	nameInput           textinput.Model
 	detectedName        string
 	detectedMode        string
@@ -75,17 +77,20 @@ type Model struct {
 	configShowBack   bool
 	configShowNext   bool
 
-	mcpDraft     config.MCPDraft
-	mcpMode      string
-	mcpIndex     int
-	mcpListFocus string
-	mcpFooterIdx int
-	mcpAddFocus  string
-	mcpKindFocus int
-	mcpKind      config.MCPServerKind
-	mcpAddError  string
-	mcpNameInput textinput.Model
-	mcpConnInput textinput.Model
+	mcpDraft          config.MCPDraft
+	mcpMode           string
+	mcpIndex          int
+	mcpListFocus      string
+	mcpFooterIdx      int
+	mcpAddFocus       string
+	mcpTransportFocus int
+	mcpTransport      config.MCPTransport
+	mcpAddError       string
+	mcpNotice         string
+	mcpNameInput      textinput.Model
+	mcpConnInput      textinput.Model
+	mcpArgsInput      textinput.Model
+	mcpEnvInput       textinput.Model
 
 	unknownCommand string
 	plan           initplan.Plan
@@ -135,14 +140,16 @@ func NewModel(opts Options) Model {
 		initDecision:      InitDecisionInitialize,
 		recommendedMode:   InitModeExisting,
 		nameInput:         newTextInput("project name"),
-		mcpDraft:          config.EmptyMCPDraft(),
+		mcpDraft:          config.DefaultMCPDraft(),
 		mcpMode:           screens.MCPModeList,
-		mcpListFocus:      screens.MCPFocusAddBtn,
+		mcpListFocus:      screens.MCPFocusBuiltins,
 		mcpAddFocus:       screens.MCPFocusName,
-		mcpKind:           config.MCPKindCustom,
-		mcpKindFocus:      2,
+		mcpTransport:      config.MCPTransportStdio,
+		mcpTransportFocus: 0,
 		mcpNameInput:      newTextInput("name"),
-		mcpConnInput:      newTextInput("connection"),
+		mcpConnInput:      newTextInput("command or url"),
+		mcpArgsInput:      newTextInput("arguments"),
+		mcpEnvInput:       newTextInput("environment references"),
 		unknownCommand:    opts.UnknownCommand,
 		getwd:             getwd,
 		discover:          discover,
@@ -192,7 +199,7 @@ func (m Model) InitDecision() InitDecision      { return m.initDecision }
 func (m Model) DraftName() string               { return m.nameInput.Value() }
 func (m Model) InitField() int                  { return m.initField }
 func (m Model) InitWizardStep() int             { return m.initWizardStep }
-func (m Model) InitConfigConfirmed() bool       { return m.initConfigConfirmed }
+func (m Model) InitReviewMessage() string       { return m.initReviewMessage }
 func (m Model) ConfigDraft() config.ConfigDraft { return m.configDraft }
 func (m Model) ConfigSectionIndex() int         { return m.configSectionIdx }
 func (m Model) ConfigFieldIndex() int           { return m.configFieldIdx }
@@ -204,9 +211,27 @@ func (m Model) MCPMode() string                 { return m.mcpMode }
 func (m Model) MCPIndex() int                   { return m.mcpIndex }
 func (m Model) MCPListFocus() string            { return m.mcpListFocus }
 func (m Model) MCPAddError() string             { return m.mcpAddError }
+func (m Model) MCPNotice() string               { return m.mcpNotice }
+func (m Model) MCPAddFocus() string             { return m.mcpAddFocus }
+func (m Model) MCPAddName() string              { return m.mcpNameInput.Value() }
+func (m Model) MCPAddConn() string              { return m.mcpConnInput.Value() }
+func (m Model) MCPAddArgs() string              { return m.mcpArgsInput.Value() }
+func (m Model) MCPAddEnv() string               { return m.mcpEnvInput.Value() }
 func (m Model) NameCursor() int                 { return m.nameInput.Position() }
 func (m Model) Quitting() bool                  { return m.quitting }
-func (m Model) Initialized() bool               { return m.discovery.Atlas.Initialized() }
+
+func (m Model) editingTextInput() bool {
+	if m.focus != FocusContent {
+		return false
+	}
+	if m.route == RouteInitPlan &&
+		m.initWizardStep == screens.InitWizardStepProject &&
+		m.initField == screens.InitFieldName {
+		return true
+	}
+	return m.mcpAddActive() && m.mcpEditingAddText()
+}
+func (m Model) Initialized() bool { return m.discovery.Atlas.Initialized() }
 
 func (m Model) Sidebar() []SidebarItem {
 	return SidebarItems(m.Initialized())
@@ -281,38 +306,48 @@ func (m *Model) syncNameInputFocus() {
 	m.syncMCPInputFocus()
 }
 
+func (m Model) mcpAddActive() bool {
+	if m.mcpMode != screens.MCPModeAdd {
+		return false
+	}
+	if m.route == RouteMCP {
+		return true
+	}
+	return m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepConfig
+}
+
 func (m *Model) syncMCPInputFocus() {
-	editingName := m.focus == FocusContent &&
-		m.route == RouteMCP &&
-		m.mcpMode == screens.MCPModeAdd &&
-		m.mcpAddFocus == screens.MCPFocusName
-	editingConn := m.focus == FocusContent &&
-		m.route == RouteMCP &&
-		m.mcpMode == screens.MCPModeAdd &&
-		m.mcpAddFocus == screens.MCPFocusConn
-	if editingName {
-		m.mcpNameInput.Focus()
-	} else {
-		m.mcpNameInput.Blur()
+	active := m.focus == FocusContent && m.mcpAddActive()
+	setInputFocus(&m.mcpNameInput, active && m.mcpAddFocus == screens.MCPFocusName)
+	setInputFocus(&m.mcpConnInput, active && m.mcpAddFocus == screens.MCPFocusConn)
+	setInputFocus(&m.mcpArgsInput, active && m.mcpAddFocus == screens.MCPFocusArgs)
+	setInputFocus(&m.mcpEnvInput, active && m.mcpAddFocus == screens.MCPFocusEnv)
+}
+
+func setInputFocus(ti *textinput.Model, focused bool) {
+	if focused {
+		ti.Focus()
+		return
 	}
-	if editingConn {
-		m.mcpConnInput.Focus()
-	} else {
-		m.mcpConnInput.Blur()
-	}
+	ti.Blur()
 }
 
 func (m *Model) resetMCPAddForm() {
 	m.mcpMode = screens.MCPModeAdd
 	m.mcpAddFocus = screens.MCPFocusName
-	m.mcpKind = config.MCPKindCustom
-	m.mcpKindFocus = 2
+	m.mcpTransport = config.MCPTransportStdio
+	m.mcpTransportFocus = 0
 	m.mcpAddError = ""
+	m.mcpNotice = ""
 	m.mcpFooterIdx = 0
 	m.mcpNameInput.SetValue("")
 	m.mcpNameInput.CursorEnd()
 	m.mcpConnInput.SetValue("")
 	m.mcpConnInput.CursorEnd()
+	m.mcpArgsInput.SetValue("")
+	m.mcpArgsInput.CursorEnd()
+	m.mcpEnvInput.SetValue("")
+	m.mcpEnvInput.CursorEnd()
 	m.syncMCPInputFocus()
 }
 
@@ -320,18 +355,63 @@ func (m *Model) leaveMCPAddForm() {
 	m.mcpMode = screens.MCPModeList
 	m.mcpAddError = ""
 	m.mcpFooterIdx = 0
-	if len(m.mcpDraft.Servers) == 0 {
-		m.mcpListFocus = screens.MCPFocusAddBtn
+	if m.route == RouteInitPlan {
+		idx := m.mcpSelectorIndex()
+		if idx >= 0 {
+			m.configSectionIdx = idx
+			m.configPanel = screens.ConfigPanelFields
+		}
+	}
+	if len(m.mcpDraft.CustomServers) == 0 {
+		m.mcpListFocus = screens.MCPFocusBuiltins
+		m.mcpIndex = 0
 	} else {
-		m.mcpListFocus = screens.MCPFocusServers
-		if m.mcpIndex >= len(m.mcpDraft.Servers) {
-			m.mcpIndex = len(m.mcpDraft.Servers) - 1
+		m.mcpListFocus = screens.MCPFocusCustom
+		if m.mcpIndex >= len(m.mcpDraft.CustomServers) {
+			m.mcpIndex = len(m.mcpDraft.CustomServers) - 1
 		}
 		if m.mcpIndex < 0 {
 			m.mcpIndex = 0
 		}
 	}
 	m.syncMCPInputFocus()
+}
+
+func (m Model) mcpSelectorIndex() int {
+	for i, section := range m.configDraft.SelectorSections() {
+		if section.Key == "mcp" {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m Model) mcpSectionActive() bool {
+	sections := m.configDraft.SelectorSections()
+	if m.configSectionIdx < 0 || m.configSectionIdx >= len(sections) {
+		return false
+	}
+	return sections[m.configSectionIdx].Key == "mcp"
+}
+
+func (m Model) mcpView() screens.MCPView {
+	return screens.MCPView{
+		Mode:              m.mcpMode,
+		Draft:             m.mcpDraft,
+		ActiveIndex:       m.mcpIndex,
+		TransportFocus:    m.mcpTransportFocus,
+		TransportSelected: m.mcpTransport,
+		Initialized:       m.Initialized(),
+		ContentFocused:    m.focus == FocusContent,
+		ListFocus:         m.mcpListFocus,
+		AddFocus:          m.mcpAddFocus,
+		NameView:          m.mcpNameInput.View(),
+		ConnectionView:    m.mcpConnInput.View(),
+		ArgsView:          m.mcpArgsInput.View(),
+		EnvView:           m.mcpEnvInput.View(),
+		Error:             m.mcpAddError,
+		Notice:            m.mcpNotice,
+	}
 }
 
 func (m Model) projectSetupInput() config.ProjectSetupInput {

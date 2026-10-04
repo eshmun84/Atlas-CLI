@@ -7,8 +7,12 @@ func isForceQuit(msg tea.KeyMsg) bool {
 	case "q", "ctrl+c":
 		return true
 	default:
-		return false
+		return msg.Type == tea.KeyCtrlC
 	}
+}
+
+func isQuitLetter(msg tea.KeyMsg) bool {
+	return msg.String() == "q"
 }
 
 func isEsc(msg tea.KeyMsg) bool {

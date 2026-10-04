@@ -31,12 +31,14 @@ These are not Atlas CLI commands.
 ` + helpHead.Render("Init wizard") + `
   Step 1  Project Setup
   Step 2  Initial Configuration
-            Governance · Adapters · Source Control · Memory
-  Review / Materialization Plan is not implemented yet
+            Governance · Adapters · Source Control · Memory · MCP
+  Step 3  Review / Materialization Plan (preview only; Apply is not implemented)
 
 ` + helpHead.Render("MCP") + `
-  Starts empty. Add MCP offers Jira · Context7 · Custom kinds.
-  Entries are in-memory only. No connections, credentials, or file writes yet.
+  Built-ins: Jira · Context7 · Chrome DevTools (multi-select, in-memory).
+  Available in Init Step 2 and the standalone MCP screen (same draft).
+  Add MCP creates custom entries. d removes a custom entry in memory.
+  No connections, credentials, or file writes yet.
 
 ` + helpHead.Render("Keyboard") + `
   Tab          toggle sidebar/content focus (Init / Configure / MCP)
@@ -48,6 +50,7 @@ These are not Atlas CLI commands.
   PgUp/PgDn    scroll content
   Home/End     jump content / name edges
   h / ?        Help
-  b / esc      Dashboard (quit from Dashboard)
-  q / ctrl+c   quit (q types while editing text fields)`
+  b            Dashboard
+  esc          Dashboard (quit from Dashboard); leave screens/forms
+  q / ctrl+c   quit the TUI (q types while editing text fields)`
 }

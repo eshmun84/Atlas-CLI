@@ -35,13 +35,17 @@ func (m Model) actionHeight() int {
 	return max(lipgloss.Height(strings.TrimRight(action, "\n")), 1)
 }
 
-func (m Model) chromeHeight() int {
-	// header + top divider + bottom divider + footer (+ action row when present)
-	h := 1 + 1 + 1 + m.footerHeight()
-	if ah := m.actionHeight(); ah > 0 {
-		h += ah
+func (m Model) actionChromeHeight() int {
+	if m.actionHeight() == 0 {
+		return 0
 	}
-	return h
+	// blank line above the action row + the row + blank line below
+	return 1 + m.actionHeight() + 1
+}
+
+func (m Model) chromeHeight() int {
+	// header + top divider + bottom divider + footer
+	return 1 + 1 + 1 + m.footerHeight()
 }
 
 func (m Model) maxMiddleHeight() int {
@@ -58,8 +62,9 @@ func (m Model) wrappedContent() string {
 
 func (m Model) naturalMiddleHeight() int {
 	contentH := max(lipgloss.Height(m.wrappedContent()), 1)
+	rightH := contentH + m.actionChromeHeight()
 	sidebarH := max(lipgloss.Height(m.renderSidebarRaw()), 1)
-	return max(contentH, sidebarH)
+	return max(rightH, sidebarH)
 }
 
 func (m Model) middleHeight() int {
@@ -79,7 +84,7 @@ func (m Model) contentViewportHeight() int {
 	if m.route == RouteError {
 		return max(m.height-5-m.footerHeight(), 1)
 	}
-	return m.middleHeight()
+	return max(m.middleHeight()-m.actionChromeHeight(), 1)
 }
 
 func (m Model) contentWidth() int {
@@ -128,15 +133,14 @@ func (m Model) rawContent() string {
 	case RouteDashboard:
 		return screens.Dashboard(m.discovery)
 	case RouteInitPlan:
+		if m.initWizardStep == screens.InitWizardStepReview {
+			return screens.RenderReview(screens.ReviewView{
+				Plan:           m.initReviewPlan,
+				ApplyMessage:   m.initReviewMessage,
+				ContentFocused: m.focus == FocusContent,
+			})
+		}
 		if m.initWizardStep == screens.InitWizardStepConfig {
-			var confirm []string
-			if m.initConfigConfirmed {
-				confirm = []string{
-					"Configuration ready.",
-					"Review / Materialization Plan is not implemented in this slice.",
-					"No files were changed.",
-				}
-			}
 			return screens.RenderConfigForm(screens.ConfigFormView{
 				Title:          "Initial Configuration",
 				Subtitle:       "Step 2 — Initial Configuration",
@@ -147,14 +151,13 @@ func (m Model) rawContent() string {
 				PanelFocus:     m.configPanel,
 				FooterIndex:    m.configFooterIdx,
 				ContentFocused: m.focus == FocusContent,
-				Confirmed:      m.initConfigConfirmed,
-				ConfirmLines:   confirm,
 				ShowBack:       true,
 				ShowNext:       true,
 				BackLabel:      "Back",
 				NextLabel:      "Next",
 				FooterNote:     "No files will be changed in this slice.",
 				Width:          m.contentWidth(),
+				MCP:            m.mcpView(),
 			})
 		}
 		return screens.InitPlan(screens.InitView{
@@ -188,20 +191,7 @@ func (m Model) rawContent() string {
 			Width:          m.contentWidth(),
 		})
 	case RouteMCP:
-		return screens.RenderMCP(screens.MCPView{
-			Mode:           m.mcpMode,
-			Draft:          m.mcpDraft,
-			ActiveIndex:    m.mcpIndex,
-			KindFocus:      m.mcpKindFocus,
-			KindSelected:   m.mcpKind,
-			Initialized:    m.Initialized(),
-			ContentFocused: m.focus == FocusContent,
-			ListFocus:      m.mcpListFocus,
-			AddFocus:       m.mcpAddFocus,
-			NameView:       m.mcpNameInput.View(),
-			ConnectionView: m.mcpConnInput.View(),
-			Error:          m.mcpAddError,
-		})
+		return screens.RenderMCP(m.mcpView())
 	case RouteStatus:
 		return screens.Status(m.discovery)
 	case RouteDoctor:
@@ -223,7 +213,7 @@ func (m Model) renderHeader() string {
 }
 
 func (m Model) renderActionRow() (string, bool) {
-	width := max(m.width-2, 1)
+	width := m.contentWidth()
 	switch {
 	case m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepProject:
 		panel := ""
@@ -239,16 +229,46 @@ func (m Model) renderActionRow() (string, bool) {
 			FooterIndex:    0,
 			Width:          width,
 		}), true
+	case m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepConfig && m.mcpMode == screens.MCPModeAdd:
+		panel := ""
+		if m.focus == FocusContent && (m.mcpAddFocus == screens.MCPFocusCancel || m.mcpAddFocus == screens.MCPFocusSubmit) {
+			panel = screens.ConfigPanelFooter
+		}
+		return screens.RenderActionFooter(screens.ActionFooterView{
+			ShowBack:       true,
+			ShowNext:       true,
+			BackLabel:      "Cancel",
+			NextLabel:      "Add",
+			ContentFocused: m.focus == FocusContent,
+			PanelFocus:     panel,
+			FooterIndex:    m.mcpFooterIdx,
+			Width:          width,
+		}), true
 	case m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepConfig:
 		return screens.RenderActionFooter(screens.ActionFooterView{
 			ShowBack:       true,
 			ShowNext:       true,
 			BackLabel:      "Back",
 			NextLabel:      "Next",
-			Confirmed:      m.initConfigConfirmed,
 			ContentFocused: m.focus == FocusContent,
 			PanelFocus:     m.configPanel,
 			FooterIndex:    m.configFooterIdx,
+			Width:          width,
+		}), true
+	case m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepReview:
+		panel := ""
+		if m.focus == FocusContent {
+			panel = screens.ConfigPanelFooter
+		}
+		return screens.RenderActionFooter(screens.ActionFooterView{
+			ShowBack:       true,
+			ShowNext:       true,
+			BackLabel:      "Back",
+			NextLabel:      "Apply not implemented",
+			NextDisabled:   true,
+			ContentFocused: m.focus == FocusContent,
+			PanelFocus:     panel,
+			FooterIndex:    m.initReviewFooterIdx,
 			Width:          width,
 		}), true
 	case m.route == RouteConfigure && len(m.configDraft.Sections) > 0:
@@ -302,15 +322,24 @@ func (m Model) renderFooter() string {
 	case RouteError:
 		text = "Enter/q/Esc salir"
 	case RouteInitPlan:
-		if m.initWizardStep == screens.InitWizardStepConfig {
-			text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter select  b dash  q quit"
-		} else {
+		switch m.initWizardStep {
+		case screens.InitWizardStepConfig:
+			if m.mcpMode == screens.MCPModeAdd {
+				text = "Tab focus  ↑/↓  Space/Enter  Add MCP  b dash  q quit"
+			} else if m.mcpSectionActive() {
+				text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter  d remove custom  b dash  q quit"
+			} else {
+				text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter select  b dash  q quit"
+			}
+		case screens.InitWizardStepReview:
+			text = "Tab focus  PgUp/PgDn scroll  Back  Apply not implemented  b dash  q quit"
+		default:
 			text = "Tab focus  ↑/↓ fields  ←/→ edit name  Enter Next  r reset  b dash  q quit"
 		}
 	case RouteConfigure:
 		text = "Tab focus  ↑/↓ rows  Space/Enter select  Close  b dash  q quit"
 	case RouteMCP:
-		text = "Tab focus  ↑/↓  Space/Enter  Add MCP  b dash  q quit"
+		text = "Tab focus  ↑/↓  Space/Enter  Add MCP  d remove custom  b dash  q quit"
 	case RouteHelp:
 		text = "↑/↓ menu  Enter select  PgUp/PgDn scroll  b dash  q quit"
 	}
@@ -322,32 +351,40 @@ func (m Model) renderShell() string {
 
 	header := m.renderHeader()
 	footer := m.renderFooter()
-	action, hasAction := m.renderActionRow()
 	divider := mutedStyle.Render(strings.Repeat("─", innerW))
 	middleH := m.middleHeight()
+	sideW := sidebarWidth(m.width)
+	contentW := m.contentWidth()
 
-	sidebar := lipgloss.NewStyle().Width(sidebarWidth(m.width)).Height(middleH).MaxHeight(middleH).
+	sidebar := lipgloss.NewStyle().Width(sideW).Height(middleH).MaxHeight(middleH).
 		Render(strings.TrimRight(m.renderSidebarRaw(), "\n"))
-	chunk := m.visibleContentChunk(middleH)
-	contentStyle := bodyStyle.Width(m.contentWidth())
-	if !m.contentFitsTerminal() {
-		contentStyle = contentStyle.Height(middleH).MaxHeight(middleH)
-	}
-	content := contentStyle.Render(chunk)
+
+	chunk := m.visibleContentChunk(m.contentViewportHeight())
+	right := m.composeRightPanel(chunk)
+	contentStyle := bodyStyle.Width(contentW).Height(middleH).MaxHeight(middleH)
+	content := contentStyle.Render(right)
 	middle := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
-	parts := []string{header, divider, middle}
-	if hasAction {
-		parts = append(parts, strings.TrimRight(action, "\n"))
-	}
-	parts = append(parts, divider, footer)
-	body := lipgloss.JoinVertical(lipgloss.Top, parts...)
+	body := lipgloss.JoinVertical(lipgloss.Top, header, divider, middle, divider, footer)
 
 	if m.contentFitsTerminal() {
 		return panelBorder.Width(innerW).Render(body)
 	}
 	innerH := max(m.height-2-m.topGap(), 1)
 	return panelBorder.Width(innerW).Height(innerH).AlignVertical(lipgloss.Top).Render(body)
+}
+
+func (m Model) composeRightPanel(chunk string) string {
+	chunk = strings.TrimRight(chunk, "\n")
+	action, ok := m.renderActionRow()
+	if !ok {
+		return chunk
+	}
+	action = strings.TrimRight(action, "\n")
+	if chunk == "" {
+		return action + "\n"
+	}
+	return chunk + "\n\n" + action + "\n"
 }
 
 func (m Model) renderSidebarRaw() string {

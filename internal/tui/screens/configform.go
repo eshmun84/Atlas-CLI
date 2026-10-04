@@ -48,6 +48,8 @@ type ConfigFormView struct {
 	NextLabel      string
 	FooterNote     string
 	Width          int
+	NextDisabled   bool
+	MCP            MCPView
 }
 
 // ConfigFocusRow is one focusable selectable row inside a section.
@@ -208,13 +210,14 @@ type ActionFooterView struct {
 	FooterIndex    int
 	Width          int
 	Help           string
+	NextDisabled   bool
 }
 
 // RenderActionFooter renders a compact action row, optionally with a one-line help hint.
 func RenderActionFooter(view ActionFooterView) string {
 	width := view.Width
-	if width < 40 {
-		width = 72
+	if width < 1 {
+		width = 1
 	}
 	actions := renderFooterBar(ConfigFormView{
 		ShowBack:       view.ShowBack,
@@ -225,6 +228,7 @@ func RenderActionFooter(view ActionFooterView) string {
 		ContentFocused: view.ContentFocused,
 		PanelFocus:     view.PanelFocus,
 		FooterIndex:    view.FooterIndex,
+		NextDisabled:   view.NextDisabled,
 	}, width)
 	if strings.TrimSpace(view.Help) == "" {
 		return strings.TrimRight(actions, "\n")
@@ -257,11 +261,22 @@ func renderSectionDetail(view ConfigFormView, sections []config.ConfigSection, s
 		return cfgFormMuted.Render("No configuration sections.")
 	}
 	section := sections[sectionIdx]
-	fmt.Fprintln(&b, cfgFormSection.Render(section.Title))
+	title := section.Title
+	if section.Key == "mcp" && view.MCP.Mode == MCPModeAdd {
+		title = "Add MCP"
+	}
+	fmt.Fprintln(&b, cfgFormSection.Render(title))
 	if section.Description != "" {
 		fmt.Fprintln(&b, cfgFormMuted.Render(section.Description))
 	}
 	fmt.Fprintln(&b)
+
+	if section.Key == "mcp" {
+		mcp := view.MCP
+		mcp.ContentFocused = view.ContentFocused && view.PanelFocus == ConfigPanelFields
+		fmt.Fprint(&b, RenderMCPPanel(mcp))
+		return lipgloss.NewStyle().Width(width).Render(strings.TrimRight(b.String(), "\n"))
+	}
 
 	fieldsFocused := view.ContentFocused && view.PanelFocus == ConfigPanelFields
 	for fi, field := range section.Fields {
@@ -387,16 +402,16 @@ func renderFooterBar(view ConfigFormView, width int) string {
 
 	back := ""
 	if view.ShowBack {
-		back = footerButton(backLabel, backFocused, false)
+		back = footerButton(backLabel, backFocused, false, false)
 	}
 	next := ""
 	if view.ShowNext {
-		done := view.Confirmed
+		done := view.Confirmed && !view.NextDisabled
 		label := nextLabel
 		if done {
 			label = nextLabel + " ✓"
 		}
-		next = footerButton(label, nextFocused, done)
+		next = footerButton(label, nextFocused, done, view.NextDisabled)
 	}
 
 	if back == "" && next == "" {
@@ -416,10 +431,13 @@ func renderFooterBar(view ConfigFormView, width int) string {
 	return back + strings.Repeat(" ", gap) + next
 }
 
-func footerButton(label string, focused, done bool) string {
+func footerButton(label string, focused, done, disabled bool) string {
 	text := "[ " + label + " ]"
 	if focused {
 		return cfgFormSelected.Render(text)
+	}
+	if disabled {
+		return cfgFormMuted.Render(text)
 	}
 	if done {
 		return cfgFormOK.Render(text)

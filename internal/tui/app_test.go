@@ -3,6 +3,7 @@ package tui_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -137,7 +138,12 @@ func TestMCPScreenInMemory(t *testing.T) {
 	view := m.View()
 	for _, want := range []string{
 		"MCP",
-		"No MCP integrations configured yet.",
+		"Built-in MCPs",
+		"[ ] Jira",
+		"[ ] Context7",
+		"[ ] Chrome DevTools",
+		"Custom MCPs",
+		"No custom MCPs configured yet.",
 		"No files will be changed in this slice.",
 		"preview only",
 		"[ Add MCP ]",
@@ -147,51 +153,83 @@ func TestMCPScreenInMemory(t *testing.T) {
 			t.Fatalf("mcp missing %q:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"[x] Jira", "[ ] Jira", "[ ] Context7", "Custom MCP"} {
-		if strings.Contains(view, banned) {
-			t.Fatalf("mcp must not pre-create %q:\n%s", banned, view)
-		}
+	if strings.Contains(view, "[ ] Custom") || strings.Contains(view, "[x] Custom") {
+		t.Fatalf("custom must not appear as built-in:\n%s", view)
 	}
 	assertShell(t, view, "MCP")
 	assertActionNearFooter(t, view)
 	assertGlobalTopGap(t, view)
 
 	m = mustModel(m.Update(key("tab")))
-	m = mustModel(m.Update(key("enter"))) // Add MCP
+	if m.MCPListFocus() != screens.MCPFocusBuiltins {
+		t.Fatalf("focus = %q, want builtins", m.MCPListFocus())
+	}
+	jiraBefore := m.MCPDraft().Builtins[0].Enabled
+	ctxBefore := m.MCPDraft().Builtins[1].Enabled
+	chromeBefore := m.MCPDraft().Builtins[2].Enabled
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("up")))
+	if m.MCPDraft().Builtins[0].Enabled != jiraBefore ||
+		m.MCPDraft().Builtins[1].Enabled != ctxBefore ||
+		m.MCPDraft().Builtins[2].Enabled != chromeBefore {
+		t.Fatal("arrows mutated built-ins")
+	}
+
+	m = mustModel(m.Update(key("enter"))) // Jira
+	if !m.MCPDraft().Builtins[0].Enabled {
+		t.Fatal("jira should be selected")
+	}
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("enter"))) // Context7
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key(" "))) // Chrome DevTools
+	if !m.MCPDraft().Builtins[0].Enabled || !m.MCPDraft().Builtins[1].Enabled || !m.MCPDraft().Builtins[2].Enabled {
+		t.Fatalf("expected all built-ins selected: %#v", m.MCPDraft().Builtins)
+	}
+
+	m = mcpGotoAddButton(t, m)
+	m = mustModel(m.Update(key("enter")))
 	if m.MCPMode() != screens.MCPModeAdd {
 		t.Fatalf("mode = %q, want add", m.MCPMode())
 	}
-	for _, want := range []string{"Add MCP", "Name", "Kind", "Connection", "Jira", "Context7", "Custom", "[ Cancel ]", "[ Add ]"} {
-		if !strings.Contains(m.View(), want) {
-			t.Fatalf("add form missing %q:\n%s", want, m.View())
+	addView := m.View()
+	for _, want := range []string{"Add MCP", "Name", "Transport", "stdio", "http", "sse", "Command or URL", "Arguments", "Environment references", "[ Cancel ]", "[ Add ]"} {
+		if !strings.Contains(addView, want) {
+			t.Fatalf("add form missing %q:\n%s", want, addView)
+		}
+	}
+	for _, banned := range []string{"Kind", "[ ] Jira", "[ ] Context7", "[ ] Chrome DevTools"} {
+		if strings.Contains(addView, banned) {
+			t.Fatalf("add form unexpected %q:\n%s", banned, addView)
 		}
 	}
 
-	// Empty name rejected.
 	m = mcpGotoFooterAction(t, m, true)
 	m = mustModel(m.Update(key("enter")))
 	if m.MCPMode() != screens.MCPModeAdd || m.MCPAddError() == "" {
 		t.Fatalf("expected empty-name validation, mode=%q err=%q", m.MCPMode(), m.MCPAddError())
 	}
 
-	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("My Jira")}))
-	m = mustModel(m.Update(key("down"))) // kind
-	m = mustModel(m.Update(key("up")))
-	m = mustModel(m.Update(key("up"))) // Jira
-	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("My Browser MCP")}))
+	m = mustModel(m.Update(key("down"))) // transport
+	m = mustModel(m.Update(key("down"))) // http focus
+	m = mustModel(m.Update(key("down"))) // sse focus
+	if m.MCPDraft().ConfiguredCount() != 3 {
+		t.Fatal("arrows must not add custom entries")
+	}
+	m = mustModel(m.Update(key("enter"))) // select sse
 	m = mcpGotoFooterAction(t, m, true)
 	m = mustModel(m.Update(key("enter"))) // Add
-	if m.MCPMode() != screens.MCPModeList || len(m.MCPDraft().Servers) != 1 {
-		t.Fatalf("after add mode=%q servers=%#v", m.MCPMode(), m.MCPDraft().Servers)
+	if m.MCPMode() != screens.MCPModeList || len(m.MCPDraft().CustomServers) != 1 {
+		t.Fatalf("after add mode=%q custom=%#v", m.MCPMode(), m.MCPDraft().CustomServers)
 	}
-	if m.MCPDraft().Servers[0].Name != "My Jira" || m.MCPDraft().Servers[0].Kind != "jira" {
-		t.Fatalf("server = %#v", m.MCPDraft().Servers[0])
+	if m.MCPDraft().CustomServers[0].Name != "My Browser MCP" || m.MCPDraft().CustomServers[0].Transport != config.MCPTransportSSE {
+		t.Fatalf("server = %#v", m.MCPDraft().CustomServers[0])
 	}
 
-	// Duplicate rejected then cancel.
-	m = mustModel(m.Update(key("down"))) // Add MCP
+	m = mcpGotoAddButton(t, m)
 	m = mustModel(m.Update(key("enter")))
-	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("My Jira")}))
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("my browser mcp")}))
 	m = mcpGotoFooterAction(t, m, true)
 	m = mustModel(m.Update(key("enter")))
 	if !strings.Contains(m.MCPAddError(), "already exists") {
@@ -199,22 +237,36 @@ func TestMCPScreenInMemory(t *testing.T) {
 	}
 	m = mcpGotoFooterAction(t, m, false)
 	m = mustModel(m.Update(key("enter"))) // Cancel
-	if m.MCPMode() != screens.MCPModeList || len(m.MCPDraft().Servers) != 1 {
-		t.Fatalf("cancel failed mode=%q servers=%d", m.MCPMode(), len(m.MCPDraft().Servers))
+	if m.MCPMode() != screens.MCPModeList || len(m.MCPDraft().CustomServers) != 1 {
+		t.Fatalf("cancel failed mode=%q custom=%d", m.MCPMode(), len(m.MCPDraft().CustomServers))
 	}
 
-	if m.MCPListFocus() != screens.MCPFocusServers {
+	if m.MCPListFocus() != screens.MCPFocusCustom {
 		m = mustModel(m.Update(key("up")))
 	}
 	m = mustModel(m.Update(key("enter")))
-	if !m.MCPDraft().Servers[0].Enabled {
+	if !m.MCPDraft().CustomServers[0].Enabled {
 		t.Fatal("toggle enable failed")
 	}
 	m = mustModel(m.Update(key(" ")))
-	if m.MCPDraft().Servers[0].Enabled {
+	if m.MCPDraft().CustomServers[0].Enabled {
 		t.Fatal("toggle disable failed")
 	}
 	assertNoMutation(t, root)
+}
+
+func mcpGotoAddButton(t *testing.T, m tui.Model) tui.Model {
+	t.Helper()
+	if m.Focus() != tui.FocusContent {
+		m = mustModel(m.Update(key("tab")))
+	}
+	for i := 0; i < 16 && m.MCPListFocus() != screens.MCPFocusAddBtn; i++ {
+		m = mustModel(m.Update(key("down")))
+	}
+	if m.MCPListFocus() != screens.MCPFocusAddBtn {
+		t.Fatalf("could not reach Add MCP, focus=%q", m.MCPListFocus())
+	}
+	return m
 }
 
 func mcpGotoFooterAction(t *testing.T, m tui.Model, submit bool) tui.Model {
@@ -226,6 +278,17 @@ func mcpGotoFooterAction(t *testing.T, m tui.Model, submit bool) tui.Model {
 		m = mustModel(m.Update(key("right")))
 	} else {
 		m = mustModel(m.Update(key("left")))
+	}
+	return m
+}
+
+func mcpGotoAddField(t *testing.T, m tui.Model, focus string) tui.Model {
+	t.Helper()
+	for i := 0; i < 12 && m.MCPAddFocus() != focus; i++ {
+		m = mustModel(m.Update(key("down")))
+	}
+	if m.MCPAddFocus() != focus {
+		t.Fatalf("could not reach add field %q, focus=%q", focus, m.MCPAddFocus())
 	}
 	return m
 }
@@ -256,13 +319,76 @@ func assertCompactFooter(t *testing.T, view string) {
 	assertActionNearFooter(t, view)
 }
 
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+
+func stripANSI(s string) string {
+	return ansiEscape.ReplaceAllString(s, "")
+}
+
+func isShellActionLine(vis string) bool {
+	has := func(s string) bool { return strings.Contains(vis, s) }
+	switch {
+	case has("[ Back ]") && has("[ Next ]"):
+		return true
+	case has("[ Back ]") && has("[ Apply not implemented ]"):
+		return true
+	case has("[ Add MCP ]") && has("[ Close ]"):
+		return true
+	case has("[ Cancel ]") && has("[ Add ]"):
+		return true
+	case has("[ Close ]") && !has("[ Add MCP ]"):
+		return true
+	case has("[ Next ]") && !has("[ Back ]"):
+		return true
+	default:
+		return false
+	}
+}
+
+func assertActionInContentPanel(t *testing.T, view string, totalWidth int) {
+	t.Helper()
+	side := 20
+	if totalWidth >= 100 {
+		side = 24
+	}
+	found := false
+	for _, line := range strings.Split(view, "\n") {
+		vis := stripANSI(line)
+		if !isShellActionLine(vis) {
+			continue
+		}
+		found = true
+		col := -1
+		for _, tok := range []string{"[ Back ]", "[ Close ]", "[ Add MCP ]", "[ Cancel ]", "[ Next ]"} {
+			if i := strings.Index(vis, tok); i >= 0 && (col < 0 || i < col) {
+				col = i
+			}
+		}
+		if col < side {
+			t.Fatalf("action row starts at visual col %d, want >= %d (right panel, not shell edge):\n%s", col, side, vis)
+		}
+		backIdx := strings.Index(vis, "[ Back ]")
+		nextIdx := strings.Index(vis, "[ Next ]")
+		if nextIdx < 0 {
+			nextIdx = strings.Index(vis, "[ Apply not implemented ]")
+		}
+		if backIdx >= 0 && nextIdx >= 0 && backIdx > nextIdx {
+			t.Fatalf("Back must appear before Next/Apply:\n%s", vis)
+		}
+	}
+	if !found {
+		t.Fatalf("missing content-panel action row:\n%s", view)
+	}
+}
+
 func assertActionNearFooter(t *testing.T, view string) {
 	t.Helper()
 	lines := strings.Split(view, "\n")
 	actionLine := -1
 	footerLine := -1
 	for i, line := range lines {
-		if strings.Contains(line, "[ Close ]") || strings.Contains(line, "[ Next ]") || strings.Contains(line, "[ Add MCP ]") {
+		vis := stripANSI(line)
+		if isShellActionLine(vis) {
 			actionLine = i
 		}
 		if strings.Contains(line, "q quit") || strings.Contains(line, "Tab focus") || strings.Contains(line, "Enter/q/Esc") {
@@ -283,17 +409,26 @@ func assertActionNearFooter(t *testing.T, view string) {
 	if strings.Count(view, "q quit") > 1 && strings.Count(view, "Tab focus") > 1 {
 		t.Fatalf("footer appears duplicated:\n%s", view)
 	}
+	if actionLine > 0 {
+		prev := strings.TrimSpace(strings.Trim(stripANSI(lines[actionLine-1]), "│"))
+		if prev != "" {
+			t.Fatalf("expected a blank line between content and action row:\n%s", view)
+		}
+	}
 	blanks := 0
 	for _, line := range lines[actionLine+1 : footerLine] {
-		trimmed := strings.TrimSpace(strings.Trim(line, "│"))
+		trimmed := strings.TrimSpace(strings.Trim(stripANSI(line), "│"))
 		if trimmed == "" {
 			blanks++
 		}
 	}
-	if blanks > 2 {
+	if blanks < 1 && footerLine-actionLine < 2 {
+		t.Fatalf("expected visual separation between action row and footer:\n%s", view)
+	}
+	if blanks > 3 {
 		t.Fatalf("large blank block between action row and footer (%d blank lines):\n%s", blanks, view)
 	}
-	if footerLine-actionLine > 4 {
+	if footerLine-actionLine > 5 {
 		t.Fatalf("action row too far from footer (gap %d lines):\n%s", footerLine-actionLine, view)
 	}
 }
@@ -305,6 +440,7 @@ func TestContentFitKeepsActionNearFooter(t *testing.T) {
 	})
 	initM = mustModel(initM.Update(tea.WindowSizeMsg{Width: 120, Height: 60}))
 	assertActionNearFooter(t, initM.View())
+	assertActionInContentPanel(t, initM.View(), 120)
 	assertGlobalTopGap(t, initM.View())
 	assertShell(t, initM.View(), "Init / Setup")
 	if strings.Count(initM.View(), "q quit") != 1 {
@@ -321,10 +457,25 @@ func TestContentFitKeepsActionNearFooter(t *testing.T) {
 	}
 	initM = mustModel(initM.Update(key("enter")))
 	assertActionNearFooter(t, initM.View())
+	assertActionInContentPanel(t, initM.View(), 120)
 	assertGlobalTopGap(t, initM.View())
 	for _, line := range strings.Split(initM.View(), "\n") {
 		if strings.TrimSpace(line) == "Action" {
 			t.Fatalf("step 2 Action heading:\n%s", initM.View())
+		}
+	}
+
+	initM = gotoInitFooterAction(t, initM, true)
+	initM = mustModel(initM.Update(key("enter")))
+	if initM.InitWizardStep() != screens.InitWizardStepReview {
+		t.Fatalf("step = %d, want review", initM.InitWizardStep())
+	}
+	assertActionNearFooter(t, initM.View())
+	assertActionInContentPanel(t, initM.View(), 120)
+	assertGlobalTopGap(t, initM.View())
+	for _, line := range strings.Split(initM.View(), "\n") {
+		if strings.TrimSpace(line) == "Action" {
+			t.Fatalf("step 3 Action heading:\n%s", initM.View())
 		}
 	}
 
@@ -333,6 +484,7 @@ func TestContentFitKeepsActionNearFooter(t *testing.T) {
 	})
 	mcp = mustModel(mcp.Update(tea.WindowSizeMsg{Width: 120, Height: 60}))
 	assertActionNearFooter(t, mcp.View())
+	assertActionInContentPanel(t, mcp.View(), 120)
 	assertGlobalTopGap(t, mcp.View())
 	assertShell(t, mcp.View(), "MCP")
 
@@ -342,6 +494,7 @@ func TestContentFitKeepsActionNearFooter(t *testing.T) {
 	})
 	cfg = mustModel(cfg.Update(tea.WindowSizeMsg{Width: 120, Height: 60}))
 	assertActionNearFooter(t, cfg.View())
+	assertActionInContentPanel(t, cfg.View(), 120)
 }
 
 func TestTallTerminalDoesNotOverflow(t *testing.T) {
@@ -383,19 +536,233 @@ func TestBReturnsDefaultRoute(t *testing.T) {
 	if m.Route() != tui.DefaultRoute {
 		t.Fatalf("route = %v, want dashboard", m.Route())
 	}
+	if m.Quitting() {
+		t.Fatal("b must not quit")
+	}
 }
 
-func TestQAndCtrlCQuit(t *testing.T) {
-	for _, k := range []tea.KeyMsg{key("q"), {Type: tea.KeyCtrlC}} {
-		m := sized(tui.NewModel(tui.Options{Route: tui.RouteHelp}))
-		updated, cmd := m.Update(k)
+func TestGlobalQAndCtrlCQuit(t *testing.T) {
+	root := t.TempDir()
+	configured := filepath.Join(root, "configured")
+	if err := os.MkdirAll(configured, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeValidAtlasConfig(t, configured)
+
+	type screen struct {
+		name string
+		load func(t *testing.T) tui.Model
+	}
+	screensToQuit := []screen{
+		{"dashboard", func(t *testing.T) tui.Model {
+			return loadWorkspace(t, tui.Options{Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+		}},
+		{"init-step-1", func(t *testing.T) tui.Model {
+			return loadWorkspace(t, tui.Options{Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+		}},
+		{"init-step-2", func(t *testing.T) tui.Model {
+			m := loadWorkspace(t, tui.Options{Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+			return gotoInitStep2(t, m)
+		}},
+		{"review", func(t *testing.T) tui.Model {
+			m := loadWorkspace(t, tui.Options{Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+			return gotoInitReview(t, m)
+		}},
+		{"mcp-list", func(t *testing.T) tui.Model {
+			return loadWorkspace(t, tui.Options{Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+		}},
+		{"configure", func(t *testing.T) tui.Model {
+			return loadWorkspace(t, tui.Options{Route: tui.RouteConfigure, Getwd: func() (string, error) { return configured, nil }, Discover: workspace.Discover})
+		}},
+		{"status", func(t *testing.T) tui.Model {
+			return loadWorkspace(t, tui.Options{Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+		}},
+		{"doctor", func(t *testing.T) tui.Model {
+			return loadWorkspace(t, tui.Options{Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+		}},
+		{"help", func(t *testing.T) tui.Model {
+			return sized(tui.NewModel(tui.Options{Route: tui.RouteHelp}))
+		}},
+		{"error", func(t *testing.T) tui.Model {
+			return sized(tui.NewModel(tui.Options{Route: tui.RouteError, UnknownCommand: "start"}))
+		}},
+	}
+
+	for _, sc := range screensToQuit {
+		for _, k := range []tea.KeyMsg{key("q"), {Type: tea.KeyCtrlC}} {
+			m := sc.load(t)
+			route := m.Route()
+			step := m.InitWizardStep()
+			updated, cmd := m.Update(k)
+			model := updated.(tui.Model)
+			if !model.Quitting() {
+				t.Fatalf("%s %v should quit", sc.name, k)
+			}
+			if model.Route() != route {
+				t.Fatalf("%s %v routed to %v, want stay on %v", sc.name, k, model.Route(), route)
+			}
+			if model.InitWizardStep() != step {
+				t.Fatalf("%s %v changed wizard step %d -> %d", sc.name, k, step, model.InitWizardStep())
+			}
+			if cmd == nil {
+				t.Fatalf("%s %v expected quit cmd", sc.name, k)
+			}
+			if _, ok := cmd().(tea.QuitMsg); !ok {
+				t.Fatalf("%s %v cmd is not tea.Quit", sc.name, k)
+			}
+		}
+	}
+}
+
+func TestQDoesNotNavigateToDashboard(t *testing.T) {
+	root := t.TempDir()
+	for _, route := range []tui.Route{tui.RouteInitPlan, tui.RouteMCP, tui.RouteStatus, tui.RouteHelp} {
+		m := loadWorkspace(t, tui.Options{
+			Route: route, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		})
+		if route == tui.RouteHelp {
+			m = sized(tui.NewModel(tui.Options{Route: tui.RouteHelp}))
+		}
+		if route == tui.RouteInitPlan {
+			m = gotoInitStep2(t, m)
+		}
+		updated, _ := m.Update(key("q"))
 		model := updated.(tui.Model)
 		if !model.Quitting() {
-			t.Fatalf("%v should quit", k)
+			t.Fatalf("q on %v should quit", route)
 		}
-		if cmd == nil {
-			t.Fatal("expected quit cmd")
+		if model.Route() == tui.DefaultRoute && route != tui.DefaultRoute {
+			t.Fatalf("q on %v must not navigate to dashboard", route)
 		}
+	}
+
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m = gotoInitReview(t, m)
+	updated, _ := m.Update(key("q"))
+	model := updated.(tui.Model)
+	if model.Route() != tui.RouteInitPlan || !model.Quitting() {
+		t.Fatalf("q on review route=%v quitting=%v", model.Route(), model.Quitting())
+	}
+}
+
+func TestQInsertsInTextInputs(t *testing.T) {
+	root := t.TempDir()
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m = mustModel(m.Update(key("tab")))
+	before := m.DraftName()
+	m = mustModel(m.Update(key("q")))
+	if m.Quitting() {
+		t.Fatal("q in project name must not quit")
+	}
+	if m.DraftName() != before+"q" {
+		t.Fatalf("project name = %q, want %q", m.DraftName(), before+"q")
+	}
+
+	m = loadWorkspace(t, tui.Options{
+		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m = mcpGotoAddButton(t, m)
+	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(key("q")))
+	if m.Quitting() {
+		t.Fatal("q in MCP name must not quit")
+	}
+	if m.MCPAddName() != "q" {
+		t.Fatalf("mcp name = %q, want q", m.MCPAddName())
+	}
+
+	m = mcpGotoAddField(t, m, screens.MCPFocusConn)
+	m = mustModel(m.Update(key("q")))
+	if m.Quitting() {
+		t.Fatal("q in MCP command/url must not quit")
+	}
+	if m.MCPAddConn() != "q" {
+		t.Fatalf("mcp conn = %q, want q", m.MCPAddConn())
+	}
+
+	m = mcpGotoAddField(t, m, screens.MCPFocusArgs)
+	m = mustModel(m.Update(key("q")))
+	if m.Quitting() {
+		t.Fatal("q in MCP args must not quit")
+	}
+	if m.MCPAddArgs() != "q" {
+		t.Fatalf("mcp args = %q, want q", m.MCPAddArgs())
+	}
+
+	m = mcpGotoAddField(t, m, screens.MCPFocusEnv)
+	m = mustModel(m.Update(key("q")))
+	if m.Quitting() {
+		t.Fatal("q in MCP env must not quit")
+	}
+	if m.MCPAddEnv() != "q" {
+		t.Fatalf("mcp env = %q, want q", m.MCPAddEnv())
+	}
+}
+
+func TestCtrlCQuitsWhileEditingText(t *testing.T) {
+	root := t.TempDir()
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m = mustModel(m.Update(key("tab")))
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	model := updated.(tui.Model)
+	if !model.Quitting() || cmd == nil {
+		t.Fatal("ctrl+c while editing project name should quit")
+	}
+
+	m = loadWorkspace(t, tui.Options{
+		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m = mcpGotoAddButton(t, m)
+	m = mustModel(m.Update(key("enter")))
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	model = updated.(tui.Model)
+	if !model.Quitting() || cmd == nil {
+		t.Fatal("ctrl+c while editing MCP name should quit")
+	}
+}
+
+func TestEscBackCloseUnchanged(t *testing.T) {
+	root := t.TempDir()
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = applyCmd(t, m, cmd)
+	if m.Route() != tui.DefaultRoute || m.Quitting() {
+		t.Fatalf("esc from MCP route=%v quitting=%v", m.Route(), m.Quitting())
+	}
+
+	m = loadWorkspace(t, tui.Options{
+		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m = mcpGotoAddButton(t, m)
+	m = mustModel(m.Update(key("right")))
+	if m.MCPListFocus() != screens.MCPFocusClose {
+		t.Fatalf("focus = %q, want close", m.MCPListFocus())
+	}
+	m, cmd = apply(m, key("enter"))
+	m = applyCmd(t, m, cmd)
+	if m.Route() != tui.DefaultRoute || m.Quitting() {
+		t.Fatalf("MCP Close route=%v quitting=%v", m.Route(), m.Quitting())
+	}
+
+	m = loadWorkspace(t, tui.Options{
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m = gotoInitStep2(t, m)
+	m = gotoInitFooterAction(t, m, false)
+	m = mustModel(m.Update(key("enter")))
+	if m.InitWizardStep() != screens.InitWizardStepProject {
+		t.Fatalf("Back should return to step 1, got %d", m.InitWizardStep())
+	}
+	if m.Quitting() {
+		t.Fatal("Back must not quit")
 	}
 }
 
@@ -655,6 +1022,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		"Adapters",
 		"Source Control",
 		"Memory",
+		"MCP",
 		"[ Back ]",
 		"[ Next ]",
 	} {
@@ -681,8 +1049,11 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		}
 	}
 	selector := m.ConfigDraft().SelectorSections()
-	if len(selector) != 4 {
-		t.Fatalf("selector sections = %d, want 4", len(selector))
+	if len(selector) != 5 {
+		t.Fatalf("selector sections = %d, want 5", len(selector))
+	}
+	if selector[4].Key != "mcp" {
+		t.Fatalf("last section = %q, want mcp", selector[4].Key)
 	}
 	if strings.Contains(view, "Plan Preview") {
 		t.Fatal("step 2 must not show Plan Preview")
@@ -865,51 +1236,30 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		t.Fatal("project.name must not be editable")
 	}
 
-	// Move to footer Next and confirm Step 2.
-	if m.ConfigPanel() == screens.ConfigPanelSections {
-		m = mustModel(m.Update(key("enter")))
-	}
-	for m.ConfigPanel() != screens.ConfigPanelFooter {
-		prevPanel := m.ConfigPanel()
-		prevField := m.ConfigFieldIndex()
-		prevOpt := m.ConfigOptionIndex()
-		prevFooter := m.ConfigFooterIndex()
-		m = mustModel(m.Update(key("down")))
-		if m.ConfigPanel() == prevPanel &&
-			m.ConfigFieldIndex() == prevField &&
-			m.ConfigOptionIndex() == prevOpt &&
-			m.ConfigFooterIndex() == prevFooter {
-			t.Fatal("could not reach footer")
-		}
-	}
-	if m.ConfigFooterIndex() != 1 {
-		m = mustModel(m.Update(key("right")))
-	}
+	// Move to footer Next and open Step 3 Review.
+	m = gotoInitFooterAction(t, m, true)
 	m = mustModel(m.Update(key("enter")))
-	if !m.InitConfigConfirmed() {
-		t.Fatal("expected config step confirmed")
+	if m.InitWizardStep() != screens.InitWizardStepReview {
+		t.Fatalf("step = %d, want review", m.InitWizardStep())
 	}
-	m = mustModel(m.Update(key("end")))
 	view = m.View()
 	for _, want := range []string{
-		"Configuration ready.",
-		"Review / Materialization Plan is not implemented in this slice.",
-		"No files were changed.",
+		"Review / Materialization Plan",
+		"No files will be changed in this slice.",
+		"[ Back ]",
+		"[ Apply not implemented ]",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
 	}
 
-	if m.ConfigFooterIndex() != 0 {
-		m = mustModel(m.Update(key("left")))
+	m = mustModel(m.Update(key("enter"))) // Back is default focus
+	if m.InitWizardStep() != screens.InitWizardStepConfig {
+		t.Fatalf("back step = %d, want config", m.InitWizardStep())
 	}
-	m = mustModel(m.Update(key("enter")))
-	if m.InitWizardStep() != screens.InitWizardStepProject {
-		t.Fatalf("back step = %d, want project", m.InitWizardStep())
-	}
-	if !strings.Contains(m.View(), "Step 1 — Project Setup") {
-		t.Fatalf("expected step 1 after back:\n%s", m.View())
+	if !strings.Contains(m.View(), "Step 2 — Initial Configuration") {
+		t.Fatalf("expected step 2 after review back:\n%s", m.View())
 	}
 
 	assertNoMutation(t, root)
@@ -925,6 +1275,483 @@ func sectionIndexOf(m tui.Model, key string) int {
 		}
 	}
 	return -1
+}
+
+func gotoInitStep2(t *testing.T, m tui.Model) tui.Model {
+	t.Helper()
+	if m.Focus() != tui.FocusContent {
+		m = mustModel(m.Update(key("tab")))
+	}
+	for m.InitField() != screens.InitFieldNext {
+		prev := m.InitField()
+		m = mustModel(m.Update(key("down")))
+		if m.InitField() == prev {
+			t.Fatalf("could not reach Next, stuck at %d", prev)
+		}
+	}
+	m = mustModel(m.Update(key("enter")))
+	if m.InitWizardStep() != screens.InitWizardStepConfig {
+		t.Fatalf("step = %d, want config", m.InitWizardStep())
+	}
+	return m
+}
+
+func gotoInitFooterAction(t *testing.T, m tui.Model, next bool) tui.Model {
+	t.Helper()
+	if m.Focus() != tui.FocusContent {
+		m = mustModel(m.Update(key("tab")))
+	}
+	if m.ConfigPanel() == screens.ConfigPanelSections {
+		m = mustModel(m.Update(key("enter")))
+	}
+	for m.ConfigPanel() != screens.ConfigPanelFooter {
+		prevPanel := m.ConfigPanel()
+		prevField := m.ConfigFieldIndex()
+		prevOpt := m.ConfigOptionIndex()
+		prevFooter := m.ConfigFooterIndex()
+		prevMCP := m.MCPListFocus()
+		prevMode := m.MCPMode()
+		m = mustModel(m.Update(key("down")))
+		if m.ConfigPanel() == prevPanel &&
+			m.ConfigFieldIndex() == prevField &&
+			m.ConfigOptionIndex() == prevOpt &&
+			m.ConfigFooterIndex() == prevFooter &&
+			m.MCPListFocus() == prevMCP &&
+			m.MCPMode() == prevMode {
+			t.Fatal("could not reach footer")
+		}
+	}
+	if next {
+		if m.ConfigFooterIndex() != 1 {
+			m = mustModel(m.Update(key("right")))
+		}
+	} else if m.ConfigFooterIndex() != 0 {
+		m = mustModel(m.Update(key("left")))
+	}
+	return m
+}
+
+func gotoInitReview(t *testing.T, m tui.Model) tui.Model {
+	t.Helper()
+	if m.InitWizardStep() == screens.InitWizardStepProject {
+		m = gotoInitStep2(t, m)
+	}
+	if m.InitWizardStep() == screens.InitWizardStepConfig {
+		m = gotoInitFooterAction(t, m, true)
+		m = mustModel(m.Update(key("enter")))
+	}
+	if m.InitWizardStep() != screens.InitWizardStepReview {
+		t.Fatalf("step = %d, want review", m.InitWizardStep())
+	}
+	return m
+}
+
+func reviewVisibleText(t *testing.T, m tui.Model) (tui.Model, string) {
+	t.Helper()
+	top := m.View()
+	m = mustModel(m.Update(key("end")))
+	bottom := m.View()
+	m = mustModel(m.Update(key("home")))
+	return m, top + "\n" + bottom
+}
+
+func TestInitReviewPlanContentAndApply(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := loadWorkspace(t, tui.Options{
+		Route:    tui.RouteInitPlan,
+		Getwd:    func() (string, error) { return root, nil },
+		Discover: workspace.Discover,
+	})
+	if m.InitWizardStep() != screens.InitWizardStepProject {
+		t.Fatalf("start step = %d, want project", m.InitWizardStep())
+	}
+	m = gotoInitReview(t, m)
+	m, view := reviewVisibleText(t, m)
+	for _, want := range []string{
+		"Review / Materialization Plan",
+		"Name: " + m.DraftName(),
+		"Mode: Existing project",
+		"Workflow: SDD",
+		"Spec engine: OpenSpec",
+		"Adapters: none",
+		"Source control: None",
+		"Branch strategy: Manual",
+		"Atlas governance files: Local only",
+		"Memory strategy: SQLite + Context Capsule",
+		"MCP integrations: 0 configured",
+		".atlas/config.yaml",
+		".atlas/local.yaml",
+		".atlas/state.yaml",
+		".atlas/assets.lock.yaml",
+		".atlas/backups/",
+		"AGENTS.md",
+		"No existing runtime artifacts detected.",
+		"No backups required.",
+		"No existing runtime files need replacement.",
+		"Existing project source files are preserved.",
+		"README.md is preserved",
+		"Git history is not modified.",
+		"No commits are created.",
+		"No branches are created.",
+		"No remote operations are performed.",
+		"Secrets and credentials are not stored.",
+		"Materialization is not implemented yet.",
+		"preview-only",
+		"in-memory only",
+		"No files will be changed in this slice.",
+		"MCP entries are not persisted.",
+		"[ Back ]",
+		"[ Apply not implemented ]",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("review missing %q:\n%s", want, view)
+		}
+	}
+	for _, line := range strings.Split(m.View(), "\n") {
+		if strings.TrimSpace(line) == "Action" {
+			t.Fatalf("step 3 must not render Action heading:\n%s", m.View())
+		}
+	}
+	assertActionNearFooter(t, m.View())
+	assertGlobalTopGap(t, m.View())
+	assertShell(t, m.View(), "Review / Materialization Plan")
+
+	m = mustModel(m.Update(key("right")))
+	m = mustModel(m.Update(key("enter")))
+	if m.InitReviewMessage() != "Materialization is not implemented in this slice. No files were changed." {
+		t.Fatalf("apply message = %q", m.InitReviewMessage())
+	}
+	if !strings.Contains(m.View(), "Materialization is not implemented in this slice. No files were changed.") {
+		t.Fatalf("missing apply notice:\n%s", m.View())
+	}
+	assertNoMutation(t, root)
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("AGENTS.md should not be created, stat err = %v", err)
+	}
+
+	m = mustModel(m.Update(key("left")))
+	m = mustModel(m.Update(key("enter")))
+	if m.InitWizardStep() != screens.InitWizardStepConfig {
+		t.Fatalf("back = %d, want config", m.InitWizardStep())
+	}
+}
+
+func TestInitReviewArtifactsAndAdapters(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# agents"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := loadWorkspace(t, tui.Options{
+		Route:    tui.RouteInitPlan,
+		Getwd:    func() (string, error) { return root, nil },
+		Discover: workspace.Discover,
+	})
+	m = gotoInitStep2(t, m)
+	m = gotoConfigSection(t, m, "adapters")
+	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(key("enter")))
+	m = gotoInitReview(t, m)
+	_, view := reviewVisibleText(t, m)
+	for _, want := range []string{
+		"Existing runtime artifacts detected:",
+		"AGENTS.md",
+		".atlas/backups/<timestamp>/",
+		".atlas/backups/<timestamp>/AGENTS.md",
+		"Atlas would replace runtime artifacts after backup.",
+		".cursor/rules/atlas.mdc",
+		"Adapters: Cursor",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("artifact review missing %q:\n%s", want, view)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, ".atlas")); !os.IsNotExist(err) {
+		t.Fatalf(".atlas must not be created, stat err = %v", err)
+	}
+}
+
+func TestInitCancelDoesNotOpenReview(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# agents"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := loadWorkspace(t, tui.Options{
+		Route:    tui.RouteInitPlan,
+		Getwd:    func() (string, error) { return root, nil },
+		Discover: workspace.Discover,
+	})
+	m = mustModel(m.Update(key("tab")))
+	for m.InitField() != screens.InitFieldDecisionCancel {
+		prev := m.InitField()
+		m = mustModel(m.Update(key("down")))
+		if m.InitField() == prev {
+			t.Fatal("could not reach cancel")
+		}
+	}
+	m = mustModel(m.Update(key("enter")))
+	m = gotoInitStep2(t, m)
+	m = gotoInitFooterAction(t, m, true)
+	m = mustModel(m.Update(key("enter")))
+	if m.InitWizardStep() != screens.InitWizardStepConfig {
+		t.Fatalf("canceled init opened step %d", m.InitWizardStep())
+	}
+	if strings.Contains(m.View(), "Step 3 — Review") {
+		t.Fatalf("canceled init must not open review:\n%s", m.View())
+	}
+	assertNoMutation(t, root)
+}
+
+func TestInitReviewSummarizesSessionMCP(t *testing.T) {
+	root := t.TempDir()
+	m := loadWorkspace(t, tui.Options{
+		Route:    tui.RouteMCP,
+		Getwd:    func() (string, error) { return root, nil },
+		Discover: workspace.Discover,
+	})
+	m = mustModel(m.Update(key("tab")))
+	m = mcpGotoAddButton(t, m)
+	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Jira Main")}))
+	m = mcpGotoFooterAction(t, m, true)
+	m = mustModel(m.Update(key("enter")))
+	if len(m.MCPDraft().CustomServers) != 1 {
+		t.Fatalf("custom = %#v", m.MCPDraft().CustomServers)
+	}
+
+	m, cmd := apply(m, key("b"))
+	m = applyCmd(t, m, cmd)
+	for sidebarLabel(m, m.SidebarIndex()) != "Init / Setup" {
+		prev := m.SidebarIndex()
+		m = mustModel(m.Update(key("down")))
+		if m.SidebarIndex() == prev {
+			t.Fatal("could not reach Init / Setup")
+		}
+	}
+	m, cmd = apply(m, key("enter"))
+	m = applyCmd(t, m, cmd)
+	m = gotoInitReview(t, m)
+	_, view := reviewVisibleText(t, m)
+	for _, want := range []string{
+		"MCP integrations: 1 configured",
+		"Jira Main",
+		"kind: custom",
+		"transport: stdio",
+		"status: in memory only",
+		"No MCP credentials, connections, or validation are implemented",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("mcp review missing %q:\n%s", want, view)
+		}
+	}
+	assertNoMutation(t, root)
+}
+
+func TestInitReviewListsSelectedBuiltins(t *testing.T) {
+	root := t.TempDir()
+	m := loadWorkspace(t, tui.Options{
+		Route:    tui.RouteMCP,
+		Getwd:    func() (string, error) { return root, nil },
+		Discover: workspace.Discover,
+	})
+	m = mustModel(m.Update(key("tab")))
+	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("enter")))
+	if m.MCPDraft().SelectedBuiltinCount() != 3 {
+		t.Fatalf("selected builtins = %d", m.MCPDraft().SelectedBuiltinCount())
+	}
+	m, cmd := apply(m, key("b"))
+	m = applyCmd(t, m, cmd)
+	for sidebarLabel(m, m.SidebarIndex()) != "Init / Setup" {
+		prev := m.SidebarIndex()
+		m = mustModel(m.Update(key("down")))
+		if m.SidebarIndex() == prev {
+			t.Fatal("could not reach Init / Setup")
+		}
+	}
+	m, cmd = apply(m, key("enter"))
+	m = applyCmd(t, m, cmd)
+	m = gotoInitReview(t, m)
+	_, view := reviewVisibleText(t, m)
+	for _, want := range []string{
+		"MCP integrations: 3 configured",
+		"- Jira",
+		"- Context7",
+		"- Chrome DevTools",
+		"kind: built-in",
+		"enabled: true",
+		"status: in memory only",
+		"No MCP credentials, connections, or validation are implemented",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("builtin review missing %q:\n%s", want, view)
+		}
+	}
+	assertNoMutation(t, root)
+}
+
+func TestInitStep2MCPSectionSharedAndAdd(t *testing.T) {
+	root := t.TempDir()
+	m := loadWorkspace(t, tui.Options{
+		Route:    tui.RouteMCP,
+		Getwd:    func() (string, error) { return root, nil },
+		Discover: workspace.Discover,
+	})
+	m = mustModel(m.Update(key("tab")))
+	m = mustModel(m.Update(key("enter"))) // Jira
+	if !m.MCPDraft().Builtins[0].Enabled {
+		t.Fatal("standalone jira not selected")
+	}
+
+	m, cmd := apply(m, key("b"))
+	m = applyCmd(t, m, cmd)
+	for sidebarLabel(m, m.SidebarIndex()) != "Init / Setup" {
+		prev := m.SidebarIndex()
+		m = mustModel(m.Update(key("down")))
+		if m.SidebarIndex() == prev {
+			t.Fatal("could not reach Init / Setup")
+		}
+	}
+	m, cmd = apply(m, key("enter"))
+	m = applyCmd(t, m, cmd)
+	m = gotoInitStep2(t, m)
+	m = gotoConfigSection(t, m, "mcp")
+	view := m.View()
+	for _, want := range []string{
+		"MCP",
+		"Built-in MCPs",
+		"[x] Jira",
+		"[ ] Context7",
+		"[ ] Chrome DevTools",
+		"[ Add MCP ]",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("init mcp missing %q:\n%s", want, view)
+		}
+	}
+
+	m = mustModel(m.Update(key("enter"))) // enter MCP fields; arrows must not toggle
+	jira := m.MCPDraft().Builtins[0].Enabled
+	ctx := m.MCPDraft().Builtins[1].Enabled
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("up")))
+	if m.MCPDraft().Builtins[0].Enabled != jira || m.MCPDraft().Builtins[1].Enabled != ctx {
+		t.Fatal("arrows mutated init mcp")
+	}
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("enter"))) // Context7
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("enter"))) // Chrome
+	if !m.MCPDraft().Builtins[0].Enabled || !m.MCPDraft().Builtins[1].Enabled || !m.MCPDraft().Builtins[2].Enabled {
+		t.Fatalf("expected all built-ins: %#v", m.MCPDraft().Builtins)
+	}
+
+	for i := 0; i < 8 && m.MCPListFocus() != screens.MCPFocusAddBtn; i++ {
+		m = mustModel(m.Update(key("down")))
+	}
+	if m.MCPListFocus() != screens.MCPFocusAddBtn {
+		t.Fatalf("focus = %q, want add", m.MCPListFocus())
+	}
+	m = mustModel(m.Update(key("enter")))
+	if m.MCPMode() != screens.MCPModeAdd {
+		t.Fatalf("mode = %q", m.MCPMode())
+	}
+	addView := m.View()
+	for _, want := range []string{"Add MCP", "Name", "Transport", "Command or URL", "Arguments", "Environment references", "[ Cancel ]", "[ Add ]"} {
+		if !strings.Contains(addView, want) {
+			t.Fatalf("init add missing %q:\n%s", want, addView)
+		}
+	}
+	m = mcpGotoFooterAction(t, m, true)
+	m = mustModel(m.Update(key("enter")))
+	if m.MCPAddError() == "" {
+		t.Fatal("empty name should fail in init add")
+	}
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Init Browser")}))
+	m = mcpGotoFooterAction(t, m, true)
+	m = mustModel(m.Update(key("enter")))
+	if len(m.MCPDraft().CustomServers) != 1 || m.MCPDraft().CustomServers[0].Name != "Init Browser" {
+		t.Fatalf("custom = %#v", m.MCPDraft().CustomServers)
+	}
+	if m.InitWizardStep() != screens.InitWizardStepConfig {
+		t.Fatalf("should stay on step 2, got %d", m.InitWizardStep())
+	}
+
+	for i := 0; i < 8 && m.MCPListFocus() != screens.MCPFocusAddBtn; i++ {
+		m = mustModel(m.Update(key("down")))
+	}
+	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("init browser")}))
+	m = mcpGotoFooterAction(t, m, true)
+	m = mustModel(m.Update(key("enter")))
+	if m.MCPAddError() == "" {
+		t.Fatal("duplicate name should fail")
+	}
+	m = mcpGotoFooterAction(t, m, false)
+	m = mustModel(m.Update(key("enter"))) // Cancel
+	if m.MCPMode() != screens.MCPModeList {
+		t.Fatalf("cancel should return to list, mode=%q", m.MCPMode())
+	}
+
+	m = gotoInitReview(t, m)
+	_, review := reviewVisibleText(t, m)
+	for _, want := range []string{
+		"Init Browser",
+		"kind: custom",
+		"kind: built-in",
+		"Jira",
+		"Context7",
+		"Chrome DevTools",
+	} {
+		if !strings.Contains(review, want) {
+			t.Fatalf("review missing %q:\n%s", want, review)
+		}
+	}
+
+	m, cmd = apply(m, key("b"))
+	m = applyCmd(t, m, cmd)
+	for sidebarLabel(m, m.SidebarIndex()) != "MCP" {
+		prev := m.SidebarIndex()
+		m = mustModel(m.Update(key("down")))
+		if m.SidebarIndex() == prev {
+			t.Fatal("could not reach MCP")
+		}
+	}
+	m, cmd = apply(m, key("enter"))
+	m = applyCmd(t, m, cmd)
+	standalone := m.View()
+	for _, want := range []string{"[x] Jira", "[x] Context7", "[x] Chrome DevTools", "Init Browser"} {
+		if !strings.Contains(standalone, want) {
+			t.Fatalf("standalone missing shared state %q:\n%s", want, standalone)
+		}
+	}
+
+	if m.Focus() != tui.FocusContent {
+		m = mustModel(m.Update(key("tab")))
+	}
+	if m.MCPListFocus() != screens.MCPFocusCustom {
+		for i := 0; i < 8 && m.MCPListFocus() != screens.MCPFocusCustom; i++ {
+			m = mustModel(m.Update(key("down")))
+		}
+	}
+	m = mustModel(m.Update(key("d")))
+	if len(m.MCPDraft().CustomServers) != 0 {
+		t.Fatalf("custom still present: %#v", m.MCPDraft().CustomServers)
+	}
+	if !strings.Contains(m.View(), "Removed Init Browser") {
+		t.Fatalf("missing remove notice:\n%s", m.View())
+	}
+	if !m.MCPDraft().Builtins[0].Enabled {
+		t.Fatal("removing custom must not disable built-ins")
+	}
+	assertNoMutation(t, root)
 }
 
 func gotoConfigSection(t *testing.T, m tui.Model, sectionKey string) tui.Model {

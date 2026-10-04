@@ -141,6 +141,10 @@ func (d ConfigDraft) SelectorSections() []ConfigSection {
 		switch section.Key {
 		case "governance", "adapters", "source_control", "memory":
 			out = append(out, section)
+		case "mcp":
+			if d.Mode == ConfigModeInit {
+				out = append(out, section)
+			}
 		}
 	}
 	return out

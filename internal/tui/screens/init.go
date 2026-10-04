@@ -46,6 +46,7 @@ const (
 const (
 	InitWizardStepProject = 1
 	InitWizardStepConfig  = 2
+	InitWizardStepReview  = 3
 )
 
 // InitView is the in-memory Init / Setup wizard draft for Step 1.

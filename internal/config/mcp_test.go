@@ -6,47 +6,72 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 )
 
-func TestEmptyMCPDraftAndAdd(t *testing.T) {
+func TestDefaultMCPDraftBuiltinsAndCustomAdd(t *testing.T) {
 	t.Parallel()
 
 	draft := config.DefaultMCPDraft()
-	if len(draft.Servers) != 0 {
-		t.Fatalf("default servers = %d, want 0", len(draft.Servers))
+	if len(draft.Builtins) != 3 {
+		t.Fatalf("builtins = %d, want 3", len(draft.Builtins))
 	}
-	kinds := config.MCPKindTemplates()
-	if len(kinds) != 3 {
-		t.Fatalf("templates = %d, want 3", len(kinds))
+	if draft.Builtins[0].ID != config.MCPBuiltinJira ||
+		draft.Builtins[1].ID != config.MCPBuiltinContext7 ||
+		draft.Builtins[2].ID != config.MCPBuiltinChromeDevTools {
+		t.Fatalf("unexpected builtins: %#v", draft.Builtins)
 	}
-	if kinds[0].Kind != config.MCPKindJira || kinds[1].Kind != config.MCPKindContext7 || kinds[2].Kind != config.MCPKindCustom {
-		t.Fatalf("unexpected templates: %#v", kinds)
+	for _, item := range draft.Builtins {
+		if item.Enabled {
+			t.Fatalf("builtin %s should start disabled", item.Name)
+		}
+	}
+	if len(draft.CustomServers) != 0 || draft.ConfiguredCount() != 0 {
+		t.Fatalf("custom/configured = %d/%d", len(draft.CustomServers), draft.ConfiguredCount())
 	}
 
-	server, err := draft.AddServer("My Jira", config.MCPKindJira, "https://example.atlassian.net")
+	if !draft.ToggleBuiltin(0) || !draft.Builtins[0].Enabled {
+		t.Fatal("toggle jira")
+	}
+	if !draft.ToggleBuiltin(2) || !draft.Builtins[2].Enabled || !draft.Builtins[0].Enabled {
+		t.Fatal("chrome toggle must not unset jira")
+	}
+	if draft.ToggleBuiltin(99) {
+		t.Fatal("out of range builtin toggle")
+	}
+
+	server, err := draft.AddCustom("My Browser MCP", config.MCPTransportStdio, "npx", "--yes", "HOME")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if server.Name != "My Jira" || server.Kind != config.MCPKindJira || server.Enabled {
+	if server.Name != "My Browser MCP" || server.Transport != config.MCPTransportStdio || server.Enabled {
 		t.Fatalf("server = %#v", server)
 	}
-	if server.ConfigurationStatus != config.MCPNotConfigured {
-		t.Fatalf("status = %q", server.ConfigurationStatus)
+	if server.Status != config.MCPStatusInMemoryOnly {
+		t.Fatalf("status = %q", server.Status)
 	}
-	if !draft.ToggleEnabled(0) || !draft.Servers[0].Enabled {
-		t.Fatal("expected toggle")
+	if !draft.ToggleCustom(0) || !draft.CustomServers[0].Enabled {
+		t.Fatal("custom toggle")
 	}
-	if _, err := draft.AddServer("  ", config.MCPKindCustom, ""); err == nil {
+	if !draft.RemoveCustom(0) || len(draft.CustomServers) != 0 {
+		t.Fatal("remove custom")
+	}
+	if _, err := draft.AddCustom("My Browser MCP", config.MCPTransportStdio, "npx", "--yes", "HOME"); err != nil {
+		t.Fatalf("re-add: %v", err)
+	}
+	if _, err := draft.AddCustom("  ", config.MCPTransportHTTP, "", "", ""); err == nil {
 		t.Fatal("empty name must fail")
 	}
-	if _, err := draft.AddServer("My Jira", config.MCPKindCustom, ""); err == nil {
+	if _, err := draft.AddCustom("my browser mcp", config.MCPTransportHTTP, "", "", ""); err == nil {
 		t.Fatal("duplicate name must fail")
 	}
-	if draft.ToggleEnabled(99) {
-		t.Fatal("out of range toggle must fail")
+	if _, err := draft.AddCustom("Jira", config.MCPTransportStdio, "", "", ""); err == nil {
+		t.Fatal("builtin name must be rejected")
 	}
-	if config.MCPNotConfigured.StatusLabel() != "not configured" {
+	if draft.ToggleCustom(99) {
+		t.Fatal("out of range custom toggle")
+	}
+	if config.NormalizeTransport("") != config.MCPTransportStdio {
+		t.Fatal("default transport")
+	}
+	if config.StatusLabel(config.MCPStatusInMemoryOnly) != "in memory only" {
 		t.Fatal("status label")
-	}
-	if config.MCPKindContext7.KindLabel() != "Context7" {
-		t.Fatal("kind label")
 	}
 }

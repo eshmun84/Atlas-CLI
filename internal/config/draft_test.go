@@ -18,7 +18,7 @@ func TestBuildConfigDraft_VisibleSectionsAndDefaults(t *testing.T) {
 	})
 
 	selector := draft.SelectorSections()
-	wantSections := []string{"governance", "adapters", "source_control", "memory"}
+	wantSections := []string{"governance", "adapters", "source_control", "memory", "mcp"}
 	if len(selector) != len(wantSections) {
 		t.Fatalf("selector sections = %d, want %d", len(selector), len(wantSections))
 	}
@@ -110,6 +110,12 @@ func TestConfigDraft_Edits(t *testing.T) {
 	}
 	if !cfg.SelectOption("memory.strategy", "context_capsule") {
 		t.Fatal("memory.strategy should be editable in configure")
+	}
+	cfgSelector := cfg.SelectorSections()
+	for _, section := range cfgSelector {
+		if section.Key == "mcp" {
+			t.Fatal("configure must not show MCP; MCP stays on the sidebar screen")
+		}
 	}
 }
 

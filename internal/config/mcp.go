@@ -5,118 +5,186 @@ import (
 	"strings"
 )
 
-// MCPConnectionState describes whether an MCP integration is configured.
-type MCPConnectionState string
-
+// MCP status values for in-memory drafts.
 const (
-	MCPNotConfigured MCPConnectionState = "not_configured"
-	MCPConfigured    MCPConnectionState = "configured"
+	MCPStatusInMemoryOnly  = "in_memory_only"
+	MCPStatusNotConfigured = "not_configured"
 )
 
-// MCPServerKind identifies a built-in or custom MCP integration kind.
-type MCPServerKind string
+// MCPBuiltinID identifies a built-in MCP integration.
+type MCPBuiltinID string
 
 const (
-	MCPKindJira     MCPServerKind = "jira"
-	MCPKindContext7 MCPServerKind = "context7"
-	MCPKindCustom   MCPServerKind = "custom"
+	MCPBuiltinJira           MCPBuiltinID = "jira"
+	MCPBuiltinContext7       MCPBuiltinID = "context7"
+	MCPBuiltinChromeDevTools MCPBuiltinID = "chrome_devtools"
 )
 
-// MCPKindTemplate is an add-form option for creating an MCP entry.
-type MCPKindTemplate struct {
-	Kind        MCPServerKind
-	Label       string
+// MCPTransport is a custom MCP transport kind.
+type MCPTransport string
+
+const (
+	MCPTransportStdio MCPTransport = "stdio"
+	MCPTransportHTTP  MCPTransport = "http"
+	MCPTransportSSE   MCPTransport = "sse"
+)
+
+// MCPBuiltinDraft is one built-in selectable MCP integration.
+type MCPBuiltinDraft struct {
+	ID          MCPBuiltinID
+	Name        string
+	Enabled     bool
 	Description string
+	Status      string
 }
 
-// MCPServerDraft is one in-memory MCP integration entry.
+// MCPServerDraft is one user-added custom MCP entry.
 type MCPServerDraft struct {
 	ID                    string
 	Name                  string
-	Kind                  MCPServerKind
+	Transport             MCPTransport
+	CommandOrURL          string
+	Arguments             string
+	EnvironmentReferences string
 	Enabled               bool
-	Connection            string
-	Description           string
-	ConfigurationStatus   MCPConnectionState
-	RequiresConfiguration bool
-	Help                  string
+	Status                string
 }
 
 // MCPDraft is the in-memory MCP configuration draft.
 type MCPDraft struct {
-	Servers []MCPServerDraft
+	Builtins      []MCPBuiltinDraft
+	CustomServers []MCPServerDraft
 }
 
-// EmptyMCPDraft returns an MCP draft with no configured integrations.
-func EmptyMCPDraft() MCPDraft {
-	return MCPDraft{Servers: nil}
+// MCPTransports returns selectable custom transport options.
+func MCPTransports() []MCPTransport {
+	return []MCPTransport{MCPTransportStdio, MCPTransportHTTP, MCPTransportSSE}
 }
 
-// DefaultMCPDraft returns an empty draft. Built-in kinds are templates only.
-func DefaultMCPDraft() MCPDraft {
-	return EmptyMCPDraft()
+// TransportLabel returns a short display label for a transport.
+func (t MCPTransport) TransportLabel() string {
+	switch t {
+	case MCPTransportHTTP:
+		return "http"
+	case MCPTransportSSE:
+		return "sse"
+	default:
+		return "stdio"
+	}
 }
 
-// MCPKindTemplates returns kinds available when adding an MCP entry.
-func MCPKindTemplates() []MCPKindTemplate {
-	return []MCPKindTemplate{
+// NormalizeTransport maps an input to a known transport, defaulting to stdio.
+func NormalizeTransport(value string) MCPTransport {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(MCPTransportHTTP):
+		return MCPTransportHTTP
+	case string(MCPTransportSSE):
+		return MCPTransportSSE
+	default:
+		return MCPTransportStdio
+	}
+}
+
+// DefaultMCPBuiltins returns the built-in MCP catalog, all unselected.
+func DefaultMCPBuiltins() []MCPBuiltinDraft {
+	return []MCPBuiltinDraft{
 		{
-			Kind:        MCPKindJira,
-			Label:       "Jira",
+			ID:          MCPBuiltinJira,
+			Name:        "Jira",
+			Enabled:     false,
 			Description: "Connect Atlas with Jira issues, project planning and delivery tracking.",
+			Status:      MCPStatusNotConfigured,
 		},
 		{
-			Kind:        MCPKindContext7,
-			Label:       "Context7",
+			ID:          MCPBuiltinContext7,
+			Name:        "Context7",
+			Enabled:     false,
 			Description: "Provide Atlas with up-to-date library and framework documentation context.",
+			Status:      MCPStatusNotConfigured,
 		},
 		{
-			Kind:        MCPKindCustom,
-			Label:       "Custom",
-			Description: "Add a custom MCP server definition.",
+			ID:          MCPBuiltinChromeDevTools,
+			Name:        "Chrome DevTools",
+			Enabled:     false,
+			Description: "Use Chrome DevTools Protocol tools from Atlas agents.",
+			Status:      MCPStatusNotConfigured,
 		},
 	}
 }
 
-// KindLabel returns a short display label for a kind.
-func (k MCPServerKind) KindLabel() string {
-	for _, tmpl := range MCPKindTemplates() {
-		if tmpl.Kind == k {
-			return tmpl.Label
+// DefaultMCPDraft returns built-ins unselected and no custom entries.
+func DefaultMCPDraft() MCPDraft {
+	return MCPDraft{
+		Builtins:      DefaultMCPBuiltins(),
+		CustomServers: nil,
+	}
+}
+
+// EmptyMCPDraft returns the default in-memory MCP draft.
+func EmptyMCPDraft() MCPDraft {
+	return DefaultMCPDraft()
+}
+
+// SelectedBuiltinCount returns how many built-ins are enabled.
+func (d MCPDraft) SelectedBuiltinCount() int {
+	n := 0
+	for _, item := range d.Builtins {
+		if item.Enabled {
+			n++
 		}
 	}
-	if k == "" {
-		return MCPKindCustom.KindLabel()
-	}
-	return string(k)
+	return n
 }
 
-// StatusLabel returns a short UI label for a connection state.
-func (s MCPConnectionState) StatusLabel() string {
-	switch s {
-	case MCPConfigured:
-		return "configured"
-	default:
-		return "not configured"
-	}
+// ConfiguredCount is selected built-ins plus custom entries.
+func (d MCPDraft) ConfiguredCount() int {
+	return d.SelectedBuiltinCount() + len(d.CustomServers)
 }
 
-// ToggleEnabled flips Enabled for the server at index when present.
-func (d *MCPDraft) ToggleEnabled(index int) bool {
-	if index < 0 || index >= len(d.Servers) {
+// ToggleBuiltin flips Enabled for the built-in at index.
+func (d *MCPDraft) ToggleBuiltin(index int) bool {
+	if index < 0 || index >= len(d.Builtins) {
 		return false
 	}
-	d.Servers[index].Enabled = !d.Servers[index].Enabled
+	d.Builtins[index].Enabled = !d.Builtins[index].Enabled
+	if d.Builtins[index].Enabled {
+		d.Builtins[index].Status = MCPStatusInMemoryOnly
+	} else {
+		d.Builtins[index].Status = MCPStatusNotConfigured
+	}
 	return true
 }
 
-// HasName reports whether an entry with the same name already exists.
+// ToggleCustom flips Enabled for the custom server at index.
+func (d *MCPDraft) ToggleCustom(index int) bool {
+	if index < 0 || index >= len(d.CustomServers) {
+		return false
+	}
+	d.CustomServers[index].Enabled = !d.CustomServers[index].Enabled
+	return true
+}
+
+// RemoveCustom deletes a custom MCP entry in memory.
+func (d *MCPDraft) RemoveCustom(index int) bool {
+	if index < 0 || index >= len(d.CustomServers) {
+		return false
+	}
+	d.CustomServers = append(d.CustomServers[:index], d.CustomServers[index+1:]...)
+	return true
+}
+
+// HasName reports whether a built-in or custom entry already uses name.
 func (d MCPDraft) HasName(name string) bool {
 	want := strings.TrimSpace(strings.ToLower(name))
 	if want == "" {
 		return false
 	}
-	for _, server := range d.Servers {
+	for _, item := range d.Builtins {
+		if strings.ToLower(strings.TrimSpace(item.Name)) == want {
+			return true
+		}
+	}
+	for _, server := range d.CustomServers {
 		if strings.ToLower(strings.TrimSpace(server.Name)) == want {
 			return true
 		}
@@ -124,8 +192,8 @@ func (d MCPDraft) HasName(name string) bool {
 	return false
 }
 
-// AddServer validates and appends an in-memory MCP entry.
-func (d *MCPDraft) AddServer(name string, kind MCPServerKind, connection string) (MCPServerDraft, error) {
+// AddCustom validates and appends an in-memory custom MCP entry.
+func (d *MCPDraft) AddCustom(name string, transport MCPTransport, commandOrURL, arguments, envRefs string) (MCPServerDraft, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return MCPServerDraft{}, fmt.Errorf("name is required")
@@ -133,59 +201,44 @@ func (d *MCPDraft) AddServer(name string, kind MCPServerKind, connection string)
 	if d.HasName(name) {
 		return MCPServerDraft{}, fmt.Errorf("name already exists")
 	}
-	if kind == "" {
-		kind = MCPKindCustom
-	}
-	valid := false
-	var description string
-	for _, tmpl := range MCPKindTemplates() {
-		if tmpl.Kind == kind {
-			valid = true
-			description = tmpl.Description
-			break
-		}
-	}
-	if !valid {
-		kind = MCPKindCustom
-		description = "Add a custom MCP server definition."
-	}
-
 	server := MCPServerDraft{
-		ID:                    nextMCPID(*d, kind),
+		ID:                    nextCustomMCPID(*d),
 		Name:                  name,
-		Kind:                  kind,
+		Transport:             NormalizeTransport(string(transport)),
+		CommandOrURL:          strings.TrimSpace(commandOrURL),
+		Arguments:             strings.TrimSpace(arguments),
+		EnvironmentReferences: strings.TrimSpace(envRefs),
 		Enabled:               false,
-		Connection:            strings.TrimSpace(connection),
-		Description:           description,
-		ConfigurationStatus:   MCPNotConfigured,
-		RequiresConfiguration: true,
-		Help:                  "No credentials are stored in this slice. This entry is kept in memory only.",
+		Status:                MCPStatusInMemoryOnly,
 	}
-	d.Servers = append(d.Servers, server)
+	d.CustomServers = append(d.CustomServers, server)
 	return server, nil
 }
 
-// ServerByID finds a server draft by id.
-func (d MCPDraft) ServerByID(id string) (MCPServerDraft, bool) {
-	for _, server := range d.Servers {
-		if server.ID == id {
-			return server, true
-		}
-	}
-	return MCPServerDraft{}, false
-}
-
-func nextMCPID(draft MCPDraft, kind MCPServerKind) string {
-	base := string(kind)
-	if base == "" {
-		base = "mcp"
-	}
+func nextCustomMCPID(draft MCPDraft) string {
 	n := 1
 	for {
-		id := fmt.Sprintf("%s-%d", base, n)
-		if _, ok := draft.ServerByID(id); !ok {
+		id := fmt.Sprintf("custom-%d", n)
+		used := false
+		for _, server := range draft.CustomServers {
+			if server.ID == id {
+				used = true
+				break
+			}
+		}
+		if !used {
 			return id
 		}
 		n++
+	}
+}
+
+// StatusLabel returns a short UI label for a draft status.
+func StatusLabel(status string) string {
+	switch status {
+	case MCPStatusInMemoryOnly:
+		return "in memory only"
+	default:
+		return "not configured"
 	}
 }

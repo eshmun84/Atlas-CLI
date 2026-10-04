@@ -12,14 +12,17 @@ const (
 	MCPModeList = "list"
 	MCPModeAdd  = "add"
 
-	MCPFocusServers = "servers"
-	MCPFocusAddBtn  = "add"
-	MCPFocusClose   = "close"
-	MCPFocusName    = "name"
-	MCPFocusKind    = "kind"
-	MCPFocusConn    = "connection"
-	MCPFocusCancel  = "cancel"
-	MCPFocusSubmit  = "submit"
+	MCPFocusBuiltins  = "builtins"
+	MCPFocusCustom    = "custom"
+	MCPFocusAddBtn    = "add"
+	MCPFocusClose     = "close"
+	MCPFocusName      = "name"
+	MCPFocusTransport = "transport"
+	MCPFocusConn      = "connection"
+	MCPFocusArgs      = "args"
+	MCPFocusEnv       = "env"
+	MCPFocusCancel    = "cancel"
+	MCPFocusSubmit    = "submit"
 )
 
 var (
@@ -35,18 +38,23 @@ var (
 
 // MCPView options for the MCP integrations screen.
 type MCPView struct {
-	Mode           string
-	Draft          config.MCPDraft
-	ActiveIndex    int
-	KindFocus      int
-	KindSelected   config.MCPServerKind
-	Initialized    bool
-	ContentFocused bool
-	ListFocus      string
-	AddFocus       string
-	NameView       string
-	ConnectionView string
-	Error          string
+	Mode              string
+	Draft             config.MCPDraft
+	ActiveIndex       int
+	TransportFocus    int
+	TransportSelected config.MCPTransport
+	Initialized       bool
+	ContentFocused    bool
+	ListFocus         string
+	AddFocus          string
+	NameView          string
+	ConnectionView    string
+	ArgsView          string
+	EnvView           string
+	Error             string
+	Notice            string
+	Embedded          bool
+	ShowAddRow        bool
 }
 
 // RenderMCP renders the MCP configuration foundation screen.
@@ -55,6 +63,16 @@ func RenderMCP(view MCPView) string {
 		return renderMCPAdd(view)
 	}
 	return renderMCPList(view)
+}
+
+// RenderMCPPanel renders built-ins/custom rows for embedding in Init Step 2.
+func RenderMCPPanel(view MCPView) string {
+	view.Embedded = true
+	view.ShowAddRow = true
+	if view.Mode == MCPModeAdd {
+		return renderMCPAddFields(view)
+	}
+	return renderMCPListBody(view)
 }
 
 func renderMCPList(view MCPView) string {
@@ -77,29 +95,66 @@ func renderMCPList(view MCPView) string {
 		fmt.Fprintln(&b, "  "+mcpBody.Render("MCP configuration is available as a preview only."))
 	}
 	fmt.Fprintln(&b)
+	fmt.Fprint(&b, renderMCPListBody(view))
+	return strings.TrimRight(b.String(), "\n")
+}
 
-	if len(view.Draft.Servers) == 0 {
-		fmt.Fprintln(&b, "  "+mcpBody.Render("No MCP integrations configured yet."))
+func renderMCPListBody(view MCPView) string {
+	var b strings.Builder
+	fmt.Fprintln(&b, mcpSection.Render("Built-in MCPs"))
+	for i, item := range view.Draft.Builtins {
+		mark := "[ ]"
+		if item.Enabled {
+			mark = "[x]"
+		}
+		line := mark + " " + item.Name
+		focused := view.ContentFocused && view.ListFocus == MCPFocusBuiltins && i == view.ActiveIndex
+		writeMCPCheckRow(&b, line, focused, item.Enabled)
+	}
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, mcpSection.Render("Custom MCPs"))
+	if len(view.Draft.CustomServers) == 0 {
+		fmt.Fprintln(&b, "  "+mcpMuted.Render("No custom MCPs configured yet."))
 	} else {
-		fmt.Fprintln(&b, mcpSection.Render("Configured integrations"))
-		for i, server := range view.Draft.Servers {
+		for i, server := range view.Draft.CustomServers {
 			mark := "[ ]"
 			if server.Enabled {
 				mark = "[x]"
 			}
-			line := fmt.Sprintf("%s %-16s  %-10s  %s", mark, server.Name, server.Kind.KindLabel(), server.ConfigurationStatus.StatusLabel())
-			focused := view.ContentFocused && view.ListFocus == MCPFocusServers && i == view.ActiveIndex
-			if focused {
-				fmt.Fprintln(&b, "  "+mcpSelected.Render("› "+line+" "))
-			} else if server.Enabled {
-				fmt.Fprintln(&b, "  "+mcpOK.Render("  "+line))
-			} else {
-				fmt.Fprintln(&b, "  "+mcpBody.Render("  "+line))
-			}
+			line := fmt.Sprintf("%s %s        %s         %s",
+				mark, server.Name, server.Transport.TransportLabel(), config.StatusLabel(server.Status))
+			focused := view.ContentFocused && view.ListFocus == MCPFocusCustom && i == view.ActiveIndex
+			writeMCPCheckRow(&b, line, focused, server.Enabled)
+		}
+		fmt.Fprintln(&b, "  "+mcpMuted.Render("Space/Enter toggles enabled. d removes a custom entry (in memory only)."))
+	}
+	if view.ShowAddRow {
+		fmt.Fprintln(&b)
+		addLine := "[ Add MCP ]"
+		if view.ContentFocused && view.ListFocus == MCPFocusAddBtn {
+			fmt.Fprintln(&b, "  "+mcpSelected.Render("› "+addLine+" "))
+		} else {
+			fmt.Fprintln(&b, "  "+mcpBody.Render("  "+addLine))
 		}
 	}
-
+	if view.Notice != "" {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "  "+mcpMuted.Render(view.Notice))
+	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeMCPCheckRow(b *strings.Builder, line string, focused, enabled bool) {
+	if focused {
+		fmt.Fprintln(b, "  "+mcpSelected.Render("› "+line+" "))
+		return
+	}
+	if enabled {
+		fmt.Fprintln(b, "  "+mcpOK.Render("  "+line))
+		return
+	}
+	fmt.Fprintln(b, "  "+mcpBody.Render("  "+line))
 }
 
 func renderMCPAdd(view MCPView) string {
@@ -113,56 +168,61 @@ func renderMCPAdd(view MCPView) string {
 	fmt.Fprintln(&b, title)
 	fmt.Fprintln(&b, "  "+mcpMuted.Render("No files will be changed in this slice."))
 	fmt.Fprintln(&b)
+	fmt.Fprint(&b, renderMCPAddFields(view))
+	return strings.TrimRight(b.String(), "\n")
+}
 
+func renderMCPAddFields(view MCPView) string {
+	var b strings.Builder
 	fmt.Fprintln(&b, mcpSection.Render("Name"))
-	nameLine := view.NameView
-	if strings.TrimSpace(nameLine) == "" {
-		nameLine = mcpMuted.Render("(required)")
-	}
-	if view.ContentFocused && view.AddFocus == MCPFocusName {
-		fmt.Fprintln(&b, "  "+mcpSelected.Render("› "+nameLine+" "))
-	} else {
-		fmt.Fprintln(&b, "  "+mcpBody.Render("  "+nameLine))
-	}
+	writeMCPTextField(&b, view.NameView, "(required)", view.ContentFocused && view.AddFocus == MCPFocusName)
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, mcpSection.Render("Kind"))
-	for i, tmpl := range config.MCPKindTemplates() {
-		checked := tmpl.Kind == view.KindSelected
+	fmt.Fprintln(&b, mcpSection.Render("Transport"))
+	for i, transport := range config.MCPTransports() {
+		checked := transport == view.TransportSelected
 		mark := "[ ]"
 		if checked {
 			mark = "[x]"
 		}
-		line := mark + " " + tmpl.Label
-		focused := view.ContentFocused && view.AddFocus == MCPFocusKind && i == view.KindFocus
-		if focused {
-			fmt.Fprintln(&b, "  "+mcpSelected.Render("› "+line+" "))
-		} else if checked {
-			fmt.Fprintln(&b, "  "+mcpOK.Render("  "+line))
-		} else {
-			fmt.Fprintln(&b, "  "+mcpBody.Render("  "+line))
-		}
+		line := mark + " " + transport.TransportLabel()
+		focused := view.ContentFocused && view.AddFocus == MCPFocusTransport && i == view.TransportFocus
+		writeMCPCheckRow(&b, line, focused, checked)
 	}
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, mcpSection.Render("Connection"))
-	connLine := view.ConnectionView
-	if strings.TrimSpace(connLine) == "" {
-		connLine = mcpMuted.Render("(optional)")
-	}
-	if view.ContentFocused && view.AddFocus == MCPFocusConn {
-		fmt.Fprintln(&b, "  "+mcpSelected.Render("› "+connLine+" "))
-	} else {
-		fmt.Fprintln(&b, "  "+mcpBody.Render("  "+connLine))
-	}
+	fmt.Fprintln(&b, mcpSection.Render("Command or URL"))
+	writeMCPTextField(&b, view.ConnectionView, "(optional, not validated)", view.ContentFocused && view.AddFocus == MCPFocusConn)
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("Command or URL is not validated in this slice."))
 	fmt.Fprintln(&b)
 
+	fmt.Fprintln(&b, mcpSection.Render("Arguments"))
+	writeMCPTextField(&b, view.ArgsView, "(optional)", view.ContentFocused && view.AddFocus == MCPFocusArgs)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, mcpSection.Render("Environment references"))
+	writeMCPTextField(&b, view.EnvView, "(optional)", view.ContentFocused && view.AddFocus == MCPFocusEnv)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, mcpSection.Render("Notes"))
 	fmt.Fprintln(&b, "  "+mcpMuted.Render("No credentials are stored in this slice."))
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("This entry is kept in memory only."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("This custom MCP is kept in memory only."))
 	if view.Error != "" {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "  "+mcpFail.Render(view.Error))
 	}
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeMCPTextField(b *strings.Builder, value, emptyHint string, focused bool) {
+	line := value
+	if strings.TrimSpace(line) == "" {
+		line = mcpMuted.Render(emptyHint)
+	}
+	if focused {
+		fmt.Fprintln(b, "  "+mcpSelected.Render("› "+line+" "))
+		return
+	}
+	fmt.Fprintln(b, "  "+mcpBody.Render("  "+line))
 }

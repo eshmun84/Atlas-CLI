@@ -11,4 +11,5 @@ const (
 	FileMemoryDB   = ".atlas/memory/atlas.sqlite"
 	FileCapsule    = ".atlas/context/memory-capsule.md"
 	FileAssetsLock = ".atlas/assets.lock.yaml"
+	DirBackups     = ".atlas/backups"
 )

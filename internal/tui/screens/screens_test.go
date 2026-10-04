@@ -6,6 +6,7 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/initplan"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
@@ -62,6 +63,33 @@ func TestInitPlanStep1NoPlanPreview(t *testing.T) {
 	}
 }
 
+func TestRenderReview(t *testing.T) {
+	t.Parallel()
+
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:    "Atlas-CLI",
+		ProjectMode:    "new",
+		CursorDetected: true,
+	})
+	plan := initplan.BuildReview(initplan.ReviewInput{Draft: draft, MCP: config.EmptyMCPDraft()})
+	view := screens.RenderReview(screens.ReviewView{Plan: plan, ContentFocused: true})
+	for _, want := range []string{
+		"Step 3 — Review / Materialization Plan",
+		"Name: Atlas-CLI",
+		"Mode: New project",
+		".atlas/config.yaml",
+		"AGENTS.md",
+		".cursor/rules/atlas.mdc",
+		"No existing runtime artifacts detected.",
+		"No backups required.",
+		"[content focus]",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestConfigFormFinalSections(t *testing.T) {
 	t.Parallel()
 
@@ -92,6 +120,7 @@ func TestConfigFormFinalSections(t *testing.T) {
 		"Adapters",
 		"Source Control",
 		"Memory",
+		"MCP",
 		"Workflow",
 		"[x] SDD",
 		"Spec engine",
@@ -215,6 +244,27 @@ func TestConfigFormFinalSections(t *testing.T) {
 			t.Fatalf("memory unexpected %q:\n%s", banned, mem)
 		}
 	}
+
+	mcp := screens.RenderConfigForm(screens.ConfigFormView{
+		Draft:          draft,
+		SectionIndex:   sectionIndex(draft, "mcp"),
+		PanelFocus:     screens.ConfigPanelFields,
+		ContentFocused: true,
+		ShowBack:       true,
+		ShowNext:       true,
+		Width:          110,
+		MCP: screens.MCPView{
+			Mode:           screens.MCPModeList,
+			Draft:          config.DefaultMCPDraft(),
+			ListFocus:      screens.MCPFocusBuiltins,
+			ContentFocused: true,
+		},
+	})
+	for _, want := range []string{"Built-in MCPs", "[ ] Jira", "[ ] Context7", "[ ] Chrome DevTools", "Custom MCPs", "[ Add MCP ]"} {
+		if !strings.Contains(mcp, want) {
+			t.Fatalf("init mcp section missing %q:\n%s", want, mcp)
+		}
+	}
 }
 
 func TestConfigureViewFinalSections(t *testing.T) {
@@ -240,7 +290,7 @@ func TestConfigureViewFinalSections(t *testing.T) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"[ Apply", "[ Next", "[ Close ]", "Project Stack", "Runtime entrypoint", "Skills / Registry"} {
+	for _, banned := range []string{"[ Apply", "[ Next", "[ Close ]", "Project Stack", "Runtime entrypoint", "Skills / Registry", "Built-in MCPs"} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("unexpected %q:\n%s", banned, view)
 		}
@@ -260,7 +310,7 @@ func TestRenderMCP(t *testing.T) {
 
 	preview := screens.RenderMCP(screens.MCPView{
 		Mode:  screens.MCPModeList,
-		Draft: config.EmptyMCPDraft(),
+		Draft: config.DefaultMCPDraft(),
 	})
 	for _, want := range []string{
 		"MCP",
@@ -268,48 +318,56 @@ func TestRenderMCP(t *testing.T) {
 		"No files will be changed in this slice.",
 		"Atlas is not initialized yet.",
 		"preview only",
-		"No MCP integrations configured yet.",
+		"Built-in MCPs",
+		"[ ] Jira",
+		"[ ] Context7",
+		"[ ] Chrome DevTools",
+		"Custom MCPs",
+		"No custom MCPs configured yet.",
 	} {
 		if !strings.Contains(preview, want) {
 			t.Fatalf("preview missing %q:\n%s", want, preview)
 		}
 	}
-	for _, banned := range []string{"[x] Jira", "[ ] Jira", "[x] Context7", "[ ] Context7", "Custom MCP"} {
-		if strings.Contains(preview, banned) {
-			t.Fatalf("empty MCP must not show default row %q:\n%s", banned, preview)
-		}
+	if strings.Contains(preview, "[ ] Custom") || strings.Contains(preview, "[x] Custom") {
+		t.Fatalf("custom must not be a built-in row:\n%s", preview)
 	}
 
 	add := screens.RenderMCP(screens.MCPView{
-		Mode:         screens.MCPModeAdd,
-		KindFocus:    2,
-		KindSelected: config.MCPKindCustom,
-		AddFocus:     screens.MCPFocusName,
+		Mode:              screens.MCPModeAdd,
+		TransportFocus:    0,
+		TransportSelected: config.MCPTransportStdio,
+		AddFocus:          screens.MCPFocusName,
 	})
-	for _, want := range []string{"Add MCP", "Name", "Kind", "Connection", "[ ] Jira", "[ ] Context7", "[x] Custom"} {
+	for _, want := range []string{"Add MCP", "Name", "Transport", "[x] stdio", "[ ] http", "[ ] sse", "Command or URL", "Arguments", "Environment references"} {
 		if !strings.Contains(add, want) {
 			t.Fatalf("add form missing %q:\n%s", want, add)
 		}
 	}
+	for _, banned := range []string{"Kind", "[ ] Jira", "[ ] Context7", "[ ] Chrome DevTools", "[x] Custom"} {
+		if strings.Contains(add, banned) {
+			t.Fatalf("add form unexpected %q:\n%s", banned, add)
+		}
+	}
 
-	draft := config.EmptyMCPDraft()
-	if _, err := draft.AddServer("My Jira", config.MCPKindJira, ""); err != nil {
+	draft := config.DefaultMCPDraft()
+	draft.ToggleBuiltin(0)
+	if _, err := draft.AddCustom("My Browser MCP", config.MCPTransportStdio, "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	draft.ToggleEnabled(0)
+	draft.ToggleCustom(0)
 	active := screens.RenderMCP(screens.MCPView{
 		Mode:           screens.MCPModeList,
 		Draft:          draft,
 		ActiveIndex:    0,
 		Initialized:    true,
 		ContentFocused: true,
-		ListFocus:      screens.MCPFocusServers,
+		ListFocus:      screens.MCPFocusCustom,
 	})
 	for _, want := range []string{
-		"Configured integrations",
-		"My Jira",
-		"Jira",
-		"not configured",
+		"[x] Jira",
+		"My Browser MCP",
+		"stdio",
 		"[x]",
 		"in memory only",
 	} {

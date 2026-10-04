@@ -31,8 +31,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if tooSmall(m.width, m.height) {
 			if isForceQuit(msg) || isEsc(msg) {
-				m.quitting = true
-				return m, tea.Quit
+				return m.quit()
 			}
 			return m, nil
 		}
@@ -79,7 +78,7 @@ func (m *Model) applyInitDiscovery(plan initplan.Plan) {
 		m.initModeConfirmed = m.recommendedMode
 		m.initDecision = InitDecisionInitialize
 		m.initWizardStep = screens.InitWizardStepProject
-		m.initConfigConfirmed = false
+		m.initReviewMessage = ""
 		m.initField = screens.InitFieldName
 		m.initHydrated = true
 	}
@@ -90,33 +89,24 @@ func (m *Model) applyInitDiscovery(plan initplan.Plan) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" || msg.Type == tea.KeyCtrlC || (!m.editingTextInput() && isQuitLetter(msg)) {
+		return m.quit()
+	}
+
 	if m.route == RouteError {
 		return m.handleErrorKey(msg)
 	}
 
-	editingText := m.focus == FocusContent &&
-		((m.route == RouteInitPlan &&
-			m.initWizardStep == screens.InitWizardStepProject &&
-			m.initField == screens.InitFieldName) ||
-			(m.route == RouteMCP &&
-				m.mcpMode == screens.MCPModeAdd &&
-				(m.mcpAddFocus == screens.MCPFocusName || m.mcpAddFocus == screens.MCPFocusConn)))
-
-	if msg.String() == "ctrl+c" || (!editingText && msg.String() == "q") {
-		m.quitting = true
-		return m, tea.Quit
-	}
-	if isEsc(msg) && !editingText {
+	if isEsc(msg) && !m.editingTextInput() {
 		if m.route == DefaultRoute {
-			m.quitting = true
-			return m, tea.Quit
+			return m.quit()
 		}
 		return m.setRoute(DefaultRoute)
 	}
-	if !editingText && isHelpKey(msg) {
+	if !m.editingTextInput() && isHelpKey(msg) {
 		return m.setRoute(RouteHelp)
 	}
-	if !editingText && isDefaultRouteKey(msg) {
+	if !m.editingTextInput() && isDefaultRouteKey(msg) {
 		return m.setRoute(DefaultRoute)
 	}
 
@@ -125,6 +115,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focus = FocusContent
 			if m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepProject {
 				m.initField = m.clampInitField(m.initField)
+			}
+			if m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepReview {
+				m.configPanel = screens.ConfigPanelFooter
 			}
 		} else {
 			m.focus = FocusSidebar
@@ -154,8 +147,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		item := items[m.sidebarIndex]
 		if item.Exit {
-			m.quitting = true
-			return m, tea.Quit
+			return m.quit()
 		}
 		return m.setRoute(item.Route)
 	case "pgup", "pgdown", "home", "end":
@@ -166,7 +158,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleInitContentKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.initWizardStep == screens.InitWizardStepConfig {
+		if m.mcpMode == screens.MCPModeAdd {
+			return m.handleMCPAddKey(msg)
+		}
 		return m.handleConfigFormKey(msg)
+	}
+	if m.initWizardStep == screens.InitWizardStepReview {
+		return m.handleInitReviewKey(msg)
 	}
 	return m.handleInitStep1Key(msg)
 }
@@ -249,6 +247,9 @@ func (m Model) handleConfigFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.configSectionIdx, m.configFieldIdx, m.configOptionIdx = screens.ClampSelectorState(
 		m.configDraft, m.configSectionIdx, m.configFieldIdx, m.configOptionIdx,
 	)
+	if m.mcpSectionActive() && m.configPanel == screens.ConfigPanelFields {
+		return m.handleInitMCPSectionKey(msg)
+	}
 
 	switch msg.String() {
 	case "pgup", "pgdown", "home", "end":
@@ -298,6 +299,11 @@ func (m Model) applyConfigRow(row screens.ConfigFocusRow) Model {
 func (m Model) enterConfigFields() Model {
 	if m.configPanel == screens.ConfigPanelSections {
 		m.configPanel = screens.ConfigPanelFields
+		if m.mcpSectionActive() {
+			m.mcpListFocus = screens.MCPFocusBuiltins
+			m.mcpIndex = 0
+			return m
+		}
 		rows := screens.FocusRows(m.configDraft, m.configSectionIdx)
 		if len(rows) > 0 {
 			return m.applyConfigRow(rows[0])
@@ -357,6 +363,11 @@ func (m Model) moveConfigFocus(delta int) Model {
 	case screens.ConfigPanelFooter:
 		if delta < 0 {
 			m.configPanel = screens.ConfigPanelFields
+			if m.mcpSectionActive() {
+				m.mcpListFocus = screens.MCPFocusAddBtn
+				m.mcpFooterIdx = 0
+				return m
+			}
 			rows := screens.FocusRows(m.configDraft, m.configSectionIdx)
 			if len(rows) > 0 {
 				return m.applyConfigRow(rows[len(rows)-1])
@@ -421,13 +432,15 @@ func (m Model) activateConfigFooter() (tea.Model, tea.Cmd) {
 			return m.setRoute(DefaultRoute)
 		}
 		m.initWizardStep = screens.InitWizardStepProject
-		m.initConfigConfirmed = false
 		m.initField = screens.InitFieldNext
 		m.contentOffset = 0
 		m.syncNameInputFocus()
 		return m, nil
 	case "next":
-		m.initConfigConfirmed = true
+		if m.initDecision == InitDecisionCancel && m.hasRuntimeArtifacts() {
+			return m, nil
+		}
+		m.enterInitReview()
 		return m, nil
 	}
 	return m, nil
@@ -466,6 +479,57 @@ func (m Model) maxConfigFooterIndex() int {
 	return count - 1
 }
 
+func (m *Model) enterInitReview() {
+	m.initWizardStep = screens.InitWizardStepReview
+	m.initReviewMessage = ""
+	m.initReviewFooterIdx = 0
+	m.configPanel = screens.ConfigPanelFooter
+	m.configFooterIdx = 0
+	m.contentOffset = 0
+	m.initReviewPlan = initplan.BuildReview(initplan.ReviewInput{
+		Draft:     m.configDraft,
+		MCP:       m.mcpDraft,
+		Artifacts: m.discovery.RuntimeArtifacts,
+	})
+	m.syncNameInputFocus()
+}
+
+func (m Model) handleInitReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "pgup", "pgdown", "home", "end":
+		return m.scroll(msg.String()), nil
+	case "left", "h", "up", "k":
+		m.initReviewFooterIdx = 0
+		m.configFooterIdx = 0
+		m.configPanel = screens.ConfigPanelFooter
+		return m, nil
+	case "right", "l", "down", "j":
+		m.initReviewFooterIdx = 1
+		m.configFooterIdx = 1
+		m.configPanel = screens.ConfigPanelFooter
+		return m, nil
+	case "enter", " ", "space":
+		return m.activateInitReviewFooter()
+	}
+	return m, nil
+}
+
+func (m Model) activateInitReviewFooter() (tea.Model, tea.Cmd) {
+	if m.initReviewFooterIdx <= 0 {
+		m.initWizardStep = screens.InitWizardStepConfig
+		m.initReviewMessage = ""
+		m.configShowBack = true
+		m.configShowNext = true
+		m.configPanel = screens.ConfigPanelFooter
+		m.configFooterIdx = 1
+		m.contentOffset = 0
+		m.syncNameInputFocus()
+		return m, nil
+	}
+	m.initReviewMessage = "Materialization is not implemented in this slice. No files were changed."
+	return m, nil
+}
+
 func (m Model) activateInitField() Model {
 	switch m.initField {
 	case screens.InitFieldModeNew:
@@ -478,7 +542,6 @@ func (m Model) activateInitField() Model {
 		m.initDecision = InitDecisionCancel
 	case screens.InitFieldNext:
 		m.initWizardStep = screens.InitWizardStepConfig
-		m.initConfigConfirmed = false
 		m.rebuildConfigDraft(config.ConfigModeInit, true, true)
 		m.contentOffset = 0
 		m.syncNameInputFocus()
@@ -488,227 +551,18 @@ func (m Model) activateInitField() Model {
 	return m
 }
 
-func (m Model) handleMCPContentKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.mcpMode == screens.MCPModeAdd {
-		return m.handleMCPAddKey(msg)
-	}
-	return m.handleMCPListKey(msg)
-}
-
-func (m Model) handleMCPListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	servers := len(m.mcpDraft.Servers)
-	switch msg.String() {
-	case "pgup", "pgdown", "home", "end":
-		return m.scroll(msg.String()), nil
-	case "up", "k":
-		switch m.mcpListFocus {
-		case screens.MCPFocusClose:
-			m.mcpListFocus = screens.MCPFocusAddBtn
-			m.mcpFooterIdx = 0
-		case screens.MCPFocusAddBtn:
-			if servers > 0 {
-				m.mcpListFocus = screens.MCPFocusServers
-				m.mcpIndex = servers - 1
-			}
-		case screens.MCPFocusServers:
-			if m.mcpIndex > 0 {
-				m.mcpIndex--
-			}
-		}
-		return m, nil
-	case "down", "j":
-		switch m.mcpListFocus {
-		case screens.MCPFocusServers:
-			if m.mcpIndex < servers-1 {
-				m.mcpIndex++
-			} else {
-				m.mcpListFocus = screens.MCPFocusAddBtn
-				m.mcpFooterIdx = 0
-			}
-		case screens.MCPFocusAddBtn:
-			m.mcpListFocus = screens.MCPFocusClose
-			m.mcpFooterIdx = 1
-		}
-		return m, nil
-	case "left", "h":
-		if m.mcpListFocus == screens.MCPFocusClose {
-			m.mcpListFocus = screens.MCPFocusAddBtn
-			m.mcpFooterIdx = 0
-		}
-		return m, nil
-	case "right", "l":
-		if m.mcpListFocus == screens.MCPFocusAddBtn {
-			m.mcpListFocus = screens.MCPFocusClose
-			m.mcpFooterIdx = 1
-		}
-		return m, nil
-	case "enter", " ", "space":
-		switch m.mcpListFocus {
-		case screens.MCPFocusClose:
-			return m.setRoute(DefaultRoute)
-		case screens.MCPFocusAddBtn:
-			m.resetMCPAddForm()
-			m.focus = FocusContent
-			return m, nil
-		case screens.MCPFocusServers:
-			m.mcpDraft.ToggleEnabled(m.mcpIndex)
-			return m, nil
-		}
-	}
-	return m, nil
-}
-
-func (m Model) handleMCPAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	kinds := config.MCPKindTemplates()
-	editingName := m.mcpAddFocus == screens.MCPFocusName
-	editingConn := m.mcpAddFocus == screens.MCPFocusConn
-
-	switch msg.String() {
-	case "pgup", "pgdown":
-		return m.scroll(msg.String()), nil
-	case "up", "k":
-		if editingName {
-			return m, nil
-		}
-		switch m.mcpAddFocus {
-		case screens.MCPFocusSubmit:
-			m.mcpAddFocus = screens.MCPFocusCancel
-			m.mcpFooterIdx = 0
-		case screens.MCPFocusCancel:
-			m.mcpAddFocus = screens.MCPFocusConn
-			m.syncMCPInputFocus()
-		case screens.MCPFocusConn:
-			m.mcpAddFocus = screens.MCPFocusKind
-			m.syncMCPInputFocus()
-		case screens.MCPFocusKind:
-			if m.mcpKindFocus > 0 {
-				m.mcpKindFocus--
-			} else {
-				m.mcpAddFocus = screens.MCPFocusName
-				m.syncMCPInputFocus()
-			}
-		}
-		return m, nil
-	case "down", "j":
-		if editingName {
-			m.mcpAddFocus = screens.MCPFocusKind
-			m.syncMCPInputFocus()
-			return m, nil
-		}
-		if editingConn {
-			m.mcpAddFocus = screens.MCPFocusCancel
-			m.mcpFooterIdx = 0
-			m.syncMCPInputFocus()
-			return m, nil
-		}
-		switch m.mcpAddFocus {
-		case screens.MCPFocusName:
-			m.mcpAddFocus = screens.MCPFocusKind
-			m.syncMCPInputFocus()
-		case screens.MCPFocusKind:
-			if m.mcpKindFocus < len(kinds)-1 {
-				m.mcpKindFocus++
-			} else {
-				m.mcpAddFocus = screens.MCPFocusConn
-				m.syncMCPInputFocus()
-			}
-		case screens.MCPFocusCancel:
-			m.mcpAddFocus = screens.MCPFocusSubmit
-			m.mcpFooterIdx = 1
-		}
-		return m, nil
-	case "left", "right", "h", "l":
-		if editingName || editingConn {
-			break
-		}
-		if msg.String() == "left" || msg.String() == "h" {
-			if m.mcpAddFocus == screens.MCPFocusSubmit {
-				m.mcpAddFocus = screens.MCPFocusCancel
-				m.mcpFooterIdx = 0
-			}
-			return m, nil
-		}
-		if m.mcpAddFocus == screens.MCPFocusCancel {
-			m.mcpAddFocus = screens.MCPFocusSubmit
-			m.mcpFooterIdx = 1
-		}
-		return m, nil
-	case "enter":
-		if editingName {
-			m.mcpAddFocus = screens.MCPFocusKind
-			m.syncMCPInputFocus()
-			return m, nil
-		}
-		if editingConn {
-			m.mcpAddFocus = screens.MCPFocusCancel
-			m.mcpFooterIdx = 0
-			m.syncMCPInputFocus()
-			return m, nil
-		}
-		switch m.mcpAddFocus {
-		case screens.MCPFocusKind:
-			m.mcpKind = kinds[m.mcpKindFocus].Kind
-			return m, nil
-		case screens.MCPFocusCancel:
-			m.leaveMCPAddForm()
-			return m, nil
-		case screens.MCPFocusSubmit:
-			return m.submitMCPAdd()
-		}
-		return m, nil
-	case " ", "space":
-		if editingName || editingConn {
-			break
-		}
-		switch m.mcpAddFocus {
-		case screens.MCPFocusKind:
-			m.mcpKind = kinds[m.mcpKindFocus].Kind
-			return m, nil
-		case screens.MCPFocusCancel:
-			m.leaveMCPAddForm()
-			return m, nil
-		case screens.MCPFocusSubmit:
-			return m.submitMCPAdd()
-		}
-		return m, nil
-	}
-
-	if editingName {
-		var cmd tea.Cmd
-		m.mcpNameInput, cmd = m.mcpNameInput.Update(msg)
-		m.mcpAddError = ""
-		return m, cmd
-	}
-	if editingConn {
-		var cmd tea.Cmd
-		m.mcpConnInput, cmd = m.mcpConnInput.Update(msg)
-		return m, cmd
-	}
-	return m, nil
-}
-
-func (m Model) submitMCPAdd() (tea.Model, tea.Cmd) {
-	_, err := m.mcpDraft.AddServer(m.mcpNameInput.Value(), m.mcpKind, m.mcpConnInput.Value())
-	if err != nil {
-		m.mcpAddError = err.Error()
-		m.mcpAddFocus = screens.MCPFocusName
-		m.syncMCPInputFocus()
-		return m, nil
-	}
-	m.mcpIndex = len(m.mcpDraft.Servers) - 1
-	m.leaveMCPAddForm()
-	m.mcpListFocus = screens.MCPFocusServers
-	return m, nil
-}
-
 func (m Model) handleErrorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case isForceQuit(msg), isEsc(msg), msg.String() == "enter":
-		m.quitting = true
-		return m, tea.Quit
+	case isEsc(msg), msg.String() == "enter":
+		return m.quit()
 	default:
 		return m, nil
 	}
+}
+
+func (m Model) quit() (Model, tea.Cmd) {
+	m.quitting = true
+	return m, tea.Quit
 }
 
 func (m Model) setRoute(route Route) (Model, tea.Cmd) {
@@ -723,20 +577,22 @@ func (m Model) setRoute(route Route) (Model, tea.Cmd) {
 		m.sidebarIndex = indexForRoute(m.Sidebar(), route)
 	}
 	m.focus = FocusSidebar
+	m.mcpMode = screens.MCPModeList
+	m.mcpAddError = ""
 	if route == RouteInitPlan {
 		m.initWizardStep = screens.InitWizardStepProject
-		m.initConfigConfirmed = false
+		m.initReviewMessage = ""
 	}
 	if route == RouteMCP {
 		m.mcpMode = screens.MCPModeList
 		m.mcpAddError = ""
 		m.mcpFooterIdx = 0
-		if len(m.mcpDraft.Servers) == 0 {
-			m.mcpListFocus = screens.MCPFocusAddBtn
+		if len(m.mcpDraft.CustomServers) == 0 {
+			m.mcpListFocus = screens.MCPFocusBuiltins
 			m.mcpIndex = 0
 		} else {
-			m.mcpListFocus = screens.MCPFocusServers
-			if m.mcpIndex < 0 || m.mcpIndex >= len(m.mcpDraft.Servers) {
+			m.mcpListFocus = screens.MCPFocusCustom
+			if m.mcpIndex < 0 || m.mcpIndex >= len(m.mcpDraft.CustomServers) {
 				m.mcpIndex = 0
 			}
 		}

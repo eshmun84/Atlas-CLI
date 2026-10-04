@@ -114,6 +114,12 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 					),
 				},
 			},
+			{
+				Key:         "mcp",
+				Title:       "MCP",
+				Description: "Configure external MCP integrations for Atlas.",
+				Fields:      nil,
+			},
 		},
 	}
 }
