@@ -49,6 +49,11 @@ func Resolve(args []string) Action {
 			return Action{Mode: ModeTUI, Route: tui.RouteDoctor}
 		}
 		return Action{Mode: ModeTUI, Route: tui.RouteError, UnknownCommand: joinCommand(args)}
+	case "mcp":
+		if len(args) == 1 {
+			return Action{Mode: ModeTUI, Route: tui.RouteMCP}
+		}
+		return Action{Mode: ModeTUI, Route: tui.RouteError, UnknownCommand: joinCommand(args)}
 	default:
 		return Action{Mode: ModeTUI, Route: tui.RouteError, UnknownCommand: joinCommand(args)}
 	}

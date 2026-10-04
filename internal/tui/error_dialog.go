@@ -9,29 +9,23 @@ import (
 
 func (m Model) renderErrorLayout() string {
 	innerW := max(m.width-2, 1)
-	innerH := max(m.height-2, 1)
-	bodyH := m.contentViewportHeight()
 
 	header := m.renderHeader()
 	footer := m.renderFooter()
 	divider := mutedStyle.Render(strings.Repeat("─", innerW))
-	middle := lipgloss.Place(
-		innerW,
-		bodyH,
-		lipgloss.Center,
-		lipgloss.Center,
-		m.errorDialogBox(innerW),
-	)
+	dialog := m.errorDialogBox(innerW)
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
+	body := lipgloss.JoinVertical(lipgloss.Center,
 		header,
 		divider,
-		middle,
+		"",
+		dialog,
+		"",
 		divider,
 		footer,
 	)
 
-	return panelBorder.Width(innerW).Height(innerH).Render(content)
+	return panelBorder.Width(innerW).Render(body)
 }
 
 func (m Model) errorDialogBox(availableWidth int) string {

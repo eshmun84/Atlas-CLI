@@ -7,6 +7,7 @@ const (
 	RouteDashboard Route = iota
 	RouteInitPlan
 	RouteConfigure
+	RouteMCP
 	RouteStatus
 	RouteDoctor
 	RouteHelp
@@ -24,6 +25,8 @@ func (r Route) String() string {
 		return "Init / Setup"
 	case RouteConfigure:
 		return "Configure"
+	case RouteMCP:
+		return "MCP"
 	case RouteStatus:
 		return "Status"
 	case RouteDoctor:

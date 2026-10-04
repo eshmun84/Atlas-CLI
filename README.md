@@ -12,31 +12,41 @@ Atlas is TUI-first.
 
 - left sidebar navigation
 - right content panel
-- shared header and footer
-- scrollable content (`PgUp` / `PgDn`)
+- shared compact header and content-sized footer
+- content-fit shell on short screens: action row sits directly above the footer, without stretching the body to fill the terminal
+- one-line top gap on normal-height terminals
+- scrollable content (`PgUp` / `PgDn`) when the screen is taller than the terminal
 
 | Command | Behavior |
 | --- | --- |
 | `atlas --version` | Console: print version only |
 | `atlas` | TUI shell, Dashboard |
 | `atlas help` / `--help` / `-h` | TUI shell, Help |
-| `atlas init` / `atlas init --dry-run` | TUI shell, Init / Setup |
+| `atlas init` / `atlas init --dry-run` | TUI shell, Init / Setup wizard |
+| `atlas mcp` | TUI shell, MCP integrations |
 | `atlas status` | TUI shell, Status |
 | `atlas doctor` | TUI shell, Doctor |
 | `atlas start` / `atlas change` | Header + centered Error dialog + footer (Salir) |
 
 Sidebar entries:
 
-- Not initialized: Dashboard, Init / Setup, Status, Doctor, Help, Exit
-- Initialized (valid `.atlas/config.yaml`): Dashboard, Configure, Status, Doctor, Help, Exit
+- Not initialized: Dashboard, Init / Setup, MCP, Status, Doctor, Help, Exit
+- Initialized (valid `.atlas/config.yaml`): Dashboard, Configure, MCP, Status, Doctor, Help, Exit
 
-Init / Setup includes an interactive in-memory draft:
+Init / Setup is a two-step in-memory wizard:
 
-- editable project name (defaults to folder name)
-- New project or Existing project mode (auto-detection is recommendation/reset only)
-- runtime/adaptor artifact warning when recognized files/dirs exist
-- Atlas does not merge old runtime artifacts; future init will back them up and replace them
-- no materialization happens yet — `.atlas` and `AGENTS.md` are still not created
+1. **Project Setup** — project name, New/Existing mode, runtime artifact gate
+2. **Initial Configuration** — sectioned selector with Governance, Adapters, Source Control, and Memory
+
+Init Step 1, Init Step 2, Configure, and MCP place their action row immediately after the screen content. The global footer follows that row. On tall terminals the extra space stays below the shell, not between the action row and the footer.
+
+Init Step 2 uses vertical checkbox/radio-style rows. Arrow keys move focus only. Values change only with Space or Enter. Workflow currently supports SDD only. Spec engine supports OpenSpec or None. Source Control includes Atlas governance files (Local only / Versioned). Memory strategy supports SQLite, Context Capsule, or SQLite + Context Capsule. Runtime and Skills/Registry stay internal Atlas behavior. There is no Project Stack configuration in init.
+
+Configure uses the same visible sections in post-init mode. Edits stay in memory only.
+
+MCP is a separate left-menu screen (not part of Init Step 2). It starts with no configured integrations. Jira, Context7, and Custom are kinds available in the Add MCP form, not default configured servers. Added entries and enabled state are in-memory only. MCP does not connect to servers, validate credentials, or persist files yet.
+
+No configuration is persisted yet. No materialization exists yet. Review / Materialization Plan is not implemented yet. `.atlas` and `AGENTS.md` are still not created.
 
 `atlas start` and `atlas change` are intentionally unsupported. They are not real commands.
 
@@ -62,7 +72,7 @@ cmd/atlas/           # process entrypoint
 internal/app/        # application wiring
 internal/cli/        # arg parse + TUI launcher
 internal/tui/        # sidebar shell Bubble Tea + Lip Gloss TUI
-internal/config/     # config schema
+internal/config/     # config schema + ConfigDraft + MCPDraft models
 internal/doctor/     # diagnostics model
 internal/initplan/   # init dry-run planning
 internal/workspace/  # read-only discovery
@@ -72,9 +82,12 @@ internal/version/    # version string
 ## Intentionally out of scope
 
 - Project materialization (`AGENTS.md`, `.atlas/`, rules, memory, adapters)
+- Review / Materialization Plan wizard step
 - Interactive init apply/force
 - SQLite memory creation
 - Assets registry / marketplace
 - Cursor/OpenCode adapters
-- OpenSpec, MCP, Jira, Git/GitHub automation
+- OpenSpec automation
+- MCP connections, credentials, or persistence
+- Jira / Git / GitHub automation
 - Daily workflow commands such as `atlas start` or `atlas change new`

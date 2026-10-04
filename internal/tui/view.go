@@ -9,7 +9,7 @@ func (m Model) View() string {
 		return renderSmallTerminal(m.width, m.height)
 	}
 	if m.route == RouteError {
-		return m.renderErrorLayout()
+		return m.withFrame(m.renderErrorLayout())
 	}
-	return m.renderShell()
+	return m.withFrame(m.renderShell())
 }

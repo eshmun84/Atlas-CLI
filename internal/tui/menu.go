@@ -17,6 +17,7 @@ func SidebarItems(initialized bool) []SidebarItem {
 	return []SidebarItem{
 		{Label: "Dashboard", Route: RouteDashboard},
 		setup,
+		{Label: "MCP", Route: RouteMCP},
 		{Label: "Status", Route: RouteStatus},
 		{Label: "Doctor", Route: RouteDoctor},
 		{Label: "Help", Route: RouteHelp},

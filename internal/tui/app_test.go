@@ -78,8 +78,11 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	labels := sidebarLabels(uninit)
-	if !contains(labels, "Init / Setup") || contains(labels, "Configure") {
+	if !contains(labels, "Init / Setup") || contains(labels, "Configure") || !contains(labels, "MCP") {
 		t.Fatalf("uninitialized sidebar = %v", labels)
+	}
+	if idx := indexOf(labels, "MCP"); idx < 0 || idx >= indexOf(labels, "Status") {
+		t.Fatalf("MCP should appear before Status: %v", labels)
 	}
 
 	writeValidAtlasConfig(t, root)
@@ -87,18 +90,272 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	labels = sidebarLabels(initd)
-	if !contains(labels, "Configure") || contains(labels, "Init / Setup") {
+	if !contains(labels, "Configure") || contains(labels, "Init / Setup") || !contains(labels, "MCP") {
 		t.Fatalf("initialized sidebar = %v", labels)
+	}
+	if idx := indexOf(labels, "MCP"); idx < 0 || idx <= indexOf(labels, "Configure") || idx >= indexOf(labels, "Status") {
+		t.Fatalf("MCP should sit after Configure and before Status: %v", labels)
 	}
 
 	cfg := loadWorkspace(t, tui.Options{
 		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	view := cfg.View()
-	for _, want := range []string{"Configure", "Config path", "demo", "read-only"} {
+	for _, want := range []string{
+		"Configure",
+		"Sections",
+		"Governance",
+		"Adapters",
+		"Source Control",
+		"Memory",
+		"Project:",
+		"[ Close ]",
+	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("configure missing %q:\n%s", want, view)
 		}
+	}
+	for _, banned := range []string{"[ Apply", "[ Next", "Runtime entrypoint", "Skills / Registry", "Project Stack"} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("configure unexpected %q:\n%s", banned, view)
+		}
+	}
+	if _, ok := cfg.ConfigDraft().FieldByKey("runtime.entrypoint"); ok {
+		t.Fatal("runtime fields must not exist in draft")
+	}
+	// Sidebar should show Configure, not Init / Setup.
+	if contains(sidebarLabels(cfg), "Init / Setup") || !contains(sidebarLabels(cfg), "Configure") {
+		t.Fatalf("sidebar = %v", sidebarLabels(cfg))
+	}
+}
+
+func TestMCPScreenInMemory(t *testing.T) {
+	root := t.TempDir()
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	view := m.View()
+	for _, want := range []string{
+		"MCP",
+		"No MCP integrations configured yet.",
+		"No files will be changed in this slice.",
+		"preview only",
+		"[ Add MCP ]",
+		"[ Close ]",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("mcp missing %q:\n%s", want, view)
+		}
+	}
+	for _, banned := range []string{"[x] Jira", "[ ] Jira", "[ ] Context7", "Custom MCP"} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("mcp must not pre-create %q:\n%s", banned, view)
+		}
+	}
+	assertShell(t, view, "MCP")
+	assertActionNearFooter(t, view)
+	assertGlobalTopGap(t, view)
+
+	m = mustModel(m.Update(key("tab")))
+	m = mustModel(m.Update(key("enter"))) // Add MCP
+	if m.MCPMode() != screens.MCPModeAdd {
+		t.Fatalf("mode = %q, want add", m.MCPMode())
+	}
+	for _, want := range []string{"Add MCP", "Name", "Kind", "Connection", "Jira", "Context7", "Custom", "[ Cancel ]", "[ Add ]"} {
+		if !strings.Contains(m.View(), want) {
+			t.Fatalf("add form missing %q:\n%s", want, m.View())
+		}
+	}
+
+	// Empty name rejected.
+	m = mcpGotoFooterAction(t, m, true)
+	m = mustModel(m.Update(key("enter")))
+	if m.MCPMode() != screens.MCPModeAdd || m.MCPAddError() == "" {
+		t.Fatalf("expected empty-name validation, mode=%q err=%q", m.MCPMode(), m.MCPAddError())
+	}
+
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("My Jira")}))
+	m = mustModel(m.Update(key("down"))) // kind
+	m = mustModel(m.Update(key("up")))
+	m = mustModel(m.Update(key("up"))) // Jira
+	m = mustModel(m.Update(key("enter")))
+	m = mcpGotoFooterAction(t, m, true)
+	m = mustModel(m.Update(key("enter"))) // Add
+	if m.MCPMode() != screens.MCPModeList || len(m.MCPDraft().Servers) != 1 {
+		t.Fatalf("after add mode=%q servers=%#v", m.MCPMode(), m.MCPDraft().Servers)
+	}
+	if m.MCPDraft().Servers[0].Name != "My Jira" || m.MCPDraft().Servers[0].Kind != "jira" {
+		t.Fatalf("server = %#v", m.MCPDraft().Servers[0])
+	}
+
+	// Duplicate rejected then cancel.
+	m = mustModel(m.Update(key("down"))) // Add MCP
+	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("My Jira")}))
+	m = mcpGotoFooterAction(t, m, true)
+	m = mustModel(m.Update(key("enter")))
+	if !strings.Contains(m.MCPAddError(), "already exists") {
+		t.Fatalf("expected duplicate error, got %q", m.MCPAddError())
+	}
+	m = mcpGotoFooterAction(t, m, false)
+	m = mustModel(m.Update(key("enter"))) // Cancel
+	if m.MCPMode() != screens.MCPModeList || len(m.MCPDraft().Servers) != 1 {
+		t.Fatalf("cancel failed mode=%q servers=%d", m.MCPMode(), len(m.MCPDraft().Servers))
+	}
+
+	if m.MCPListFocus() != screens.MCPFocusServers {
+		m = mustModel(m.Update(key("up")))
+	}
+	m = mustModel(m.Update(key("enter")))
+	if !m.MCPDraft().Servers[0].Enabled {
+		t.Fatal("toggle enable failed")
+	}
+	m = mustModel(m.Update(key(" ")))
+	if m.MCPDraft().Servers[0].Enabled {
+		t.Fatal("toggle disable failed")
+	}
+	assertNoMutation(t, root)
+}
+
+func mcpGotoFooterAction(t *testing.T, m tui.Model, submit bool) tui.Model {
+	t.Helper()
+	for i := 0; i < 12; i++ {
+		m = mustModel(m.Update(key("down")))
+	}
+	if submit {
+		m = mustModel(m.Update(key("right")))
+	} else {
+		m = mustModel(m.Update(key("left")))
+	}
+	return m
+}
+
+func TestCompactConfigureFooter(t *testing.T) {
+	root := t.TempDir()
+	writeValidAtlasConfig(t, root)
+	cfg := loadWorkspace(t, tui.Options{
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	view := cfg.View()
+	if !strings.Contains(view, "[ Close ]") {
+		t.Fatalf("configure footer missing Close:\n%s", view)
+	}
+	if strings.Contains(view, "[ Next ]") || strings.Contains(view, "[ Back ]") {
+		t.Fatalf("configure footer should be Close only:\n%s", view)
+	}
+	assertCompactFooter(t, view)
+}
+
+func assertCompactFooter(t *testing.T, view string) {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.TrimSpace(line) == "Action" {
+			t.Fatalf("footer must not render Action heading:\n%s", view)
+		}
+	}
+	assertActionNearFooter(t, view)
+}
+
+func assertActionNearFooter(t *testing.T, view string) {
+	t.Helper()
+	lines := strings.Split(view, "\n")
+	actionLine := -1
+	footerLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, "[ Close ]") || strings.Contains(line, "[ Next ]") || strings.Contains(line, "[ Add MCP ]") {
+			actionLine = i
+		}
+		if strings.Contains(line, "q quit") || strings.Contains(line, "Tab focus") || strings.Contains(line, "Enter/q/Esc") {
+			if footerLine < 0 || i > footerLine {
+				footerLine = i
+			}
+		}
+	}
+	if actionLine < 0 {
+		t.Fatalf("missing action row:\n%s", view)
+	}
+	if footerLine < 0 {
+		t.Fatalf("missing global footer:\n%s", view)
+	}
+	if footerLine <= actionLine {
+		t.Fatalf("footer should appear after action row:\n%s", view)
+	}
+	if strings.Count(view, "q quit") > 1 && strings.Count(view, "Tab focus") > 1 {
+		t.Fatalf("footer appears duplicated:\n%s", view)
+	}
+	blanks := 0
+	for _, line := range lines[actionLine+1 : footerLine] {
+		trimmed := strings.TrimSpace(strings.Trim(line, "│"))
+		if trimmed == "" {
+			blanks++
+		}
+	}
+	if blanks > 2 {
+		t.Fatalf("large blank block between action row and footer (%d blank lines):\n%s", blanks, view)
+	}
+	if footerLine-actionLine > 4 {
+		t.Fatalf("action row too far from footer (gap %d lines):\n%s", footerLine-actionLine, view)
+	}
+}
+
+func TestContentFitKeepsActionNearFooter(t *testing.T) {
+	root := t.TempDir()
+	initM := loadWorkspace(t, tui.Options{
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	initM = mustModel(initM.Update(tea.WindowSizeMsg{Width: 120, Height: 60}))
+	assertActionNearFooter(t, initM.View())
+	assertGlobalTopGap(t, initM.View())
+	assertShell(t, initM.View(), "Init / Setup")
+	if strings.Count(initM.View(), "q quit") != 1 {
+		t.Fatalf("footer should appear once:\n%s", initM.View())
+	}
+
+	initM = mustModel(initM.Update(key("tab")))
+	for initM.InitField() != screens.InitFieldNext {
+		prev := initM.InitField()
+		initM = mustModel(initM.Update(key("down")))
+		if initM.InitField() == prev {
+			t.Fatal("could not reach Next")
+		}
+	}
+	initM = mustModel(initM.Update(key("enter")))
+	assertActionNearFooter(t, initM.View())
+	assertGlobalTopGap(t, initM.View())
+	for _, line := range strings.Split(initM.View(), "\n") {
+		if strings.TrimSpace(line) == "Action" {
+			t.Fatalf("step 2 Action heading:\n%s", initM.View())
+		}
+	}
+
+	mcp := loadWorkspace(t, tui.Options{
+		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	mcp = mustModel(mcp.Update(tea.WindowSizeMsg{Width: 120, Height: 60}))
+	assertActionNearFooter(t, mcp.View())
+	assertGlobalTopGap(t, mcp.View())
+	assertShell(t, mcp.View(), "MCP")
+
+	writeValidAtlasConfig(t, root)
+	cfg := loadWorkspace(t, tui.Options{
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	cfg = mustModel(cfg.Update(tea.WindowSizeMsg{Width: 120, Height: 60}))
+	assertActionNearFooter(t, cfg.View())
+}
+
+func TestTallTerminalDoesNotOverflow(t *testing.T) {
+	root := t.TempDir()
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteHelp, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m = mustModel(m.Update(tea.WindowSizeMsg{Width: 120, Height: 80}))
+	view := m.View()
+	if !strings.Contains(view, "Atlas Help") {
+		t.Fatalf("help missing:\n%s", view)
+	}
+	if strings.Count(view, "\n")+1 > 80 {
+		t.Fatalf("view height exceeds terminal 80")
 	}
 }
 
@@ -214,6 +471,7 @@ func TestShellViews(t *testing.T) {
 		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	assertShell(t, dash.View(), "Dashboard")
+	assertGlobalTopGap(t, dash.View())
 	if !strings.Contains(dash.View(), "Suggested next action") {
 		t.Fatalf("dashboard missing next action:\n%s", dash.View())
 	}
@@ -340,7 +598,7 @@ func TestInitFocusNameModeDecision(t *testing.T) {
 	}
 }
 
-func TestInitNoArtifactsHidesGateAndNextConfirms(t *testing.T) {
+func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -351,8 +609,12 @@ func TestInitNoArtifactsHidesGateAndNextConfirms(t *testing.T) {
 		Getwd:    func() (string, error) { return root, nil },
 		Discover: workspace.Discover,
 	})
+	if m.InitWizardStep() != screens.InitWizardStepProject {
+		t.Fatalf("step = %d, want project setup", m.InitWizardStep())
+	}
 	view := m.View()
 	for _, want := range []string{
+		"Step 1 — Project Setup",
 		"No existing runtime/adaptor artifacts detected.",
 		"Atlas can initialize normally.",
 		"Next",
@@ -365,6 +627,7 @@ func TestInitNoArtifactsHidesGateAndNextConfirms(t *testing.T) {
 		"Do not initialize Atlas",
 		"Initialize Atlas — backup and replace",
 		"Initialization Decision",
+		"Plan Preview",
 	} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("unexpected %q:\n%s", banned, view)
@@ -380,24 +643,330 @@ func TestInitNoArtifactsHidesGateAndNextConfirms(t *testing.T) {
 		}
 	}
 	m = mustModel(m.Update(key("enter")))
-	if !m.InitStepConfirmed() {
-		t.Fatal("expected step confirmed")
+	if m.InitWizardStep() != screens.InitWizardStepConfig {
+		t.Fatalf("step = %d, want config", m.InitWizardStep())
 	}
 	view = m.View()
 	for _, want := range []string{
-		"Step ready.",
-		"Next wizard step is not implemented in this slice.",
-		"No files were changed.",
-		"Action",
+		"Step 2 — Initial Configuration",
+		"Project:",
+		"Sections",
+		"Governance",
+		"Adapters",
+		"Source Control",
+		"Memory",
+		"[ Back ]",
+		"[ Next ]",
 	} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("missing step confirmation %q:\n%s", want, view)
+			t.Fatalf("missing %q:\n%s", want, view)
 		}
 	}
+	backIdx := strings.Index(view, "[ Back ]")
+	nextIdx := strings.Index(view, "[ Next ]")
+	if backIdx < 0 || nextIdx < 0 || backIdx >= nextIdx {
+		t.Fatalf("Back must appear before Next in compact footer:\n%s", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if strings.TrimSpace(line) == "Action" {
+			t.Fatalf("Step 2 must not render Action heading:\n%s", view)
+		}
+	}
+	for _, banned := range []string{
+		"Project Stack", "Skills / Registry", "Tech / Libraries",
+		"Generic AGENTS.md", "Runtime entrypoint", "Governed basic", "Review only",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
+	}
+	selector := m.ConfigDraft().SelectorSections()
+	if len(selector) != 4 {
+		t.Fatalf("selector sections = %d, want 4", len(selector))
+	}
+	if strings.Contains(view, "Plan Preview") {
+		t.Fatal("step 2 must not show Plan Preview")
+	}
+	assertActionNearFooter(t, view)
+
+	// Governance: arrows never mutate; Space/Enter selects Spec engine.
+	m = mustModel(m.Update(key("enter")))
+	workflow, _ := m.ConfigDraft().FieldByKey("governance.default_workflow")
+	if workflow.Value != "sdd" {
+		t.Fatalf("workflow = %q, want sdd", workflow.Value)
+	}
+	m = mustModel(m.Update(key("down"))) // OpenSpec row
+	m = mustModel(m.Update(key("down"))) // None row
+	engine, _ := m.ConfigDraft().FieldByKey("governance.spec_engine")
+	if engine.Value != "openspec" {
+		t.Fatalf("arrows mutated spec engine to %q", engine.Value)
+	}
+	m = mustModel(m.Update(key("enter")))
+	engine, _ = m.ConfigDraft().FieldByKey("governance.spec_engine")
+	if engine.Value != "none" {
+		t.Fatalf("spec engine = %q, want none", engine.Value)
+	}
+	m = mustModel(m.Update(key("left"))) // sections
+	engine, _ = m.ConfigDraft().FieldByKey("governance.spec_engine")
+	if engine.Value != "none" {
+		t.Fatalf("left mutated spec engine to %q", engine.Value)
+	}
+	m = mustModel(m.Update(key("enter"))) // back into governance
+	engine, _ = m.ConfigDraft().FieldByKey("governance.spec_engine")
+	if engine.Value != "none" {
+		t.Fatalf("returning lost spec engine, got %q", engine.Value)
+	}
+
+	// Boolean toggles only on Space/Enter.
+	for {
+		field, ok := screens.ActiveField(m.ConfigDraft(), m.ConfigSectionIndex(), m.ConfigFieldIndex())
+		if ok && field.Key == "governance.testing_required" {
+			break
+		}
+		prevField, prevOpt := m.ConfigFieldIndex(), m.ConfigOptionIndex()
+		m = mustModel(m.Update(key("down")))
+		if m.ConfigFieldIndex() == prevField && m.ConfigOptionIndex() == prevOpt {
+			t.Fatal("could not reach testing_required")
+		}
+	}
+	before, _ := m.ConfigDraft().FieldByKey("governance.testing_required")
+	m = mustModel(m.Update(key("left")))
+	m = mustModel(m.Update(key("right")))
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("up")))
+	afterNav, _ := m.ConfigDraft().FieldByKey("governance.testing_required")
+	if afterNav.Value != before.Value {
+		t.Fatalf("arrows mutated bool %q -> %q", before.Value, afterNav.Value)
+	}
+	// Re-focus testing_required if needed.
+	for {
+		field, ok := screens.ActiveField(m.ConfigDraft(), m.ConfigSectionIndex(), m.ConfigFieldIndex())
+		if ok && field.Key == "governance.testing_required" && m.ConfigPanel() == screens.ConfigPanelFields {
+			break
+		}
+		if m.ConfigPanel() == screens.ConfigPanelSections {
+			m = mustModel(m.Update(key("enter")))
+		}
+		m = mustModel(m.Update(key("down")))
+	}
+	m = mustModel(m.Update(key(" ")))
+	toggled, _ := m.ConfigDraft().FieldByKey("governance.testing_required")
+	if toggled.Value == before.Value {
+		t.Fatal("space should toggle testing_required")
+	}
+
+	// Adapters: multiselect only on Space/Enter.
+	m = mustModel(m.Update(key("left")))
+	m = gotoConfigSection(t, m, "adapters")
+	m = mustModel(m.Update(key("enter")))
+	adaptersBefore, _ := m.ConfigDraft().FieldByKey("adapters.selected")
+	m = mustModel(m.Update(key("down")))
+	adaptersMid, _ := m.ConfigDraft().FieldByKey("adapters.selected")
+	if adaptersMid.Value != adaptersBefore.Value {
+		t.Fatalf("arrow mutated adapters %q -> %q", adaptersBefore.Value, adaptersMid.Value)
+	}
+	m = mustModel(m.Update(key("enter")))
+	adaptersAfter, _ := m.ConfigDraft().FieldByKey("adapters.selected")
+	if adaptersAfter.Value == adaptersBefore.Value {
+		t.Fatalf("expected adapter multiselect change, still %q", adaptersAfter.Value)
+	}
+
+	// Source Control: mode/branch/storage only on Space/Enter.
+	m = mustModel(m.Update(key("left")))
+	m = gotoConfigSection(t, m, "source_control")
+	m = mustModel(m.Update(key("enter")))
+	modeBefore, _ := m.ConfigDraft().FieldByKey("source_control.mode")
+	m = mustModel(m.Update(key("down")))
+	modeMid, _ := m.ConfigDraft().FieldByKey("source_control.mode")
+	if modeMid.Value != modeBefore.Value {
+		t.Fatalf("arrow mutated source control mode")
+	}
+	m = mustModel(m.Update(key("enter")))
+	modeAfter, _ := m.ConfigDraft().FieldByKey("source_control.mode")
+	if modeAfter.Value == modeBefore.Value {
+		t.Fatalf("enter should change source control mode")
+	}
+
+	for {
+		field, ok := screens.ActiveField(m.ConfigDraft(), m.ConfigSectionIndex(), m.ConfigFieldIndex())
+		if ok && field.Key == "source_control.branch_strategy" {
+			break
+		}
+		prevField, prevOpt := m.ConfigFieldIndex(), m.ConfigOptionIndex()
+		m = mustModel(m.Update(key("down")))
+		if m.ConfigFieldIndex() == prevField && m.ConfigOptionIndex() == prevOpt {
+			t.Fatal("could not reach branch strategy")
+		}
+	}
+	branchBefore, _ := m.ConfigDraft().FieldByKey("source_control.branch_strategy")
+	m = mustModel(m.Update(key("down")))
+	branchMid, _ := m.ConfigDraft().FieldByKey("source_control.branch_strategy")
+	if branchMid.Value != branchBefore.Value {
+		t.Fatal("arrow mutated branch strategy")
+	}
+	m = mustModel(m.Update(key("enter")))
+	branchAfter, _ := m.ConfigDraft().FieldByKey("source_control.branch_strategy")
+	if branchAfter.Value == branchBefore.Value {
+		t.Fatal("enter should change branch strategy")
+	}
+
+	for {
+		field, ok := screens.ActiveField(m.ConfigDraft(), m.ConfigSectionIndex(), m.ConfigFieldIndex())
+		if ok && field.Key == "source_control.governance_storage" {
+			break
+		}
+		prevField, prevOpt := m.ConfigFieldIndex(), m.ConfigOptionIndex()
+		m = mustModel(m.Update(key("down")))
+		if m.ConfigFieldIndex() == prevField && m.ConfigOptionIndex() == prevOpt {
+			t.Fatal("could not reach Atlas governance files field")
+		}
+	}
+	m = mustModel(m.Update(key("down"))) // Versioned focus
+	storage, _ := m.ConfigDraft().FieldByKey("source_control.governance_storage")
+	if storage.Value != "local_only" {
+		t.Fatalf("arrow mutated governance files to %q", storage.Value)
+	}
+	m = mustModel(m.Update(key("enter")))
+	storage, _ = m.ConfigDraft().FieldByKey("source_control.governance_storage")
+	if storage.Value != "versioned" {
+		t.Fatalf("governance files = %q, want versioned", storage.Value)
+	}
+
+	// Memory strategy only on Space/Enter; persists across navigate.
+	m = mustModel(m.Update(key("left")))
+	m = gotoConfigSection(t, m, "memory")
+	m = mustModel(m.Update(key("enter")))
+	mem, _ := m.ConfigDraft().FieldByKey("memory.strategy")
+	if mem.Value != "sqlite_plus_context_capsule" {
+		t.Fatalf("default memory = %q", mem.Value)
+	}
+	m = mustModel(m.Update(key("down"))) // Context Capsule focus
+	mem, _ = m.ConfigDraft().FieldByKey("memory.strategy")
+	if mem.Value != "sqlite_plus_context_capsule" {
+		t.Fatalf("arrow mutated memory to %q", mem.Value)
+	}
+	m = mustModel(m.Update(key("up"))) // SQLite focus
+	m = mustModel(m.Update(key("enter")))
+	mem, _ = m.ConfigDraft().FieldByKey("memory.strategy")
+	if mem.Value != "sqlite" {
+		t.Fatalf("memory = %q, want sqlite", mem.Value)
+	}
+	m = mustModel(m.Update(key("left")))
+	m = gotoConfigSection(t, m, "adapters")
+	m = gotoConfigSection(t, m, "memory")
+	memBack, _ := m.ConfigDraft().FieldByKey("memory.strategy")
+	if memBack.Value != "sqlite" {
+		t.Fatalf("memory strategy lost after navigate, got %q", memBack.Value)
+	}
+
+	// Locked project.name cannot change.
+	draft := m.ConfigDraft()
+	if draft.SelectOption("project.name", "hacked") {
+		t.Fatal("project.name must not be editable")
+	}
+
+	// Move to footer Next and confirm Step 2.
+	if m.ConfigPanel() == screens.ConfigPanelSections {
+		m = mustModel(m.Update(key("enter")))
+	}
+	for m.ConfigPanel() != screens.ConfigPanelFooter {
+		prevPanel := m.ConfigPanel()
+		prevField := m.ConfigFieldIndex()
+		prevOpt := m.ConfigOptionIndex()
+		prevFooter := m.ConfigFooterIndex()
+		m = mustModel(m.Update(key("down")))
+		if m.ConfigPanel() == prevPanel &&
+			m.ConfigFieldIndex() == prevField &&
+			m.ConfigOptionIndex() == prevOpt &&
+			m.ConfigFooterIndex() == prevFooter {
+			t.Fatal("could not reach footer")
+		}
+	}
+	if m.ConfigFooterIndex() != 1 {
+		m = mustModel(m.Update(key("right")))
+	}
+	m = mustModel(m.Update(key("enter")))
+	if !m.InitConfigConfirmed() {
+		t.Fatal("expected config step confirmed")
+	}
+	m = mustModel(m.Update(key("end")))
+	view = m.View()
+	for _, want := range []string{
+		"Configuration ready.",
+		"Review / Materialization Plan is not implemented in this slice.",
+		"No files were changed.",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+
+	if m.ConfigFooterIndex() != 0 {
+		m = mustModel(m.Update(key("left")))
+	}
+	m = mustModel(m.Update(key("enter")))
+	if m.InitWizardStep() != screens.InitWizardStepProject {
+		t.Fatalf("back step = %d, want project", m.InitWizardStep())
+	}
+	if !strings.Contains(m.View(), "Step 1 — Project Setup") {
+		t.Fatalf("expected step 1 after back:\n%s", m.View())
+	}
+
 	assertNoMutation(t, root)
 	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
 		t.Fatalf("AGENTS.md should not be created, stat err = %v", err)
 	}
+}
+
+func sectionIndexOf(m tui.Model, key string) int {
+	for i, section := range m.ConfigDraft().SelectorSections() {
+		if section.Key == key {
+			return i
+		}
+	}
+	return -1
+}
+
+func gotoConfigSection(t *testing.T, m tui.Model, sectionKey string) tui.Model {
+	t.Helper()
+	target := sectionIndexOf(m, sectionKey)
+	if target < 0 {
+		t.Fatalf("missing section %q", sectionKey)
+	}
+	if m.Focus() != tui.FocusContent {
+		m = mustModel(m.Update(key("tab")))
+	}
+	for i := 0; i < 16 && m.ConfigPanel() != screens.ConfigPanelSections; i++ {
+		prevPanel := m.ConfigPanel()
+		prevOpt := m.ConfigOptionIndex()
+		prevField := m.ConfigFieldIndex()
+		prevFooter := m.ConfigFooterIndex()
+		m = mustModel(m.Update(key("up")))
+		if m.ConfigPanel() == screens.ConfigPanelSections {
+			break
+		}
+		if m.ConfigPanel() == prevPanel && m.ConfigOptionIndex() == prevOpt && m.ConfigFieldIndex() == prevField && m.ConfigFooterIndex() == prevFooter {
+			m = mustModel(m.Update(key("left")))
+		}
+	}
+	if m.ConfigPanel() != screens.ConfigPanelSections {
+		t.Fatalf("could not return to section list for %q (panel=%q focus=%v field=%d)", sectionKey, m.ConfigPanel(), m.Focus(), m.ConfigFieldIndex())
+	}
+	for m.ConfigSectionIndex() < target {
+		prev := m.ConfigSectionIndex()
+		m = mustModel(m.Update(key("down")))
+		if m.ConfigSectionIndex() == prev {
+			t.Fatalf("could not reach section %q (at %d)", sectionKey, prev)
+		}
+	}
+	for m.ConfigSectionIndex() > target {
+		prev := m.ConfigSectionIndex()
+		m = mustModel(m.Update(key("up")))
+		if m.ConfigSectionIndex() == prev {
+			t.Fatalf("could not reach section %q (at %d)", sectionKey, prev)
+		}
+	}
+	return m
 }
 
 func TestInitContentFocusGlobalKeys(t *testing.T) {
@@ -406,6 +975,8 @@ func TestInitContentFocusGlobalKeys(t *testing.T) {
 		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	m = mustModel(m.Update(key("tab")))
+	// Leave the project-name text field so b remains a global dashboard shortcut.
+	m = mustModel(m.Update(key("down")))
 	m, cmd := apply(m, key("b"))
 	m = applyCmd(t, m, cmd)
 	if m.Route() != tui.DefaultRoute {
@@ -431,10 +1002,51 @@ func TestErrorDialogView(t *testing.T) {
 			t.Fatalf("missing %q in error layout:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"Init / Setup", "Status", "Doctor", "Help", "Exit", "Dashboard", "Configure"} {
+	for _, banned := range []string{"Init / Setup", "Status", "Doctor", "Help", "Exit", "Dashboard", "Configure", "MCP"} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("error layout must not contain %q:\n%s", banned, view)
 		}
+	}
+	assertCompactErrorLayout(t, view)
+	assertGlobalTopGap(t, view)
+}
+
+func assertCompactErrorLayout(t *testing.T, view string) {
+	t.Helper()
+	if strings.Count(view, "Enter/q/Esc salir") != 1 {
+		t.Fatalf("error footer should appear once:\n%s", view)
+	}
+	lines := strings.Split(view, "\n")
+	start, end := -1, -1
+	for i, line := range lines {
+		if strings.Contains(line, "╭") && start < 0 {
+			start = i
+		}
+		if strings.Contains(line, "╰") {
+			end = i
+		}
+	}
+	if start < 0 || end <= start {
+		t.Fatalf("missing error panel:\n%s", view)
+	}
+	maxBlank, cur := 0, 0
+	for _, line := range lines[start+1 : end] {
+		trimmed := strings.TrimSpace(strings.Trim(line, "│"))
+		if trimmed == "" {
+			cur++
+			if cur > maxBlank {
+				maxBlank = cur
+			}
+			continue
+		}
+		cur = 0
+	}
+	if maxBlank > 3 {
+		t.Fatalf("huge blank block inside error panel (%d consecutive blank lines):\n%s", maxBlank, view)
+	}
+	blockH := end - start + 1
+	if blockH > 24 {
+		t.Fatalf("error panel height %d is not content-fit:\n%s", blockH, view)
 	}
 }
 
@@ -471,23 +1083,71 @@ func TestSmallTerminalView(t *testing.T) {
 	if !strings.Contains(view, "larger terminal") {
 		t.Fatalf("expected small-terminal message:\n%s", view)
 	}
+	if !strings.Contains(view, "quit") {
+		t.Fatalf("small terminal must keep quit hint:\n%s", view)
+	}
+}
+
+func TestMinHeightOmitsTopGap(t *testing.T) {
+	root := t.TempDir()
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m = mustModel(m.Update(tea.WindowSizeMsg{Width: 80, Height: tui.MinHeight}))
+	view := m.View()
+	if !strings.Contains(view, "Atlas") {
+		t.Fatalf("missing header:\n%s", view)
+	}
+	if !strings.Contains(view, "q quit") {
+		t.Fatalf("missing footer:\n%s", view)
+	}
+	first := strings.Split(view, "\n")[0]
+	if strings.TrimSpace(first) == "" {
+		t.Fatalf("min-height view should omit top gap:\n%s", view)
+	}
 }
 
 func assertShell(t *testing.T, view, contentTitle string) {
 	t.Helper()
-	for _, want := range []string{"Atlas", "Dashboard", "Status", "Doctor", "Help", "Exit", contentTitle} {
+	for _, want := range []string{"Atlas", "Dashboard", "MCP", "Status", "Doctor", "Help", "Exit", contentTitle} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in view:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "Configuration") || strings.Contains(view, "Assets") {
+	// Reject old placeholder sidebar entries only (not "Initial Configuration" copy).
+	if strings.Contains(view, "› Configuration") || strings.Contains(view, "  Configuration ") || strings.Contains(view, "Assets") {
 		t.Fatalf("ghost entries in view:\n%s", view)
+	}
+}
+
+func assertGlobalTopGap(t *testing.T, view string) {
+	t.Helper()
+	lines := strings.Split(view, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("view too short for top gap:\n%s", view)
+	}
+	if strings.TrimSpace(lines[0]) != "" {
+		t.Fatalf("expected one blank top gap line:\n%s", view)
+	}
+	if strings.TrimSpace(lines[1]) == "" {
+		t.Fatalf("top gap must not be duplicated:\n%s", view)
+	}
+	headerAt := -1
+	for i := 1; i < len(lines) && i < 4; i++ {
+		if strings.Contains(lines[i], "Atlas") {
+			headerAt = i
+			break
+		}
+	}
+	if headerAt < 0 {
+		t.Fatalf("Atlas header should follow top gap immediately:\n%s", view)
 	}
 }
 
 func assertInitWizardView(t *testing.T, view string) {
 	t.Helper()
 	for _, want := range []string{
+		"Step 1 — Project Setup",
 		"Project Identity",
 		"Project name:",
 		"Project Detection",
@@ -497,10 +1157,8 @@ func assertInitWizardView(t *testing.T, view string) {
 		"Runtime Artifacts",
 		"Initialize Atlas — backup and replace",
 		"Do not initialize Atlas",
-		"Plan Preview",
-		"No files will be created in this step.",
-		"Action",
-		"Next",
+		"No files will be changed in this slice.",
+		"[ Next ]",
 		"Tab focus",
 	} {
 		if !strings.Contains(view, want) {
@@ -510,17 +1168,19 @@ func assertInitWizardView(t *testing.T, view string) {
 	if strings.Contains(view, "Auto-detect") {
 		t.Fatalf("Auto-detect must not appear:\n%s", view)
 	}
-	if idxName := strings.Index(view, "Project name:"); idxName < 0 {
-		t.Fatal("missing project name label")
+	if strings.Contains(view, "Plan Preview") {
+		t.Fatalf("step 1 must not show Plan Preview:\n%s", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if strings.TrimSpace(line) == "Action" {
+			t.Fatalf("step 1 must not render Action heading:\n%s", view)
+		}
 	}
 	if !strings.Contains(view, "╭") && !strings.Contains(view, "┌") {
-		t.Fatalf("expected bordered input/button chrome:\n%s", view)
+		t.Fatalf("expected bordered input chrome:\n%s", view)
 	}
-	planIdx := strings.Index(view, "Plan Preview")
-	actionIdx := strings.Index(view, "Action")
-	if planIdx < 0 || actionIdx < 0 || actionIdx < planIdx {
-		t.Fatalf("Action must appear after Plan Preview: plan=%d action=%d", planIdx, actionIdx)
-	}
+	assertActionNearFooter(t, view)
+	assertGlobalTopGap(t, view)
 }
 
 func sized(m tui.Model) tui.Model {
@@ -605,6 +1265,15 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func indexOf(list []string, want string) int {
+	for i, item := range list {
+		if item == want {
+			return i
+		}
+	}
+	return -1
 }
 
 func writeValidAtlasConfig(t *testing.T, root string) {
