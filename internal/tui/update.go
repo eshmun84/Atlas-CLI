@@ -53,7 +53,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.rebuildInitPlan()
 		}
 		if m.route == RouteConfigure {
-			m.rebuildConfigDraft(config.ConfigModeConfigure, true, false)
+			m.configureNotice = ""
+			m.rebuildConfigDraft(config.ConfigModeConfigure, true, true)
 		}
 		m.ready = true
 		m.contentOffset = 0
@@ -81,6 +82,7 @@ func (m *Model) applyInitDiscovery(plan initplan.Plan) {
 		m.initReviewMessage = ""
 		m.initField = screens.InitFieldName
 		m.initHydrated = true
+		m.initApplied = false
 	}
 	if !m.hasRuntimeArtifacts() && m.initDecision == InitDecisionCancel {
 		m.initDecision = InitDecisionInitialize
@@ -110,7 +112,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.setRoute(DefaultRoute)
 	}
 
-	if (m.route == RouteInitPlan || m.route == RouteConfigure || m.route == RouteMCP) && msg.String() == "tab" {
+	if (m.route == RouteInitPlan || m.route == RouteConfigure) && msg.String() == "tab" {
 		if m.focus == FocusSidebar {
 			m.focus = FocusContent
 			if m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepProject {
@@ -118,6 +120,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepReview {
 				m.configPanel = screens.ConfigPanelFooter
+			}
+			if m.route == RouteConfigure && m.configPanel == "" {
+				m.configPanel = screens.ConfigPanelSections
 			}
 		} else {
 			m.focus = FocusSidebar
@@ -130,10 +135,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleInitContentKey(msg)
 	}
 	if m.focus == FocusContent && m.route == RouteConfigure {
+		if m.mcpMode == screens.MCPModeAdd {
+			return m.handleMCPAddKey(msg)
+		}
 		return m.handleConfigFormKey(msg)
-	}
-	if m.focus == FocusContent && m.route == RouteMCP {
-		return m.handleMCPContentKey(msg)
 	}
 
 	items := m.Sidebar()
@@ -429,6 +434,7 @@ func (m Model) activateConfigFooter() (tea.Model, tea.Cmd) {
 	switch action {
 	case "back":
 		if m.route == RouteConfigure {
+			m.configureNotice = ""
 			return m.setRoute(DefaultRoute)
 		}
 		m.initWizardStep = screens.InitWizardStepProject
@@ -437,12 +443,28 @@ func (m Model) activateConfigFooter() (tea.Model, tea.Cmd) {
 		m.syncNameInputFocus()
 		return m, nil
 	case "next":
+		if m.route == RouteConfigure {
+			return m.applyConfigureChanges()
+		}
 		if m.initDecision == InitDecisionCancel && m.hasRuntimeArtifacts() {
 			return m, nil
 		}
 		m.enterInitReview()
 		return m, nil
 	}
+	return m, nil
+}
+
+func (m Model) applyConfigureChanges() (tea.Model, tea.Cmd) {
+	if err := config.PersistConfigure(config.ApplyInput{
+		Root:  m.discovery.RootPath,
+		Draft: m.configDraft,
+		MCP:   m.mcpDraft,
+	}); err != nil {
+		m.configureNotice = err.Error()
+		return m, nil
+	}
+	m.configureNotice = config.ConfigureApplySuccess
 	return m, nil
 }
 
@@ -483,6 +505,7 @@ func (m *Model) enterInitReview() {
 	m.initWizardStep = screens.InitWizardStepReview
 	m.initReviewMessage = ""
 	m.initReviewFooterIdx = 0
+	m.initApplied = false
 	m.configPanel = screens.ConfigPanelFooter
 	m.configFooterIdx = 0
 	m.contentOffset = 0
@@ -495,6 +518,15 @@ func (m *Model) enterInitReview() {
 }
 
 func (m Model) handleInitReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.initApplied {
+		switch msg.String() {
+		case "pgup", "pgdown", "home", "end":
+			return m.scroll(msg.String()), nil
+		case "enter", " ", "space":
+			return m.setRoute(DefaultRoute)
+		}
+		return m, nil
+	}
 	switch msg.String() {
 	case "pgup", "pgdown", "home", "end":
 		return m.scroll(msg.String()), nil
@@ -526,7 +558,24 @@ func (m Model) activateInitReviewFooter() (tea.Model, tea.Cmd) {
 		m.syncNameInputFocus()
 		return m, nil
 	}
-	m.initReviewMessage = "Materialization is not implemented in this slice. No files were changed."
+	return m.applyInitConfig()
+}
+
+func (m Model) applyInitConfig() (tea.Model, tea.Cmd) {
+	root := m.discovery.RootPath
+	if _, err := config.ApplyConfig(config.ApplyInput{
+		Root:  root,
+		Draft: m.configDraft,
+		MCP:   m.mcpDraft,
+	}); err != nil {
+		m.initReviewMessage = err.Error()
+		return m, nil
+	}
+	m.initApplied = true
+	m.initReviewMessage = config.ApplySuccessTitle
+	m.initReviewFooterIdx = 0
+	m.configFooterIdx = 0
+	m.configPanel = screens.ConfigPanelFooter
 	return m, nil
 }
 
@@ -579,23 +628,11 @@ func (m Model) setRoute(route Route) (Model, tea.Cmd) {
 	m.focus = FocusSidebar
 	m.mcpMode = screens.MCPModeList
 	m.mcpAddError = ""
+	m.mcpNotice = ""
 	if route == RouteInitPlan {
 		m.initWizardStep = screens.InitWizardStepProject
 		m.initReviewMessage = ""
-	}
-	if route == RouteMCP {
-		m.mcpMode = screens.MCPModeList
-		m.mcpAddError = ""
-		m.mcpFooterIdx = 0
-		if len(m.mcpDraft.CustomServers) == 0 {
-			m.mcpListFocus = screens.MCPFocusBuiltins
-			m.mcpIndex = 0
-		} else {
-			m.mcpListFocus = screens.MCPFocusCustom
-			if m.mcpIndex < 0 || m.mcpIndex >= len(m.mcpDraft.CustomServers) {
-				m.mcpIndex = 0
-			}
-		}
+		m.initApplied = false
 	}
 	m.syncNameInputFocus()
 	m.loadErr = nil

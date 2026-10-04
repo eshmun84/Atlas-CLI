@@ -1,7 +1,8 @@
 package config
 
 // Atlas project-local path constants.
-// These identify future materialization targets; this package does not create them.
+// Config persistence may create Atlas-owned files under DirAtlas.
+// Runtime paths such as FileMemoryDB and FileCapsule are not written in this slice.
 const (
 	DirAtlas = ".atlas"
 

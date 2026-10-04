@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
 )
 
@@ -11,6 +12,7 @@ import (
 type ReviewView struct {
 	Plan           initplan.MaterializationPlan
 	ApplyMessage   string
+	Applied        bool
 	ContentFocused bool
 }
 
@@ -29,9 +31,17 @@ func RenderReview(view ReviewView) string {
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, initSection.Render("Review / Materialization Plan"))
-	fmt.Fprintln(&b, "  "+initMuted.Render("No files will be changed in this slice."))
-	if view.ApplyMessage != "" {
-		fmt.Fprintln(&b, "  "+initWarn.Render(view.ApplyMessage))
+	if view.Applied {
+		fmt.Fprintln(&b, "  "+initOK.Render(config.ApplySuccessTitle))
+		fmt.Fprintln(&b, "  "+initOK.Render(config.ApplySuccessBody))
+		if view.ApplyMessage != "" && view.ApplyMessage != config.ApplySuccessTitle {
+			fmt.Fprintln(&b, "  "+initWarn.Render(view.ApplyMessage))
+		}
+	} else {
+		fmt.Fprintln(&b, "  "+initMuted.Render("Apply writes Atlas configuration under .atlas/. Runtime files are not materialized."))
+		if view.ApplyMessage != "" {
+			fmt.Fprintln(&b, "  "+initWarn.Render(view.ApplyMessage))
+		}
 	}
 	fmt.Fprintln(&b)
 
@@ -80,6 +90,7 @@ func RenderReview(view ReviewView) string {
 		for _, backup := range plan.Backups {
 			fmt.Fprintf(&b, "  - %s\n", backup.Path)
 		}
+		fmt.Fprintln(&b, "  "+initMuted.Render("Runtime backups are not created in this slice."))
 	}
 	fmt.Fprintln(&b)
 
@@ -91,6 +102,7 @@ func RenderReview(view ReviewView) string {
 		for _, repl := range plan.Replacements {
 			fmt.Fprintf(&b, "  - %s\n", repl.Path)
 		}
+		fmt.Fprintln(&b, "  "+initMuted.Render("Runtime replacements are not performed in this slice."))
 	}
 	fmt.Fprintln(&b)
 
@@ -126,7 +138,11 @@ func RenderReview(view ReviewView) string {
 		fmt.Fprintf(&b, "  - %s\n", warn.Message)
 	}
 	if len(plan.Blockers) == 0 {
-		fmt.Fprintln(&b, "  "+initMuted.Render("No blockers. Apply is not implemented in this slice."))
+		if view.Applied {
+			fmt.Fprintln(&b, "  "+initMuted.Render("No blockers."))
+		} else {
+			fmt.Fprintln(&b, "  "+initMuted.Render("No blockers. Apply config writes .atlas/ files only."))
+		}
 	} else {
 		for _, blocker := range plan.Blockers {
 			fmt.Fprintf(&b, "  - %s\n", initWarn.Render(blocker.Message))

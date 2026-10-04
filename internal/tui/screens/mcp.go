@@ -138,6 +138,10 @@ func renderMCPListBody(view MCPView) string {
 			fmt.Fprintln(&b, "  "+mcpBody.Render("  "+addLine))
 		}
 	}
+	if view.Embedded && view.Initialized {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "  "+mcpMuted.Render("Close discards unsaved changes. Apply changes (below) saves .atlas/config.yaml."))
+	}
 	if view.Notice != "" {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "  "+mcpMuted.Render(view.Notice))

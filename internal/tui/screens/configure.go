@@ -8,15 +8,18 @@ func ConfigureView(view ConfigFormView) string {
 		view.Title = "Configure"
 	}
 	if view.Subtitle == "" {
-		view.Subtitle = "Post-init configuration · in memory only"
+		view.Subtitle = "Post-init configuration"
 	}
 	view.ShowBack = true
-	view.ShowNext = false
+	view.ShowNext = true
 	if view.BackLabel == "" {
 		view.BackLabel = "Close"
 	}
+	if view.NextLabel == "" {
+		view.NextLabel = "Apply changes"
+	}
 	if view.FooterNote == "" {
-		view.FooterNote = "Apply Configuration Changes is not implemented in this slice. No files were changed."
+		view.FooterNote = "Close discards unsaved changes. Apply changes writes .atlas/config.yaml."
 	}
 	return RenderConfigForm(view)
 }

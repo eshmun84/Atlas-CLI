@@ -79,11 +79,8 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	labels := sidebarLabels(uninit)
-	if !contains(labels, "Init / Setup") || contains(labels, "Configure") || !contains(labels, "MCP") {
+	if !contains(labels, "Init / Setup") || contains(labels, "Configure") || contains(labels, "MCP") {
 		t.Fatalf("uninitialized sidebar = %v", labels)
-	}
-	if idx := indexOf(labels, "MCP"); idx < 0 || idx >= indexOf(labels, "Status") {
-		t.Fatalf("MCP should appear before Status: %v", labels)
 	}
 
 	writeValidAtlasConfig(t, root)
@@ -91,11 +88,8 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	labels = sidebarLabels(initd)
-	if !contains(labels, "Configure") || contains(labels, "Init / Setup") || !contains(labels, "MCP") {
+	if !contains(labels, "Configure") || contains(labels, "Init / Setup") || contains(labels, "MCP") {
 		t.Fatalf("initialized sidebar = %v", labels)
-	}
-	if idx := indexOf(labels, "MCP"); idx < 0 || idx <= indexOf(labels, "Configure") || idx >= indexOf(labels, "Status") {
-		t.Fatalf("MCP should sit after Configure and before Status: %v", labels)
 	}
 
 	cfg := loadWorkspace(t, tui.Options{
@@ -109,14 +103,17 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 		"Adapters",
 		"Source Control",
 		"Memory",
+		"MCP",
 		"Project:",
 		"[ Close ]",
+		"[ Apply changes ]",
+		"Close discards unsaved changes. Apply changes writes .atlas/config.yaml.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("configure missing %q:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"[ Apply", "[ Next", "Runtime entrypoint", "Skills / Registry", "Project Stack"} {
+	for _, banned := range []string{"[ Next ]", "Runtime entrypoint", "Skills / Registry", "Project Stack"} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("configure unexpected %q:\n%s", banned, view)
 		}
@@ -124,135 +121,285 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 	if _, ok := cfg.ConfigDraft().FieldByKey("runtime.entrypoint"); ok {
 		t.Fatal("runtime fields must not exist in draft")
 	}
-	// Sidebar should show Configure, not Init / Setup.
-	if contains(sidebarLabels(cfg), "Init / Setup") || !contains(sidebarLabels(cfg), "Configure") {
+	// Sidebar should show Configure, not Init / Setup or MCP.
+	if contains(sidebarLabels(cfg), "Init / Setup") || contains(sidebarLabels(cfg), "MCP") || !contains(sidebarLabels(cfg), "Configure") {
 		t.Fatalf("sidebar = %v", sidebarLabels(cfg))
 	}
 }
 
-func TestMCPScreenInMemory(t *testing.T) {
+func TestConfigureMCPLoadsAndEditsInMemory(t *testing.T) {
 	root := t.TempDir()
-	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	writePersistedAtlasConfig(t, root, func(doc *config.ProjectDocument) {
+		doc.MCP.Builtins.Jira.Enabled = true
+		doc.MCP.Builtins.Context7.Enabled = true
+		doc.MCP.Builtins.ChromeDevTools.Enabled = true
+		doc.MCP.Custom = []config.MCPCustomPersist{{
+			Name:         "Internal Docs",
+			Transport:    "http",
+			CommandOrURL: "https://example.local/mcp",
+			Enabled:      true,
+		}}
 	})
+
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	if contains(sidebarLabels(m), "MCP") {
+		t.Fatalf("sidebar must not list MCP: %v", sidebarLabels(m))
+	}
+	m = gotoConfigSection(t, m, "mcp")
+	m = mustModel(m.Update(key("enter")))
 	view := m.View()
 	for _, want := range []string{
 		"MCP",
 		"Built-in MCPs",
-		"[ ] Jira",
-		"[ ] Context7",
-		"[ ] Chrome DevTools",
-		"Custom MCPs",
-		"No custom MCPs configured yet.",
-		"No files will be changed in this slice.",
-		"preview only",
+		"[x] Jira",
+		"[x] Context7",
+		"[x] Chrome DevTools",
+		"Internal Docs",
 		"[ Add MCP ]",
-		"[ Close ]",
+		"[ Apply changes ]",
+		"Close discards unsaved changes. Apply changes writes .atlas/config.yaml.",
 	} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("mcp missing %q:\n%s", want, view)
+			t.Fatalf("configure mcp missing %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "[ ] Custom") || strings.Contains(view, "[x] Custom") {
-		t.Fatalf("custom must not appear as built-in:\n%s", view)
+	if !m.MCPDraft().Builtins[0].Enabled || !m.MCPDraft().Builtins[1].Enabled || !m.MCPDraft().Builtins[2].Enabled {
+		t.Fatalf("loaded builtins = %#v", m.MCPDraft().Builtins)
 	}
-	assertShell(t, view, "MCP")
-	assertActionNearFooter(t, view)
-	assertGlobalTopGap(t, view)
+	if len(m.MCPDraft().CustomServers) != 1 || m.MCPDraft().CustomServers[0].Name != "Internal Docs" {
+		t.Fatalf("loaded custom = %#v", m.MCPDraft().CustomServers)
+	}
 
-	m = mustModel(m.Update(key("tab")))
-	if m.MCPListFocus() != screens.MCPFocusBuiltins {
-		t.Fatalf("focus = %q, want builtins", m.MCPListFocus())
-	}
 	jiraBefore := m.MCPDraft().Builtins[0].Enabled
-	ctxBefore := m.MCPDraft().Builtins[1].Enabled
-	chromeBefore := m.MCPDraft().Builtins[2].Enabled
 	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("up")))
-	if m.MCPDraft().Builtins[0].Enabled != jiraBefore ||
-		m.MCPDraft().Builtins[1].Enabled != ctxBefore ||
-		m.MCPDraft().Builtins[2].Enabled != chromeBefore {
-		t.Fatal("arrows mutated built-ins")
+	if m.MCPDraft().Builtins[0].Enabled != jiraBefore {
+		t.Fatal("arrows mutated configure mcp")
+	}
+	m = mustModel(m.Update(key("enter"))) // toggle jira off
+	if m.MCPDraft().Builtins[0].Enabled {
+		t.Fatal("expected jira toggled off in memory")
+	}
+	if !strings.Contains(m.View(), "[ Apply changes ]") || !strings.Contains(m.View(), "[ Close ]") {
+		t.Fatalf("Apply changes must stay visible after toggle:\n%s", m.View())
 	}
 
-	m = mustModel(m.Update(key("enter"))) // Jira
+	before, err := os.ReadFile(filepath.Join(root, ".atlas", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = mcpGotoAddButton(t, m)
+	m = mustModel(m.Update(key("enter")))
+	if !strings.Contains(m.View(), "[ Cancel ]") || !strings.Contains(m.View(), "[ Add ]") {
+		t.Fatalf("add form actions missing:\n%s", m.View())
+	}
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Temp MCP")}))
+	m = mcpGotoFooterAction(t, m, true)
+	m = mustModel(m.Update(key("enter")))
+	if len(m.MCPDraft().CustomServers) != 2 {
+		t.Fatalf("custom after add = %#v", m.MCPDraft().CustomServers)
+	}
+	afterAdd := m.View()
+	for _, want := range []string{"[ Close ]", "[ Apply changes ]", "Temp MCP", "Apply changes (below) saves"} {
+		if !strings.Contains(afterAdd, want) {
+			t.Fatalf("after Add MCP missing %q:\n%s", want, afterAdd)
+		}
+	}
+	if strings.Contains(afterAdd, "[ Cancel ]") && strings.Contains(afterAdd, "[ Add ]") && !strings.Contains(afterAdd, "[ Apply changes ]") {
+		t.Fatal("Add form actions must not replace Apply changes after return to list")
+	}
+	after, err := os.ReadFile(filepath.Join(root, ".atlas", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("configure edits must not persist config.yaml before Apply changes")
+	}
+
+	m = gotoInitFooterAction(t, m, false) // Close
+	m, cmd := apply(m, key("enter"))
+	m = applyCmd(t, m, cmd)
+	if m.Route() != tui.DefaultRoute {
+		t.Fatalf("close route = %v", m.Route())
+	}
+	closed, err := os.ReadFile(filepath.Join(root, ".atlas", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(closed) {
+		t.Fatal("Close without Apply must discard MCP edits")
+	}
+	assertRuntimeNotMaterialized(t, root)
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatal("AGENTS.md must not be created")
+	}
+}
+
+func TestConfigureMCPApplyChangesAlwaysVisible(t *testing.T) {
+	root := t.TempDir()
+	writeValidAtlasConfig(t, root)
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	assertActionNearFooter(t, m.View())
+	if !strings.Contains(m.View(), "[ Close ]") || !strings.Contains(m.View(), "[ Apply changes ]") {
+		t.Fatalf("configure root missing actions:\n%s", m.View())
+	}
+
+	m = gotoConfigSection(t, m, "mcp")
+	m = mustModel(m.Update(key("enter")))
+	// Select Chrome DevTools (index 2).
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("enter")))
+	if !m.MCPDraft().Builtins[2].Enabled {
+		t.Fatal("chrome should be selected")
+	}
+	view := m.View()
+	for _, want := range []string{"[x] Chrome DevTools", "[ Close ]", "[ Apply changes ]"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("after chrome toggle missing %q:\n%s", want, view)
+		}
+	}
+	assertActionInContentPanel(t, view, 120)
+
+	m = mcpGotoAddButton(t, m)
+	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Smoke Custom")}))
+	m = mcpGotoFooterAction(t, m, true)
+	m = mustModel(m.Update(key("enter")))
+	view = m.View()
+	for _, want := range []string{"Smoke Custom", "[ Close ]", "[ Apply changes ]"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("after custom add missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestConfigureApplyChangesPersistsMCP(t *testing.T) {
+	root := t.TempDir()
+	writePersistedAtlasConfig(t, root, func(doc *config.ProjectDocument) {
+		doc.MCP.Builtins.Jira.Enabled = true
+		doc.MCP.Builtins.Context7.Enabled = false
+		doc.MCP.Builtins.ChromeDevTools.Enabled = false
+	})
+
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	m = gotoConfigSection(t, m, "mcp")
+	m = mustModel(m.Update(key("enter")))
+	if !strings.Contains(m.View(), "[ Apply changes ]") {
+		t.Fatalf("Apply changes missing on MCP open:\n%s", m.View())
+	}
 	if !m.MCPDraft().Builtins[0].Enabled {
-		t.Fatal("jira should be selected")
+		t.Fatal("jira should load enabled")
 	}
+	m = mustModel(m.Update(key("enter"))) // disable jira
 	m = mustModel(m.Update(key("down")))
-	m = mustModel(m.Update(key("enter"))) // Context7
+	m = mustModel(m.Update(key("enter"))) // enable context7
 	m = mustModel(m.Update(key("down")))
-	m = mustModel(m.Update(key(" "))) // Chrome DevTools
-	if !m.MCPDraft().Builtins[0].Enabled || !m.MCPDraft().Builtins[1].Enabled || !m.MCPDraft().Builtins[2].Enabled {
-		t.Fatalf("expected all built-ins selected: %#v", m.MCPDraft().Builtins)
-	}
-
+	m = mustModel(m.Update(key("enter"))) // enable chrome
 	m = mcpGotoAddButton(t, m)
 	m = mustModel(m.Update(key("enter")))
-	if m.MCPMode() != screens.MCPModeAdd {
-		t.Fatalf("mode = %q, want add", m.MCPMode())
-	}
-	addView := m.View()
-	for _, want := range []string{"Add MCP", "Name", "Transport", "stdio", "http", "sse", "Command or URL", "Arguments", "Environment references", "[ Cancel ]", "[ Add ]"} {
-		if !strings.Contains(addView, want) {
-			t.Fatalf("add form missing %q:\n%s", want, addView)
-		}
-	}
-	for _, banned := range []string{"Kind", "[ ] Jira", "[ ] Context7", "[ ] Chrome DevTools"} {
-		if strings.Contains(addView, banned) {
-			t.Fatalf("add form unexpected %q:\n%s", banned, addView)
-		}
-	}
-
-	m = mcpGotoFooterAction(t, m, true)
-	m = mustModel(m.Update(key("enter")))
-	if m.MCPMode() != screens.MCPModeAdd || m.MCPAddError() == "" {
-		t.Fatalf("expected empty-name validation, mode=%q err=%q", m.MCPMode(), m.MCPAddError())
-	}
-
-	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("My Browser MCP")}))
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Ops Docs")}))
 	m = mustModel(m.Update(key("down"))) // transport
-	m = mustModel(m.Update(key("down"))) // http focus
-	m = mustModel(m.Update(key("down"))) // sse focus
-	if m.MCPDraft().ConfiguredCount() != 3 {
-		t.Fatal("arrows must not add custom entries")
-	}
-	m = mustModel(m.Update(key("enter"))) // select sse
-	m = mcpGotoFooterAction(t, m, true)
-	m = mustModel(m.Update(key("enter"))) // Add
-	if m.MCPMode() != screens.MCPModeList || len(m.MCPDraft().CustomServers) != 1 {
-		t.Fatalf("after add mode=%q custom=%#v", m.MCPMode(), m.MCPDraft().CustomServers)
-	}
-	if m.MCPDraft().CustomServers[0].Name != "My Browser MCP" || m.MCPDraft().CustomServers[0].Transport != config.MCPTransportSSE {
-		t.Fatalf("server = %#v", m.MCPDraft().CustomServers[0])
-	}
-
-	m = mcpGotoAddButton(t, m)
+	m = mustModel(m.Update(key("down"))) // http
 	m = mustModel(m.Update(key("enter")))
-	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("my browser mcp")}))
+	m = mcpGotoAddField(t, m, screens.MCPFocusConn)
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("https://ops.example/mcp")}))
 	m = mcpGotoFooterAction(t, m, true)
 	m = mustModel(m.Update(key("enter")))
-	if !strings.Contains(m.MCPAddError(), "already exists") {
-		t.Fatalf("expected duplicate error, got %q", m.MCPAddError())
+	if len(m.MCPDraft().CustomServers) != 1 {
+		t.Fatalf("custom = %#v", m.MCPDraft().CustomServers)
 	}
-	m = mcpGotoFooterAction(t, m, false)
-	m = mustModel(m.Update(key("enter"))) // Cancel
-	if m.MCPMode() != screens.MCPModeList || len(m.MCPDraft().CustomServers) != 1 {
-		t.Fatalf("cancel failed mode=%q custom=%d", m.MCPMode(), len(m.MCPDraft().CustomServers))
-	}
-
+	// enable custom
 	if m.MCPListFocus() != screens.MCPFocusCustom {
-		m = mustModel(m.Update(key("up")))
+		for i := 0; i < 8 && m.MCPListFocus() != screens.MCPFocusCustom; i++ {
+			m = mustModel(m.Update(key("down")))
+		}
 	}
 	m = mustModel(m.Update(key("enter")))
-	if !m.MCPDraft().CustomServers[0].Enabled {
-		t.Fatal("toggle enable failed")
+
+	m = gotoInitFooterAction(t, m, true) // Apply changes
+	m = mustModel(m.Update(key("enter")))
+	if m.ConfigureNotice() != "Configuration changes saved." {
+		t.Fatalf("notice = %q", m.ConfigureNotice())
 	}
-	m = mustModel(m.Update(key(" ")))
-	if m.MCPDraft().CustomServers[0].Enabled {
-		t.Fatal("toggle disable failed")
+	if !strings.Contains(m.View(), "Configuration changes saved.") {
+		t.Fatalf("missing saved notice in view:\n%s", m.View())
 	}
-	assertNoMutation(t, root)
+	if !strings.Contains(m.View(), "[ Apply changes ]") || !strings.Contains(m.View(), "[ Close ]") {
+		t.Fatalf("missing configure actions:\n%s", m.View())
+	}
+
+	raw, err := os.ReadFile(filepath.Join(root, ".atlas", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, want := range []string{
+		"jira:",
+		"context7:",
+		"chrome_devtools:",
+		"Ops Docs",
+		"transport: http",
+		"command_or_url: https://ops.example/mcp",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("persisted config missing %q:\n%s", want, text)
+		}
+	}
+	for _, banned := range []string{"password", "token", "secret", "api_key"} {
+		if strings.Contains(strings.ToLower(text), banned) {
+			t.Fatalf("credentials leaked %q:\n%s", banned, text)
+		}
+	}
+	doc, err := config.LoadProjectDocument(filepath.Join(root, ".atlas", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.MCP.Builtins.Jira.Enabled {
+		t.Fatal("jira should be persisted disabled")
+	}
+	if !doc.MCP.Builtins.Context7.Enabled || !doc.MCP.Builtins.ChromeDevTools.Enabled {
+		t.Fatalf("builtins = %#v", doc.MCP.Builtins)
+	}
+	if len(doc.MCP.Custom) != 1 || !doc.MCP.Custom[0].Enabled || doc.MCP.Custom[0].Name != "Ops Docs" {
+		t.Fatalf("custom = %#v", doc.MCP.Custom)
+	}
+
+	assertRuntimeNotMaterialized(t, root)
+	for _, rel := range []string{"AGENTS.md", ".cursor", ".opencode", ".agents", ".claude", "CLAUDE.md", "GEMINI.md", "README.md", ".gitignore"} {
+		if _, err := os.Stat(filepath.Join(root, rel)); !os.IsNotExist(err) {
+			t.Fatalf("%s must not exist", rel)
+		}
+	}
+
+	// Reopen Configure — must load saved MCP.
+	m, cmd := apply(m, key("b"))
+	m = applyCmd(t, m, cmd)
+	m = loadWorkspace(t, tui.Options{
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	if m.MCPDraft().Builtins[0].Enabled {
+		t.Fatal("reopen: jira should stay disabled")
+	}
+	if !m.MCPDraft().Builtins[1].Enabled || !m.MCPDraft().Builtins[2].Enabled {
+		t.Fatalf("reopen builtins = %#v", m.MCPDraft().Builtins)
+	}
+	if len(m.MCPDraft().CustomServers) != 1 || m.MCPDraft().CustomServers[0].Name != "Ops Docs" {
+		t.Fatalf("reopen custom = %#v", m.MCPDraft().CustomServers)
+	}
+	m = gotoConfigSection(t, m, "mcp")
+	view := m.View()
+	for _, want := range []string{"[ ] Jira", "[x] Context7", "[x] Chrome DevTools", "Ops Docs"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("reopen view missing %q:\n%s", want, view)
+		}
+	}
 }
 
 func mcpGotoAddButton(t *testing.T, m tui.Model) tui.Model {
@@ -330,13 +477,15 @@ func isShellActionLine(vis string) bool {
 	switch {
 	case has("[ Back ]") && has("[ Next ]"):
 		return true
-	case has("[ Back ]") && has("[ Apply not implemented ]"):
+	case has("[ Back ]") && has("[ Apply config ]"):
+		return true
+	case has("[ Close ]") && has("[ Apply changes ]"):
 		return true
 	case has("[ Add MCP ]") && has("[ Close ]"):
 		return true
 	case has("[ Cancel ]") && has("[ Add ]"):
 		return true
-	case has("[ Close ]") && !has("[ Add MCP ]"):
+	case has("[ Close ]") && !has("[ Add MCP ]") && !has("[ Apply changes ]"):
 		return true
 	case has("[ Next ]") && !has("[ Back ]"):
 		return true
@@ -359,7 +508,7 @@ func assertActionInContentPanel(t *testing.T, view string, totalWidth int) {
 		}
 		found = true
 		col := -1
-		for _, tok := range []string{"[ Back ]", "[ Close ]", "[ Add MCP ]", "[ Cancel ]", "[ Next ]"} {
+		for _, tok := range []string{"[ Back ]", "[ Close ]", "[ Add MCP ]", "[ Cancel ]", "[ Next ]", "[ Apply changes ]", "[ Apply config ]"} {
 			if i := strings.Index(vis, tok); i >= 0 && (col < 0 || i < col) {
 				col = i
 			}
@@ -368,9 +517,15 @@ func assertActionInContentPanel(t *testing.T, view string, totalWidth int) {
 			t.Fatalf("action row starts at visual col %d, want >= %d (right panel, not shell edge):\n%s", col, side, vis)
 		}
 		backIdx := strings.Index(vis, "[ Back ]")
+		if backIdx < 0 {
+			backIdx = strings.Index(vis, "[ Close ]")
+		}
 		nextIdx := strings.Index(vis, "[ Next ]")
 		if nextIdx < 0 {
-			nextIdx = strings.Index(vis, "[ Apply not implemented ]")
+			nextIdx = strings.Index(vis, "[ Apply config ]")
+		}
+		if nextIdx < 0 {
+			nextIdx = strings.Index(vis, "[ Apply changes ]")
 		}
 		if backIdx >= 0 && nextIdx >= 0 && backIdx > nextIdx {
 			t.Fatalf("Back must appear before Next/Apply:\n%s", vis)
@@ -479,15 +634,6 @@ func TestContentFitKeepsActionNearFooter(t *testing.T) {
 		}
 	}
 
-	mcp := loadWorkspace(t, tui.Options{
-		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
-	})
-	mcp = mustModel(mcp.Update(tea.WindowSizeMsg{Width: 120, Height: 60}))
-	assertActionNearFooter(t, mcp.View())
-	assertActionInContentPanel(t, mcp.View(), 120)
-	assertGlobalTopGap(t, mcp.View())
-	assertShell(t, mcp.View(), "MCP")
-
 	writeValidAtlasConfig(t, root)
 	cfg := loadWorkspace(t, tui.Options{
 		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
@@ -495,6 +641,10 @@ func TestContentFitKeepsActionNearFooter(t *testing.T) {
 	cfg = mustModel(cfg.Update(tea.WindowSizeMsg{Width: 120, Height: 60}))
 	assertActionNearFooter(t, cfg.View())
 	assertActionInContentPanel(t, cfg.View(), 120)
+	assertGlobalTopGap(t, cfg.View())
+	assertShell(t, cfg.View(), "Configure")
+	cfg = gotoConfigSection(t, cfg, "mcp")
+	assertActionNearFooter(t, cfg.View())
 }
 
 func TestTallTerminalDoesNotOverflow(t *testing.T) {
@@ -568,11 +718,12 @@ func TestGlobalQAndCtrlCQuit(t *testing.T) {
 			m := loadWorkspace(t, tui.Options{Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
 			return gotoInitReview(t, m)
 		}},
-		{"mcp-list", func(t *testing.T) tui.Model {
-			return loadWorkspace(t, tui.Options{Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
-		}},
 		{"configure", func(t *testing.T) tui.Model {
 			return loadWorkspace(t, tui.Options{Route: tui.RouteConfigure, Getwd: func() (string, error) { return configured, nil }, Discover: workspace.Discover})
+		}},
+		{"configure-mcp", func(t *testing.T) tui.Model {
+			m := loadWorkspace(t, tui.Options{Route: tui.RouteConfigure, Getwd: func() (string, error) { return configured, nil }, Discover: workspace.Discover})
+			return gotoConfigSection(t, m, "mcp")
 		}},
 		{"status", func(t *testing.T) tui.Model {
 			return loadWorkspace(t, tui.Options{Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
@@ -616,7 +767,8 @@ func TestGlobalQAndCtrlCQuit(t *testing.T) {
 
 func TestQDoesNotNavigateToDashboard(t *testing.T) {
 	root := t.TempDir()
-	for _, route := range []tui.Route{tui.RouteInitPlan, tui.RouteMCP, tui.RouteStatus, tui.RouteHelp} {
+	writeValidAtlasConfig(t, root)
+	for _, route := range []tui.Route{tui.RouteInitPlan, tui.RouteConfigure, tui.RouteStatus, tui.RouteHelp} {
 		m := loadWorkspace(t, tui.Options{
 			Route: route, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 		})
@@ -662,9 +814,12 @@ func TestQInsertsInTextInputs(t *testing.T) {
 		t.Fatalf("project name = %q, want %q", m.DraftName(), before+"q")
 	}
 
+	writeValidAtlasConfig(t, root)
 	m = loadWorkspace(t, tui.Options{
-		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
+	m = gotoConfigSection(t, m, "mcp")
+	m = mustModel(m.Update(key("enter")))
 	m = mcpGotoAddButton(t, m)
 	m = mustModel(m.Update(key("enter")))
 	m = mustModel(m.Update(key("q")))
@@ -715,9 +870,12 @@ func TestCtrlCQuitsWhileEditingText(t *testing.T) {
 		t.Fatal("ctrl+c while editing project name should quit")
 	}
 
+	writeValidAtlasConfig(t, root)
 	m = loadWorkspace(t, tui.Options{
-		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
+	m = gotoConfigSection(t, m, "mcp")
+	m = mustModel(m.Update(key("enter")))
 	m = mcpGotoAddButton(t, m)
 	m = mustModel(m.Update(key("enter")))
 	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -729,27 +887,24 @@ func TestCtrlCQuitsWhileEditingText(t *testing.T) {
 
 func TestEscBackCloseUnchanged(t *testing.T) {
 	root := t.TempDir()
+	writeValidAtlasConfig(t, root)
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = applyCmd(t, m, cmd)
 	if m.Route() != tui.DefaultRoute || m.Quitting() {
-		t.Fatalf("esc from MCP route=%v quitting=%v", m.Route(), m.Quitting())
+		t.Fatalf("esc from Configure route=%v quitting=%v", m.Route(), m.Quitting())
 	}
 
 	m = loadWorkspace(t, tui.Options{
-		Route: tui.RouteMCP, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
-	m = mcpGotoAddButton(t, m)
-	m = mustModel(m.Update(key("right")))
-	if m.MCPListFocus() != screens.MCPFocusClose {
-		t.Fatalf("focus = %q, want close", m.MCPListFocus())
-	}
+	m = gotoInitFooterAction(t, m, false)
 	m, cmd = apply(m, key("enter"))
 	m = applyCmd(t, m, cmd)
 	if m.Route() != tui.DefaultRoute || m.Quitting() {
-		t.Fatalf("MCP Close route=%v quitting=%v", m.Route(), m.Quitting())
+		t.Fatalf("Configure Close route=%v quitting=%v", m.Route(), m.Quitting())
 	}
 
 	m = loadWorkspace(t, tui.Options{
@@ -1245,9 +1400,9 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	view = m.View()
 	for _, want := range []string{
 		"Review / Materialization Plan",
-		"No files will be changed in this slice.",
+		"Apply writes Atlas configuration under .atlas/. Runtime files are not materialized.",
 		"[ Back ]",
-		"[ Apply not implemented ]",
+		"[ Apply config ]",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
@@ -1399,13 +1554,12 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		"No branches are created.",
 		"No remote operations are performed.",
 		"Secrets and credentials are not stored.",
-		"Materialization is not implemented yet.",
-		"preview-only",
-		"in-memory only",
-		"No files will be changed in this slice.",
-		"MCP entries are not persisted.",
+		"Apply writes Atlas configuration under .atlas/ only.",
+		"planned for later",
+		"create this slice",
+		"Runtime files such as AGENTS.md are not created in this slice.",
 		"[ Back ]",
-		"[ Apply not implemented ]",
+		"[ Apply config ]",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("review missing %q:\n%s", want, view)
@@ -1422,21 +1576,34 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 
 	m = mustModel(m.Update(key("right")))
 	m = mustModel(m.Update(key("enter")))
-	if m.InitReviewMessage() != "Materialization is not implemented in this slice. No files were changed." {
-		t.Fatalf("apply message = %q", m.InitReviewMessage())
+	if !m.InitApplied() {
+		t.Fatalf("expected apply success, message = %q", m.InitReviewMessage())
 	}
-	if !strings.Contains(m.View(), "Materialization is not implemented in this slice. No files were changed.") {
-		t.Fatalf("missing apply notice:\n%s", m.View())
+	if !strings.Contains(m.View(), "Atlas configuration initialized.") {
+		t.Fatalf("missing success title:\n%s", m.View())
 	}
-	assertNoMutation(t, root)
+	if !strings.Contains(m.View(), "No runtime files were materialized.") {
+		t.Fatalf("missing success body:\n%s", m.View())
+	}
+	if !strings.Contains(m.View(), "[ Close ]") {
+		t.Fatalf("missing Close after apply:\n%s", m.View())
+	}
+	if strings.Contains(m.View(), "[ Apply config ]") {
+		t.Fatalf("Apply config should be gone after success:\n%s", m.View())
+	}
+	assertAtlasConfigPersisted(t, root)
+	assertRuntimeNotMaterialized(t, root)
 	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
 		t.Fatalf("AGENTS.md should not be created, stat err = %v", err)
 	}
 
-	m = mustModel(m.Update(key("left")))
-	m = mustModel(m.Update(key("enter")))
-	if m.InitWizardStep() != screens.InitWizardStepConfig {
-		t.Fatalf("back = %d, want config", m.InitWizardStep())
+	updated, cmd := m.Update(key("enter"))
+	m = applyCmd(t, updated.(tui.Model), cmd)
+	if m.Route() != tui.RouteDashboard {
+		t.Fatalf("close route = %s, want Dashboard", m.Route())
+	}
+	if !m.Initialized() {
+		t.Fatal("dashboard should see initialized atlas config")
 	}
 }
 
@@ -1472,6 +1639,27 @@ func TestInitReviewArtifactsAndAdapters(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, ".atlas")); !os.IsNotExist(err) {
 		t.Fatalf(".atlas must not be created, stat err = %v", err)
+	}
+
+	m = mustModel(m.Update(key("right")))
+	m = mustModel(m.Update(key("enter")))
+	if !m.InitApplied() {
+		t.Fatal("expected apply")
+	}
+	assertAtlasConfigPersisted(t, root)
+	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil || string(agents) != "# agents" {
+		t.Fatalf("AGENTS.md mutated: %q err=%v", agents, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".atlas", "backups")); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, ".atlas", "backups"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("runtime backups must not be created, entries=%v", entries)
 	}
 }
 
@@ -1509,11 +1697,13 @@ func TestInitCancelDoesNotOpenReview(t *testing.T) {
 func TestInitReviewSummarizesSessionMCP(t *testing.T) {
 	root := t.TempDir()
 	m := loadWorkspace(t, tui.Options{
-		Route:    tui.RouteMCP,
+		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
 		Discover: workspace.Discover,
 	})
-	m = mustModel(m.Update(key("tab")))
+	m = gotoInitStep2(t, m)
+	m = gotoConfigSection(t, m, "mcp")
+	m = mustModel(m.Update(key("enter")))
 	m = mcpGotoAddButton(t, m)
 	m = mustModel(m.Update(key("enter")))
 	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Jira Main")}))
@@ -1522,18 +1712,6 @@ func TestInitReviewSummarizesSessionMCP(t *testing.T) {
 	if len(m.MCPDraft().CustomServers) != 1 {
 		t.Fatalf("custom = %#v", m.MCPDraft().CustomServers)
 	}
-
-	m, cmd := apply(m, key("b"))
-	m = applyCmd(t, m, cmd)
-	for sidebarLabel(m, m.SidebarIndex()) != "Init / Setup" {
-		prev := m.SidebarIndex()
-		m = mustModel(m.Update(key("down")))
-		if m.SidebarIndex() == prev {
-			t.Fatal("could not reach Init / Setup")
-		}
-	}
-	m, cmd = apply(m, key("enter"))
-	m = applyCmd(t, m, cmd)
 	m = gotoInitReview(t, m)
 	_, view := reviewVisibleText(t, m)
 	for _, want := range []string{
@@ -1541,7 +1719,7 @@ func TestInitReviewSummarizesSessionMCP(t *testing.T) {
 		"Jira Main",
 		"kind: custom",
 		"transport: stdio",
-		"status: in memory only",
+		"status: will persist in .atlas/config.yaml",
 		"No MCP credentials, connections, or validation are implemented",
 	} {
 		if !strings.Contains(view, want) {
@@ -1554,30 +1732,21 @@ func TestInitReviewSummarizesSessionMCP(t *testing.T) {
 func TestInitReviewListsSelectedBuiltins(t *testing.T) {
 	root := t.TempDir()
 	m := loadWorkspace(t, tui.Options{
-		Route:    tui.RouteMCP,
+		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
 		Discover: workspace.Discover,
 	})
-	m = mustModel(m.Update(key("tab")))
+	m = gotoInitStep2(t, m)
+	m = gotoConfigSection(t, m, "mcp")
 	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(key("enter"))) // Jira
 	m = mustModel(m.Update(key("down")))
-	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(key("enter"))) // Context7
 	m = mustModel(m.Update(key("down")))
-	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(key("enter"))) // Chrome
 	if m.MCPDraft().SelectedBuiltinCount() != 3 {
 		t.Fatalf("selected builtins = %d", m.MCPDraft().SelectedBuiltinCount())
 	}
-	m, cmd := apply(m, key("b"))
-	m = applyCmd(t, m, cmd)
-	for sidebarLabel(m, m.SidebarIndex()) != "Init / Setup" {
-		prev := m.SidebarIndex()
-		m = mustModel(m.Update(key("down")))
-		if m.SidebarIndex() == prev {
-			t.Fatal("could not reach Init / Setup")
-		}
-	}
-	m, cmd = apply(m, key("enter"))
-	m = applyCmd(t, m, cmd)
 	m = gotoInitReview(t, m)
 	_, view := reviewVisibleText(t, m)
 	for _, want := range []string{
@@ -1587,7 +1756,7 @@ func TestInitReviewListsSelectedBuiltins(t *testing.T) {
 		"- Chrome DevTools",
 		"kind: built-in",
 		"enabled: true",
-		"status: in memory only",
+		"status: will persist in .atlas/config.yaml",
 		"No MCP credentials, connections, or validation are implemented",
 	} {
 		if !strings.Contains(view, want) {
@@ -1597,37 +1766,20 @@ func TestInitReviewListsSelectedBuiltins(t *testing.T) {
 	assertNoMutation(t, root)
 }
 
-func TestInitStep2MCPSectionSharedAndAdd(t *testing.T) {
+func TestInitStep2MCPSectionAndAdd(t *testing.T) {
 	root := t.TempDir()
 	m := loadWorkspace(t, tui.Options{
-		Route:    tui.RouteMCP,
+		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
 		Discover: workspace.Discover,
 	})
-	m = mustModel(m.Update(key("tab")))
-	m = mustModel(m.Update(key("enter"))) // Jira
-	if !m.MCPDraft().Builtins[0].Enabled {
-		t.Fatal("standalone jira not selected")
-	}
-
-	m, cmd := apply(m, key("b"))
-	m = applyCmd(t, m, cmd)
-	for sidebarLabel(m, m.SidebarIndex()) != "Init / Setup" {
-		prev := m.SidebarIndex()
-		m = mustModel(m.Update(key("down")))
-		if m.SidebarIndex() == prev {
-			t.Fatal("could not reach Init / Setup")
-		}
-	}
-	m, cmd = apply(m, key("enter"))
-	m = applyCmd(t, m, cmd)
 	m = gotoInitStep2(t, m)
 	m = gotoConfigSection(t, m, "mcp")
 	view := m.View()
 	for _, want := range []string{
 		"MCP",
 		"Built-in MCPs",
-		"[x] Jira",
+		"[ ] Jira",
 		"[ ] Context7",
 		"[ ] Chrome DevTools",
 		"[ Add MCP ]",
@@ -1645,6 +1797,7 @@ func TestInitStep2MCPSectionSharedAndAdd(t *testing.T) {
 	if m.MCPDraft().Builtins[0].Enabled != jira || m.MCPDraft().Builtins[1].Enabled != ctx {
 		t.Fatal("arrows mutated init mcp")
 	}
+	m = mustModel(m.Update(key("enter"))) // Jira
 	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("enter"))) // Context7
 	m = mustModel(m.Update(key("down")))
@@ -1700,42 +1853,6 @@ func TestInitStep2MCPSectionSharedAndAdd(t *testing.T) {
 		t.Fatalf("cancel should return to list, mode=%q", m.MCPMode())
 	}
 
-	m = gotoInitReview(t, m)
-	_, review := reviewVisibleText(t, m)
-	for _, want := range []string{
-		"Init Browser",
-		"kind: custom",
-		"kind: built-in",
-		"Jira",
-		"Context7",
-		"Chrome DevTools",
-	} {
-		if !strings.Contains(review, want) {
-			t.Fatalf("review missing %q:\n%s", want, review)
-		}
-	}
-
-	m, cmd = apply(m, key("b"))
-	m = applyCmd(t, m, cmd)
-	for sidebarLabel(m, m.SidebarIndex()) != "MCP" {
-		prev := m.SidebarIndex()
-		m = mustModel(m.Update(key("down")))
-		if m.SidebarIndex() == prev {
-			t.Fatal("could not reach MCP")
-		}
-	}
-	m, cmd = apply(m, key("enter"))
-	m = applyCmd(t, m, cmd)
-	standalone := m.View()
-	for _, want := range []string{"[x] Jira", "[x] Context7", "[x] Chrome DevTools", "Init Browser"} {
-		if !strings.Contains(standalone, want) {
-			t.Fatalf("standalone missing shared state %q:\n%s", want, standalone)
-		}
-	}
-
-	if m.Focus() != tui.FocusContent {
-		m = mustModel(m.Update(key("tab")))
-	}
 	if m.MCPListFocus() != screens.MCPFocusCustom {
 		for i := 0; i < 8 && m.MCPListFocus() != screens.MCPFocusCustom; i++ {
 			m = mustModel(m.Update(key("down")))
@@ -1751,7 +1868,45 @@ func TestInitStep2MCPSectionSharedAndAdd(t *testing.T) {
 	if !m.MCPDraft().Builtins[0].Enabled {
 		t.Fatal("removing custom must not disable built-ins")
 	}
-	assertNoMutation(t, root)
+
+	m = mcpGotoAddButton(t, m)
+	m = mustModel(m.Update(key("enter")))
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Init Browser")}))
+	m = mcpGotoFooterAction(t, m, true)
+	m = mustModel(m.Update(key("enter")))
+
+	m = gotoInitReview(t, m)
+	_, review := reviewVisibleText(t, m)
+	for _, want := range []string{
+		"Init Browser",
+		"kind: custom",
+		"kind: built-in",
+		"Jira",
+		"Context7",
+		"Chrome DevTools",
+	} {
+		if !strings.Contains(review, want) {
+			t.Fatalf("review missing %q:\n%s", want, review)
+		}
+	}
+
+	m = mustModel(m.Update(key("right")))
+	m = mustModel(m.Update(key("enter")))
+	if !m.InitApplied() {
+		t.Fatalf("apply failed: %q", m.InitReviewMessage())
+	}
+	assertAtlasConfigPersisted(t, root)
+	cfgRaw, err := os.ReadFile(filepath.Join(root, ".atlas", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(cfgRaw)
+	for _, want := range []string{"Init Browser", "jira:", "context7:", "chrome_devtools:", "enabled: true"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("persisted config missing %q:\n%s", want, text)
+		}
+	}
+	assertRuntimeNotMaterialized(t, root)
 }
 
 func gotoConfigSection(t *testing.T, m tui.Model, sectionKey string) tui.Model {
@@ -1936,7 +2091,7 @@ func TestMinHeightOmitsTopGap(t *testing.T) {
 
 func assertShell(t *testing.T, view, contentTitle string) {
 	t.Helper()
-	for _, want := range []string{"Atlas", "Dashboard", "MCP", "Status", "Doctor", "Help", "Exit", contentTitle} {
+	for _, want := range []string{"Atlas", "Dashboard", "Status", "Doctor", "Help", "Exit", contentTitle} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in view:\n%s", want, view)
 		}
@@ -2105,16 +2260,62 @@ func indexOf(list []string, want string) int {
 
 func writeValidAtlasConfig(t *testing.T, root string) {
 	t.Helper()
+	writePersistedAtlasConfig(t, root, nil)
+}
+
+func writePersistedAtlasConfig(t *testing.T, root string, mutate func(*config.ProjectDocument)) {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Join(root, ".atlas"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.DefaultConfig("demo")
-	data, err := yaml.Marshal(cfg)
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:   "demo",
+		ProjectMode:   "existing",
+		DefaultRemote: "origin",
+	})
+	doc := config.BuildProjectDocument(draft, config.EmptyMCPDraft())
+	if mutate != nil {
+		mutate(&doc)
+	}
+	data, err := yaml.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, ".atlas", "config.yaml"), data, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func assertAtlasConfigPersisted(t *testing.T, root string) {
+	t.Helper()
+	for _, rel := range []string{
+		".atlas/config.yaml",
+		".atlas/local.yaml",
+		".atlas/state.yaml",
+		".atlas/assets.lock.yaml",
+		".atlas/backups",
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Fatalf("expected %s: %v", rel, err)
+		}
+	}
+}
+
+func assertRuntimeNotMaterialized(t *testing.T, root string) {
+	t.Helper()
+	for _, rel := range []string{
+		".cursor",
+		".opencode",
+		".agents",
+		".claude",
+		"CLAUDE.md",
+		"GEMINI.md",
+		filepath.Join(".atlas", "memory", "atlas.sqlite"),
+		filepath.Join(".atlas", "context", "memory-capsule.md"),
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); !os.IsNotExist(err) {
+			t.Fatalf("%s should not exist, err=%v", rel, err)
+		}
 	}
 }
 

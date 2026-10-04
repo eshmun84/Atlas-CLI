@@ -41,6 +41,7 @@ type MaterializationPlan struct {
 	Warnings          []PlanWarning
 	Blockers          []PlanBlocker
 	PreviewOnly       bool
+	ConfigApplyOnly   bool
 }
 
 // PlannedFile is one file or directory Atlas would create later.
@@ -85,7 +86,8 @@ type MCPPlanEntry struct {
 	Status    string
 }
 
-// BuildReview constructs a preview-only materialization plan.
+// BuildReview constructs a materialization plan.
+// Atlas config files can be applied in this slice; runtime files remain planned for later.
 func BuildReview(in ReviewInput) MaterializationPlan {
 	draft := in.Draft
 	adaptersValue := fieldValue(draft, "adapters.selected")
@@ -105,29 +107,30 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		MCPCount:          in.MCP.ConfiguredCount(),
 		MCPEntries:        mcpEntries(in.MCP),
 		ExistingArtifacts: append([]string(nil), in.Artifacts...),
-		PreviewOnly:       true,
+		PreviewOnly:       false,
+		ConfigApplyOnly:   true,
 	}
 
 	plan.Creates = []PlannedFile{
-		{Path: config.FileConfig, Kind: "atlas", Status: "planned"},
-		{Path: config.FileLocal, Kind: "atlas", Status: "planned"},
-		{Path: config.FileState, Kind: "atlas", Status: "planned"},
-		{Path: config.FileAssetsLock, Kind: "atlas", Status: "planned"},
-		{Path: config.DirBackups + "/", Kind: "atlas", Status: "planned"},
-		{Path: "AGENTS.md", Kind: "runtime", Status: "planned"},
+		{Path: config.FileConfig, Kind: "atlas", Status: "create this slice"},
+		{Path: config.FileLocal, Kind: "atlas", Status: "create this slice"},
+		{Path: config.FileState, Kind: "atlas", Status: "create this slice"},
+		{Path: config.FileAssetsLock, Kind: "atlas", Status: "create this slice"},
+		{Path: config.DirBackups + "/", Kind: "atlas", Status: "create this slice"},
+		{Path: "AGENTS.md", Kind: "runtime", Status: "planned for later"},
 	}
 	if config.ChipSelected(adaptersValue, "cursor") {
 		plan.Creates = append(plan.Creates, PlannedFile{
 			Path:   ".cursor/rules/atlas.mdc",
 			Kind:   "adapter",
-			Status: "future",
+			Status: "planned for later",
 		})
 	}
 	if config.ChipSelected(adaptersValue, "opencode") {
 		plan.Creates = append(plan.Creates, PlannedFile{
 			Path:   "OpenCode runtime adapter files",
 			Kind:   "adapter",
-			Status: "future",
+			Status: "planned for later",
 		})
 	}
 
@@ -168,13 +171,11 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 	}
 
 	plan.Warnings = []PlanWarning{
-		{Message: "Materialization is not implemented yet."},
-		{Message: "No files will be created in this slice."},
-		{Message: "No files will be changed in this slice."},
-		{Message: "Configuration is in-memory only."},
-		{Message: "Review is preview-only."},
-		{Message: "MCP entries are not persisted."},
-		{Message: "Secrets are not collected or stored."},
+		{Message: "Apply writes Atlas configuration under .atlas/ only."},
+		{Message: "Runtime files such as AGENTS.md are not created in this slice."},
+		{Message: "Existing runtime artifacts are not backed up or replaced in this slice."},
+		{Message: "No Git operations are performed."},
+		{Message: "Secrets and credentials are not stored."},
 	}
 
 	return plan
@@ -218,7 +219,7 @@ func mcpEntries(draft config.MCPDraft) []MCPPlanEntry {
 			Name:    item.Name,
 			Kind:    "built-in",
 			Enabled: true,
-			Status:  "in memory only",
+			Status:  "will persist in .atlas/config.yaml",
 		})
 	}
 	for _, server := range draft.CustomServers {
@@ -227,7 +228,7 @@ func mcpEntries(draft config.MCPDraft) []MCPPlanEntry {
 			Kind:      "custom",
 			Transport: server.Transport.TransportLabel(),
 			Enabled:   server.Enabled,
-			Status:    "in memory only",
+			Status:    "will persist in .atlas/config.yaml",
 		})
 	}
 	if len(out) == 0 {

@@ -80,6 +80,8 @@ func TestRenderReview(t *testing.T) {
 		".atlas/config.yaml",
 		"AGENTS.md",
 		".cursor/rules/atlas.mdc",
+		"create this slice",
+		"planned for later",
 		"No existing runtime artifacts detected.",
 		"No backups required.",
 		"[content focus]",
@@ -284,13 +286,14 @@ func TestConfigureViewFinalSections(t *testing.T) {
 		"Adapters",
 		"Source Control",
 		"Memory",
-		"Apply Configuration Changes is not implemented",
+		"MCP",
+		"Close discards unsaved changes. Apply changes writes .atlas/config.yaml.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"[ Apply", "[ Next", "[ Close ]", "Project Stack", "Runtime entrypoint", "Skills / Registry", "Built-in MCPs"} {
+	for _, banned := range []string{"[ Next ]", "[ Close ]", "Project Stack", "Runtime entrypoint", "Skills / Registry"} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("unexpected %q:\n%s", banned, view)
 		}

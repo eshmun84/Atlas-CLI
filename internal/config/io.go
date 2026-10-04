@@ -10,9 +10,18 @@ import (
 
 // Load reads and validates a Config from a YAML file.
 func Load(path string) (Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Config{}, fmt.Errorf("load config: %w", err)
+	doc, err := LoadProjectDocument(path)
+	if err == nil {
+		cfg := doc.ToConfig()
+		if err := Validate(cfg); err != nil {
+			return Config{}, err
+		}
+		return cfg, nil
+	}
+
+	data, errRead := os.ReadFile(path)
+	if errRead != nil {
+		return Config{}, fmt.Errorf("load config: %w", errRead)
 	}
 
 	var cfg Config
@@ -25,6 +34,26 @@ func Load(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// LoadProjectDocument reads the Slice-12 persisted .atlas/config.yaml shape.
+func LoadProjectDocument(path string) (ProjectDocument, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ProjectDocument{}, fmt.Errorf("load config: %w", err)
+	}
+
+	var persisted ProjectDocument
+	if err := yaml.Unmarshal(data, &persisted); err != nil {
+		return ProjectDocument{}, fmt.Errorf("parse config: %w", err)
+	}
+	if !persisted.IsProjectDocument() {
+		return ProjectDocument{}, fmt.Errorf("load config: not a persisted project document")
+	}
+	if err := ValidateProjectDocument(persisted); err != nil {
+		return ProjectDocument{}, err
+	}
+	return persisted, nil
 }
 
 // Save validates cfg and writes it as YAML, creating parent directories as needed.

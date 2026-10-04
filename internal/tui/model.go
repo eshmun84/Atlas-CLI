@@ -63,6 +63,7 @@ type Model struct {
 	initReviewPlan      initplan.MaterializationPlan
 	initReviewMessage   string
 	initReviewFooterIdx int
+	initApplied         bool
 	nameInput           textinput.Model
 	detectedName        string
 	detectedMode        string
@@ -76,6 +77,7 @@ type Model struct {
 	configFooterIdx  int
 	configShowBack   bool
 	configShowNext   bool
+	configureNotice  string
 
 	mcpDraft          config.MCPDraft
 	mcpMode           string
@@ -172,7 +174,7 @@ func newTextInput(placeholder string) textinput.Model {
 
 func validRoute(route Route) bool {
 	switch route {
-	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteMCP, RouteStatus, RouteDoctor, RouteHelp, RouteError:
+	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteHelp, RouteError:
 		return true
 	default:
 		return false
@@ -181,7 +183,7 @@ func validRoute(route Route) bool {
 
 func needsWorkspace(route Route) bool {
 	switch route {
-	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteMCP, RouteStatus, RouteDoctor:
+	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor:
 		return true
 	default:
 		return false
@@ -200,6 +202,8 @@ func (m Model) DraftName() string               { return m.nameInput.Value() }
 func (m Model) InitField() int                  { return m.initField }
 func (m Model) InitWizardStep() int             { return m.initWizardStep }
 func (m Model) InitReviewMessage() string       { return m.initReviewMessage }
+func (m Model) ConfigureNotice() string         { return m.configureNotice }
+func (m Model) InitApplied() bool               { return m.initApplied }
 func (m Model) ConfigDraft() config.ConfigDraft { return m.configDraft }
 func (m Model) ConfigSectionIndex() int         { return m.configSectionIdx }
 func (m Model) ConfigFieldIndex() int           { return m.configFieldIdx }
@@ -310,7 +314,7 @@ func (m Model) mcpAddActive() bool {
 	if m.mcpMode != screens.MCPModeAdd {
 		return false
 	}
-	if m.route == RouteMCP {
+	if m.route == RouteConfigure {
 		return true
 	}
 	return m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepConfig
@@ -355,7 +359,7 @@ func (m *Model) leaveMCPAddForm() {
 	m.mcpMode = screens.MCPModeList
 	m.mcpAddError = ""
 	m.mcpFooterIdx = 0
-	if m.route == RouteInitPlan {
+	if m.route == RouteInitPlan || m.route == RouteConfigure {
 		idx := m.mcpSelectorIndex()
 		if idx >= 0 {
 			m.configSectionIdx = idx
@@ -444,6 +448,7 @@ func (m Model) projectSetupInput() config.ProjectSetupInput {
 
 func (m *Model) rebuildConfigDraft(mode config.ConfigMode, includeBack, includeNext bool) {
 	setup := m.projectSetupInput()
+	var persisted *config.ProjectDocument
 	if mode == config.ConfigModeConfigure && m.discovery.Atlas.Initialized() {
 		cfg := m.discovery.Atlas.Config
 		if cfg.Project.Name != "" {
@@ -452,14 +457,31 @@ func (m *Model) rebuildConfigDraft(mode config.ConfigMode, includeBack, includeN
 		if cfg.Project.Mode != "" {
 			setup.ProjectMode = cfg.Project.Mode
 		}
+		if doc, err := config.LoadProjectDocument(m.discovery.Atlas.ConfigPath); err == nil {
+			persisted = &doc
+			setup.ProjectName = doc.Project.Name
+			setup.ProjectMode = doc.Project.Mode
+			if doc.SourceControl.DefaultRemote != "" {
+				setup.DefaultRemote = doc.SourceControl.DefaultRemote
+			}
+			setup.CursorDetected = containsString(doc.Adapters.Selected, "cursor")
+			setup.OpenCodeDetected = containsString(doc.Adapters.Selected, "opencode")
+		}
 	}
 	setup.ProjectID = config.PreviewProjectID(setup.ProjectName)
 	m.configDraft = config.BuildConfigDraft(mode, setup)
+	if persisted != nil {
+		config.ApplyProjectDocument(&m.configDraft, *persisted)
+		m.mcpDraft = persisted.ToMCPDraft()
+	}
 	m.configShowBack = includeBack
 	m.configShowNext = includeNext
 	m.configPanel = screens.ConfigPanelSections
 	m.configSectionIdx = 0
 	m.configFooterIdx = 0
+	m.mcpMode = screens.MCPModeList
+	m.mcpAddError = ""
+	m.mcpNotice = ""
 	rows := screens.FocusRows(m.configDraft, m.configSectionIdx)
 	if len(rows) > 0 {
 		m.configFieldIdx = rows[0].FieldIndex
@@ -471,4 +493,13 @@ func (m *Model) rebuildConfigDraft(mode config.ConfigMode, includeBack, includeN
 	m.configSectionIdx, m.configFieldIdx, m.configOptionIdx = screens.ClampSelectorState(
 		m.configDraft, m.configSectionIdx, m.configFieldIdx, m.configOptionIdx,
 	)
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

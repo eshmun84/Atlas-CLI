@@ -16,6 +16,7 @@ var (
 	initWarn     = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	initMuted    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	initFocus    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214"))
+	initOK       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
 
 	initInputIdle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

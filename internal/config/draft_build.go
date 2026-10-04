@@ -27,6 +27,14 @@ func NormalizeProjectMode(mode string) string {
 	}
 }
 
+// PersistProjectMode maps a draft/internal mode onto the persisted config.yaml value.
+func PersistProjectMode(mode string) string {
+	if NormalizeProjectMode(mode) == ModeGreenfield {
+		return "new"
+	}
+	return ModeExisting
+}
+
 // BuildConfigDraft constructs a full in-memory configuration draft.
 func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 	setup.ProjectMode = NormalizeProjectMode(setup.ProjectMode)

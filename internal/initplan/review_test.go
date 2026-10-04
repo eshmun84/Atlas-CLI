@@ -54,8 +54,11 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 	if plan.MCPCount != 0 {
 		t.Fatalf("mcp count = %d", plan.MCPCount)
 	}
-	if !plan.PreviewOnly {
-		t.Fatal("plan must be preview-only")
+	if plan.PreviewOnly {
+		t.Fatal("config apply is enabled; plan must not be preview-only")
+	}
+	if !plan.ConfigApplyOnly {
+		t.Fatal("plan must be config-apply-only")
 	}
 	if len(plan.ExistingArtifacts) != 0 {
 		t.Fatalf("artifacts = %#v", plan.ExistingArtifacts)
@@ -71,10 +74,10 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 		"No branches are created.",
 		"No remote operations are performed.",
 		"Secrets and credentials are not stored.",
-		"Materialization is not implemented yet.",
-		"Review is preview-only.",
-		"Configuration is in-memory only.",
-		"MCP entries are not persisted.",
+		"Apply writes Atlas configuration under .atlas/ only.",
+		"Runtime files such as AGENTS.md are not created in this slice.",
+		"Existing runtime artifacts are not backed up or replaced in this slice.",
+		"No Git operations are performed.",
 	}) {
 		t.Fatalf("missing preserve/warning copy: %#v %#v", plan.Preservations, plan.Warnings)
 	}
@@ -132,7 +135,7 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 	if plan.MCPEntries[1].Name != "Jira Main" || plan.MCPEntries[1].Kind != "custom" || plan.MCPEntries[1].Transport != "stdio" {
 		t.Fatalf("custom mcp = %#v", plan.MCPEntries[1])
 	}
-	if plan.MCPEntries[0].Status != "in memory only" || plan.MCPEntries[1].Status != "in memory only" {
+	if plan.MCPEntries[0].Status != "will persist in .atlas/config.yaml" || plan.MCPEntries[1].Status != "will persist in .atlas/config.yaml" {
 		t.Fatalf("mcp status = %#v", plan.MCPEntries)
 	}
 	if plan.GovernanceNote == "" || plan.GovernanceStorage != "Versioned" {

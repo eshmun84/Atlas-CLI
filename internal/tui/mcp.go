@@ -154,7 +154,12 @@ func (m Model) handleInitMCPSectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case screens.MCPFocusAddBtn:
 			m.configPanel = screens.ConfigPanelFooter
-			m.configFooterIdx = 0
+			// Prefer Apply changes when Configure exposes it.
+			if m.route == RouteConfigure && m.configShowNext {
+				m.configFooterIdx = 1
+			} else {
+				m.configFooterIdx = 0
+			}
 		}
 		return m, nil
 	case "enter", " ", "space":
@@ -165,9 +170,15 @@ func (m Model) handleInitMCPSectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case screens.MCPFocusBuiltins:
 			m.mcpDraft.ToggleBuiltin(m.mcpIndex)
+			if m.route == RouteConfigure {
+				m.configureNotice = ""
+			}
 			return m, nil
 		case screens.MCPFocusCustom:
 			m.mcpDraft.ToggleCustom(m.mcpIndex)
+			if m.route == RouteConfigure {
+				m.configureNotice = ""
+			}
 			return m, nil
 		}
 	case "d":
@@ -187,7 +198,10 @@ func (m Model) removeFocusedCustom() (tea.Model, tea.Cmd) {
 	if !m.mcpDraft.RemoveCustom(m.mcpIndex) {
 		return m, nil
 	}
-	m.mcpNotice = "Removed " + name + ". The entry was in memory only."
+	m.mcpNotice = "Removed " + name + ". Apply changes to save."
+	if m.route == RouteConfigure {
+		m.configureNotice = ""
+	}
 	if len(m.mcpDraft.CustomServers) == 0 {
 		m.mcpListFocus = screens.MCPFocusBuiltins
 		m.mcpIndex = 0
@@ -380,6 +394,9 @@ func (m Model) submitMCPAdd() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mcpIndex = len(m.mcpDraft.CustomServers) - 1
+	if m.route == RouteConfigure {
+		m.configureNotice = ""
+	}
 	m.leaveMCPAddForm()
 	m.mcpListFocus = screens.MCPFocusCustom
 	return m, nil

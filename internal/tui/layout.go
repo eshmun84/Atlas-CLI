@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 )
 
@@ -137,6 +138,7 @@ func (m Model) rawContent() string {
 			return screens.RenderReview(screens.ReviewView{
 				Plan:           m.initReviewPlan,
 				ApplyMessage:   m.initReviewMessage,
+				Applied:        m.initApplied,
 				ContentFocused: m.focus == FocusContent,
 			})
 		}
@@ -177,6 +179,10 @@ func (m Model) rawContent() string {
 		if len(m.configDraft.Sections) == 0 {
 			return screens.ConfigureFallback(m.discovery.Atlas.State, m.discovery.Atlas.ConfigPath)
 		}
+		note := config.ConfigureApplyFooterNote
+		if m.configureNotice != "" {
+			note = m.configureNotice
+		}
 		return screens.ConfigureView(screens.ConfigFormView{
 			Draft:          m.configDraft,
 			SectionIndex:   m.configSectionIdx,
@@ -186,12 +192,13 @@ func (m Model) rawContent() string {
 			FooterIndex:    m.configFooterIdx,
 			ContentFocused: m.focus == FocusContent,
 			ShowBack:       true,
-			ShowNext:       false,
+			ShowNext:       true,
 			BackLabel:      "Close",
+			NextLabel:      "Apply changes",
+			FooterNote:     note,
 			Width:          m.contentWidth(),
+			MCP:            m.mcpView(),
 		})
-	case RouteMCP:
-		return screens.RenderMCP(m.mcpView())
 	case RouteStatus:
 		return screens.Status(m.discovery)
 	case RouteDoctor:
@@ -260,43 +267,29 @@ func (m Model) renderActionRow() (string, bool) {
 		if m.focus == FocusContent {
 			panel = screens.ConfigPanelFooter
 		}
+		if m.initApplied {
+			return screens.RenderActionFooter(screens.ActionFooterView{
+				ShowBack:       true,
+				ShowNext:       false,
+				BackLabel:      "Close",
+				ContentFocused: m.focus == FocusContent,
+				PanelFocus:     panel,
+				FooterIndex:    0,
+				Width:          width,
+			}), true
+		}
 		return screens.RenderActionFooter(screens.ActionFooterView{
 			ShowBack:       true,
 			ShowNext:       true,
 			BackLabel:      "Back",
-			NextLabel:      "Apply not implemented",
-			NextDisabled:   true,
+			NextLabel:      "Apply config",
+			NextDisabled:   false,
 			ContentFocused: m.focus == FocusContent,
 			PanelFocus:     panel,
 			FooterIndex:    m.initReviewFooterIdx,
 			Width:          width,
 		}), true
-	case m.route == RouteConfigure && len(m.configDraft.Sections) > 0:
-		return screens.RenderActionFooter(screens.ActionFooterView{
-			ShowBack:       true,
-			ShowNext:       false,
-			BackLabel:      "Close",
-			ContentFocused: m.focus == FocusContent,
-			PanelFocus:     m.configPanel,
-			FooterIndex:    m.configFooterIdx,
-			Width:          width,
-		}), true
-	case m.route == RouteMCP && m.mcpMode == screens.MCPModeList:
-		panel := ""
-		if m.focus == FocusContent && (m.mcpListFocus == screens.MCPFocusAddBtn || m.mcpListFocus == screens.MCPFocusClose) {
-			panel = screens.ConfigPanelFooter
-		}
-		return screens.RenderActionFooter(screens.ActionFooterView{
-			ShowBack:       true,
-			ShowNext:       true,
-			BackLabel:      "Add MCP",
-			NextLabel:      "Close",
-			ContentFocused: m.focus == FocusContent,
-			PanelFocus:     panel,
-			FooterIndex:    m.mcpFooterIdx,
-			Width:          width,
-		}), true
-	case m.route == RouteMCP && m.mcpMode == screens.MCPModeAdd:
+	case m.route == RouteConfigure && m.mcpMode == screens.MCPModeAdd:
 		panel := ""
 		if m.focus == FocusContent && (m.mcpAddFocus == screens.MCPFocusCancel || m.mcpAddFocus == screens.MCPFocusSubmit) {
 			panel = screens.ConfigPanelFooter
@@ -309,6 +302,17 @@ func (m Model) renderActionRow() (string, bool) {
 			ContentFocused: m.focus == FocusContent,
 			PanelFocus:     panel,
 			FooterIndex:    m.mcpFooterIdx,
+			Width:          width,
+		}), true
+	case m.route == RouteConfigure && len(m.configDraft.Sections) > 0:
+		return screens.RenderActionFooter(screens.ActionFooterView{
+			ShowBack:       true,
+			ShowNext:       true,
+			BackLabel:      "Close",
+			NextLabel:      "Apply changes",
+			ContentFocused: m.focus == FocusContent,
+			PanelFocus:     m.configPanel,
+			FooterIndex:    m.configFooterIdx,
 			Width:          width,
 		}), true
 	default:
@@ -332,14 +336,22 @@ func (m Model) renderFooter() string {
 				text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter select  b dash  q quit"
 			}
 		case screens.InitWizardStepReview:
-			text = "Tab focus  PgUp/PgDn scroll  Back  Apply not implemented  b dash  q quit"
+			if m.initApplied {
+				text = "Tab focus  PgUp/PgDn scroll  Close  b dash  q quit"
+			} else {
+				text = "Tab focus  PgUp/PgDn scroll  Back  Apply config  b dash  q quit"
+			}
 		default:
 			text = "Tab focus  ↑/↓ fields  ←/→ edit name  Enter Next  r reset  b dash  q quit"
 		}
 	case RouteConfigure:
-		text = "Tab focus  ↑/↓ rows  Space/Enter select  Close  b dash  q quit"
-	case RouteMCP:
-		text = "Tab focus  ↑/↓  Space/Enter  Add MCP  d remove custom  b dash  q quit"
+		if m.mcpMode == screens.MCPModeAdd {
+			text = "Tab focus  ↑/↓  Space/Enter  Add MCP  b dash  q quit"
+		} else if m.mcpSectionActive() {
+			text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter  d remove custom  Apply changes  b dash  q quit"
+		} else {
+			text = "Tab focus  ↑/↓ rows  Space/Enter select  Close  Apply changes  b dash  q quit"
+		}
 	case RouteHelp:
 		text = "↑/↓ menu  Enter select  PgUp/PgDn scroll  b dash  q quit"
 	}
@@ -359,10 +371,8 @@ func (m Model) renderShell() string {
 	sidebar := lipgloss.NewStyle().Width(sideW).Height(middleH).MaxHeight(middleH).
 		Render(strings.TrimRight(m.renderSidebarRaw(), "\n"))
 
-	chunk := m.visibleContentChunk(m.contentViewportHeight())
-	right := m.composeRightPanel(chunk)
-	contentStyle := bodyStyle.Width(contentW).Height(middleH).MaxHeight(middleH)
-	content := contentStyle.Render(right)
+	right := m.renderRightPanel(contentW, m.contentViewportHeight(), middleH)
+	content := lipgloss.NewStyle().Width(contentW).Height(middleH).AlignVertical(lipgloss.Top).Render(right)
 	middle := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 
 	body := lipgloss.JoinVertical(lipgloss.Top, header, divider, middle, divider, footer)
@@ -385,6 +395,19 @@ func (m Model) composeRightPanel(chunk string) string {
 		return action + "\n"
 	}
 	return chunk + "\n\n" + action + "\n"
+}
+
+// renderRightPanel keeps the action row outside content MaxHeight clipping so
+// Configure [ Apply changes ] stays visible under tall MCP content.
+func (m Model) renderRightPanel(contentW, viewportH, middleH int) string {
+	chunk := strings.TrimRight(m.visibleContentChunk(viewportH), "\n")
+	action, ok := m.renderActionRow()
+	if !ok {
+		return bodyStyle.Width(contentW).Height(middleH).MaxHeight(middleH).Render(chunk)
+	}
+	action = strings.TrimRight(action, "\n")
+	styledChunk := bodyStyle.Width(contentW).Height(viewportH).MaxHeight(viewportH).AlignVertical(lipgloss.Top).Render(chunk)
+	return strings.TrimRight(styledChunk, "\n") + "\n\n" + action + "\n"
 }
 
 func (m Model) renderSidebarRaw() string {

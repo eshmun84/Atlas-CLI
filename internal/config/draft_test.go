@@ -112,10 +112,14 @@ func TestConfigDraft_Edits(t *testing.T) {
 		t.Fatal("memory.strategy should be editable in configure")
 	}
 	cfgSelector := cfg.SelectorSections()
+	foundMCP := false
 	for _, section := range cfgSelector {
 		if section.Key == "mcp" {
-			t.Fatal("configure must not show MCP; MCP stays on the sidebar screen")
+			foundMCP = true
 		}
+	}
+	if !foundMCP {
+		t.Fatal("configure must show MCP section")
 	}
 }
 
