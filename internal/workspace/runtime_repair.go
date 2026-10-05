@@ -129,15 +129,65 @@ func BuildRuntimeRepairPlan(root string, health RuntimeHealth) RuntimeRepairPlan
 			Reason: "AGENTS.md missing from Atlas runtime surface",
 		})
 		plan.Drift = append(plan.Drift, "AGENTS.md is missing")
-	} else if !health.AgentsMarkers.Complete() {
-		addRepairTarget(&plan, RuntimeRepairTarget{
-			Path:   config.FileAgentsMD,
-			Action: RepairActionReplace,
-			Kind:   RepairKindAgents,
-			Reason: "AGENTS.md markers are invalid; treat as non-Atlas content",
-			Backup: true,
-		})
-		plan.Drift = append(plan.Drift, "AGENTS.md markers are incomplete")
+	} else {
+		agentsPath := filepath.Join(root, config.FileAgentsMD)
+		agentsData, readErr := os.ReadFile(agentsPath)
+		markers := health.AgentsMarkers
+		switch {
+		case readErr != nil:
+			addRepairTarget(&plan, RuntimeRepairTarget{
+				Path:   config.FileAgentsMD,
+				Action: RepairActionReplace,
+				Kind:   RepairKindAgents,
+				Reason: "AGENTS.md unreadable; rewrite Atlas contract",
+				Backup: true,
+			})
+			plan.Drift = append(plan.Drift, "AGENTS.md unreadable")
+		case !markers.Complete():
+			addRepairTarget(&plan, RuntimeRepairTarget{
+				Path:   config.FileAgentsMD,
+				Action: RepairActionReplace,
+				Kind:   RepairKindAgents,
+				Reason: "AGENTS.md markers are invalid; treat as non-Atlas content",
+				Backup: true,
+			})
+			plan.Drift = append(plan.Drift, "AGENTS.md markers are incomplete")
+		case !markers.ContractSatisfied(health.SelectedAdapters):
+			addRepairTarget(&plan, RuntimeRepairTarget{
+				Path:   config.FileAgentsMD,
+				Action: RepairActionReplace,
+				Kind:   RepairKindAgents,
+				Reason: "AGENTS.md missing selected adapter block(s)",
+				Backup: true,
+			})
+			plan.Drift = append(plan.Drift, "AGENTS.md missing selected adapter block")
+		case len(markers.UnselectedAdapters(health.SelectedAdapters)) > 0:
+			addRepairTarget(&plan, RuntimeRepairTarget{
+				Path:   config.FileAgentsMD,
+				Action: RepairActionReplace,
+				Kind:   RepairKindAgents,
+				Reason: "AGENTS.md contains unselected adapter block(s)",
+				Backup: true,
+			})
+			plan.Drift = append(plan.Drift, "AGENTS.md has unselected adapter block")
+		default:
+			expected := config.RenderAgentsMD(
+				health.Document.Project.Name,
+				health.Document.ContextGraphEnabled(),
+				health.SelectedAdapters,
+				agentsData,
+			)
+			if string(agentsData) != expected {
+				addRepairTarget(&plan, RuntimeRepairTarget{
+					Path:   config.FileAgentsMD,
+					Action: RepairActionReplace,
+					Kind:   RepairKindAgents,
+					Reason: "AGENTS.md Atlas-managed content drifted from rendered contract",
+					Backup: true,
+				})
+				plan.Drift = append(plan.Drift, "AGENTS.md managed content drifted")
+			}
+		}
 	}
 
 	selected := map[string]bool{}

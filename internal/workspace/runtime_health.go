@@ -176,6 +176,12 @@ func collectRuntimeWarnings(h RuntimeHealth) []string {
 	if h.RuntimeMaterialized && h.AgentsExists && !h.AgentsMarkers.Complete() {
 		warnings = append(warnings, "AGENTS.md markers are incomplete")
 	}
+	if h.AgentsExists && h.AgentsMarkers.Complete() && !h.AgentsMarkers.ContractSatisfied(h.SelectedAdapters) {
+		warnings = append(warnings, "AGENTS.md missing selected adapter block")
+	}
+	if h.AgentsExists && h.AgentsMarkers.Complete() && len(h.AgentsMarkers.UnselectedAdapters(h.SelectedAdapters)) > 0 {
+		warnings = append(warnings, "AGENTS.md contains unselected adapter block")
+	}
 	for _, proj := range h.ExpectedProjections {
 		if !proj.Present {
 			warnings = append(warnings, "expected adapter projection missing: "+proj.Path)

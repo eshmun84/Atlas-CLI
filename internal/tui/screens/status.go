@@ -207,8 +207,8 @@ func markersStatus(rt workspace.RuntimeHealth) string {
 	}
 	m := rt.AgentsMarkers
 	parts := []string{
-		markerFlag("MANAGED:BEGIN", m.ManagedBegin),
-		markerFlag("MANAGED:END", m.ManagedEnd),
+		markerFlag("BASE:BEGIN", m.BaseBegin),
+		markerFlag("BASE:END", m.BaseEnd),
 		markerFlag("USER:BEGIN", m.UserBegin),
 		markerFlag("USER:END", m.UserEnd),
 	}

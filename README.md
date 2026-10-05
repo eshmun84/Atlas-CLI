@@ -53,7 +53,7 @@ TUI-first is the primary UX. `atlas --version` is the only normal console output
 
 ## Runtime files and adapters
 
-Init Apply always materializes `AGENTS.md` (Atlas managed/user markers + compact hardened gateway contract).
+Init Apply always materializes a composed `AGENTS.md` (`ATLAS:BASE` + selected `ATLAS:ADAPTER:*` blocks + preserved `ATLAS:USER`) from embedded Atlas contract assets. Adapter-native projections remain minimal entrypoints.
 
 Selected adapters only:
 

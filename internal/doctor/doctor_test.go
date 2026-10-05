@@ -148,7 +148,7 @@ func TestEvaluate_IncompleteMarkersFailWhenMaterialized(t *testing.T) {
 	t.Parallel()
 
 	rt := healthyRuntime()
-	rt.AgentsMarkers = config.AgentsMarkers{ManagedBegin: true, ManagedEnd: true}
+	rt.AgentsMarkers = config.AgentsMarkers{BaseBegin: true, BaseEnd: true}
 
 	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
 	assertHas(t, report, doctor.SeverityFail, "agents markers", "AGENTS.md markers incomplete")
@@ -291,10 +291,14 @@ func healthyRuntime() workspace.RuntimeHealth {
 		RuntimeMaterialized: true,
 		AgentsExists:        true,
 		AgentsMarkers: config.AgentsMarkers{
-			ManagedBegin: true,
-			ManagedEnd:   true,
-			UserBegin:    true,
-			UserEnd:      true,
+			BaseBegin: true,
+			BaseEnd:   true,
+			UserBegin: true,
+			UserEnd:   true,
+			AdapterBlocks: map[string]bool{
+				"cursor": true,
+			},
+			FoundAdapters: []string{"cursor"},
 		},
 		SelectedAdapters:     []string{"cursor"},
 		ExpectedProjections:  []workspace.ProjectionStatus{{Adapter: "cursor", Path: config.FileCursorAtlasMDC, Present: true}},

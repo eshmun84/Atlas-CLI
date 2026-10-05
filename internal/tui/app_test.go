@@ -1795,7 +1795,7 @@ func TestInitReviewArtifactsAndAdapters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(agents), "<!-- ATLAS:MANAGED:BEGIN -->") {
+	if !strings.Contains(string(agents), "<!-- ATLAS:BASE:BEGIN -->") {
 		t.Fatalf("AGENTS.md not materialized:\n%s", agents)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".cursor", "rules", "atlas.mdc")); err != nil {
@@ -2473,8 +2473,8 @@ func assertAgentsMaterialized(t *testing.T, root string) {
 		t.Fatalf("AGENTS.md missing: %v", err)
 	}
 	for _, want := range []string{
-		"<!-- ATLAS:MANAGED:BEGIN -->",
-		"<!-- ATLAS:MANAGED:END -->",
+		"<!-- ATLAS:BASE:BEGIN -->",
+		"<!-- ATLAS:BASE:END -->",
 		"<!-- ATLAS:USER:BEGIN -->",
 		"<!-- ATLAS:USER:END -->",
 	} {

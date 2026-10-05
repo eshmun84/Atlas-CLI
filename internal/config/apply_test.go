@@ -113,13 +113,13 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	}
 	agentsText := string(agents)
 	for _, want := range []string{
-		"<!-- ATLAS:MANAGED:BEGIN -->",
-		"<!-- ATLAS:MANAGED:END -->",
+		"<!-- ATLAS:BASE:BEGIN -->",
+		"<!-- ATLAS:BASE:END -->",
 		"<!-- ATLAS:USER:BEGIN -->",
 		"<!-- ATLAS:USER:END -->",
 		"Atlas-CLI",
-		"## 1. Rules",
-		"## 10. Agent and Subagent Orchestration",
+		"## 1. Purpose and Authority",
+		"## 10. Context Economy",
 		"context.graph.enabled",
 		"Do not expect a full skills or agents catalog",
 	} {
@@ -139,7 +139,7 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(cursor), "alwaysApply: true") ||
-		!strings.Contains(string(cursor), "Atlas adapter projection") ||
+		!strings.Contains(string(cursor), "Atlas Cursor Entrypoint") ||
 		!strings.Contains(string(cursor), "do not bypass") {
 		t.Fatalf("cursor projection = %s", cursor)
 	}
@@ -148,7 +148,7 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(opencode), "Atlas adapter projection (OpenCode)") ||
+	if !strings.Contains(string(opencode), "Atlas OpenCode Entrypoint") ||
 		!strings.Contains(string(opencode), ".opencode/atlas.md") ||
 		!strings.Contains(string(opencode), "do not bypass") {
 		t.Fatalf("opencode = %s", opencode)
@@ -264,7 +264,7 @@ func TestApplyConfig_BacksUpExistingTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(agents), "<!-- ATLAS:MANAGED:BEGIN -->") {
+	if !strings.Contains(string(agents), "<!-- ATLAS:BASE:BEGIN -->") {
 		t.Fatalf("AGENTS.md not replaced:\n%s", agents)
 	}
 	other, err := os.ReadFile(filepath.Join(root, ".cursor", "rules", "other.mdc"))
@@ -277,7 +277,7 @@ func TestApplyConfig_PreservesUserSection(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	existing := "<!-- ATLAS:MANAGED:BEGIN -->\nold\n<!-- ATLAS:MANAGED:END -->\n\n" +
+	existing := "<!-- ATLAS:BASE:BEGIN -->\nold\n<!-- ATLAS:BASE:END -->\n\n" +
 		"<!-- ATLAS:USER:BEGIN -->\nKeep my notes\n<!-- ATLAS:USER:END -->\n"
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(existing), 0o644); err != nil {
 		t.Fatal(err)

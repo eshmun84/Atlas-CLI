@@ -199,11 +199,23 @@ func evaluateRuntime(h workspace.RuntimeHealth) []Check {
 			Name:     "agents markers",
 			Message:  "AGENTS.md markers incomplete",
 		})
+	case h.AgentsExists && h.AgentsMarkers.Complete() && !h.AgentsMarkers.ContractSatisfied(h.SelectedAdapters):
+		checks = append(checks, Check{
+			Severity: SeverityFail,
+			Name:     "agents markers",
+			Message:  "AGENTS.md missing selected adapter block",
+		})
+	case h.AgentsExists && h.AgentsMarkers.Complete() && len(h.AgentsMarkers.UnselectedAdapters(h.SelectedAdapters)) > 0:
+		checks = append(checks, Check{
+			Severity: SeverityWarn,
+			Name:     "agents markers",
+			Message:  "AGENTS.md contains unselected adapter block",
+		})
 	case h.AgentsExists && h.AgentsMarkers.Complete():
 		checks = append(checks, Check{
 			Severity: SeverityPass,
 			Name:     "agents markers",
-			Message:  "managed and user markers present",
+			Message:  "Atlas contract markers present",
 		})
 	case h.AgentsExists && !h.AgentsMarkers.Complete() && !h.RuntimeMaterialized:
 		checks = append(checks, Check{

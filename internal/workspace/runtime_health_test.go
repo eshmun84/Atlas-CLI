@@ -85,7 +85,7 @@ func TestEvaluateRuntimeHealth_InvalidConfigPartial(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(root, ".atlas", "config.yaml"), "project:\n  name: demo\n  mode: new\ngovernance:\n  workflow: sdd\n  spec_engine: none\nadapters:\n  selected: [Cursor]\nsource_control:\n  mode: none\n  default_remote: origin\n  branch_strategy: manual\n  governance_files: local_only\nmemory:\n  strategy: sqlite\ncontext:\n  graph:\n    enabled: true\nmcp:\n  builtins:\n    jira:\n      enabled: false\n    context7:\n      enabled: false\n    chrome_devtools:\n      enabled: false\n  custom: []\n")
-	writeFile(t, filepath.Join(root, "AGENTS.md"), config.RenderAgentsMD("demo", true, nil))
+	writeFile(t, filepath.Join(root, "AGENTS.md"), config.RenderAgentsMD("demo", true, nil, nil))
 
 	files := mustFiles(t, root)
 	atlas := workspace.EvaluateAtlasStatus(root, files)
@@ -129,7 +129,7 @@ func TestEvaluateRuntimeHealth_BrokenMarkers(t *testing.T) {
 	t.Parallel()
 
 	root := materializeProject(t, nil, true)
-	writeFile(t, filepath.Join(root, "AGENTS.md"), "# broken\n<!-- ATLAS:MANAGED:BEGIN -->\n")
+	writeFile(t, filepath.Join(root, "AGENTS.md"), "# broken\n<!-- ATLAS:BASE:BEGIN -->\n")
 	h := workspace.EvaluateRuntimeHealth(root, workspace.EvaluateAtlasStatus(root, mustFiles(t, root)), mustFiles(t, root))
 	if h.AgentsMarkers.Complete() {
 		t.Fatalf("markers should be incomplete: %#v", h.AgentsMarkers)

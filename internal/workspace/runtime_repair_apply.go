@@ -152,7 +152,13 @@ func writeAtlasRuntimeFile(root string, target RuntimeRepairTarget, doc config.P
 	}
 	full := filepath.Join(root, filepath.FromSlash(target.Path))
 	var existing []byte
-	// Never merge non-Atlas/unmarked content into ATLAS:USER on replace/create.
+	// Preserve ATLAS:USER only when USER markers exist. Unmarked/non-Atlas
+	// content is never merged into the USER section by the renderer.
+	if target.Path == config.FileAgentsMD {
+		if data, err := os.ReadFile(full); err == nil {
+			existing = data
+		}
+	}
 	content, err := renderRepairFile(target.Path, doc, existing)
 	if err != nil {
 		return err
@@ -169,7 +175,7 @@ func writeAtlasRuntimeFile(root string, target RuntimeRepairTarget, doc config.P
 func renderRepairFile(rel string, doc config.ProjectDocument, existing []byte) (string, error) {
 	switch rel {
 	case config.FileAgentsMD:
-		return config.RenderAgentsMD(doc.Project.Name, doc.ContextGraphEnabled(), existing), nil
+		return config.RenderAgentsMD(doc.Project.Name, doc.ContextGraphEnabled(), doc.Adapters.Selected, existing), nil
 	case config.FileCursorAtlasMDC:
 		return config.RenderCursorAtlasMDC(doc.Project.Name), nil
 	case config.FileOpenCodeAtlas:

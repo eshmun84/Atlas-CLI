@@ -2,45 +2,137 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+
+	"github.com/eshmun84/Atlas-CLI/internal/assets"
 )
 
 const (
-	AgentsManagedBegin = "<!-- ATLAS:MANAGED:BEGIN -->"
-	AgentsManagedEnd   = "<!-- ATLAS:MANAGED:END -->"
-	AgentsUserBegin    = "<!-- ATLAS:USER:BEGIN -->"
-	AgentsUserEnd      = "<!-- ATLAS:USER:END -->"
+	AgentsBaseBegin = "<!-- ATLAS:BASE:BEGIN -->"
+	AgentsBaseEnd   = "<!-- ATLAS:BASE:END -->"
+	AgentsUserBegin = "<!-- ATLAS:USER:BEGIN -->"
+	AgentsUserEnd   = "<!-- ATLAS:USER:END -->"
+
+	defaultAgentsUserBody = "Project-specific instructions go here."
 )
+
+// Canonical adapter ids that may appear as AGENTS.md adapter blocks today.
+var supportedAgentsAdapters = []string{"cursor", "opencode"}
+
+var adapterMarkerRE = regexp.MustCompile(`(?m)<!--\s*ATLAS:ADAPTER:([A-Z0-9_]+):(BEGIN|END)\s*-->`)
 
 // AgentsMarkers reports which AGENTS.md Atlas markers are present.
 type AgentsMarkers struct {
-	ManagedBegin bool
-	ManagedEnd   bool
-	UserBegin    bool
-	UserEnd      bool
+	BaseBegin bool
+	BaseEnd   bool
+	UserBegin bool
+	UserEnd   bool
+
+	// AdapterBlocks maps canonical adapter id ("cursor") → both BEGIN/END present.
+	AdapterBlocks map[string]bool
+	// FoundAdapters lists adapter ids discovered in content (stable order).
+	FoundAdapters []string
 }
 
-// Complete reports whether all four AGENTS.md markers are present.
+// Complete reports whether BASE and USER markers are present.
 func (m AgentsMarkers) Complete() bool {
-	return m.ManagedBegin && m.ManagedEnd && m.UserBegin && m.UserEnd
+	return m.BaseBegin && m.BaseEnd && m.UserBegin && m.UserEnd
+}
+
+// HasAdapter reports whether both markers for adapter are present.
+func (m AgentsMarkers) HasAdapter(adapter string) bool {
+	if m.AdapterBlocks == nil {
+		return false
+	}
+	return m.AdapterBlocks[adapter]
+}
+
+// ContractSatisfied reports whether BASE/USER and every selected supported
+// adapter block are present.
+func (m AgentsMarkers) ContractSatisfied(selected []string) bool {
+	if !m.Complete() {
+		return false
+	}
+	for _, adapter := range normalizeSelectedAdapters(selected) {
+		if !m.HasAdapter(adapter) {
+			return false
+		}
+	}
+	return true
+}
+
+// UnselectedAdapters returns adapter blocks present in content but not selected.
+func (m AgentsMarkers) UnselectedAdapters(selected []string) []string {
+	wanted := map[string]bool{}
+	for _, adapter := range normalizeSelectedAdapters(selected) {
+		wanted[adapter] = true
+	}
+	var extra []string
+	for _, adapter := range m.FoundAdapters {
+		if !wanted[adapter] {
+			extra = append(extra, adapter)
+		}
+	}
+	return extra
 }
 
 // InspectAgentsMarkers scans AGENTS.md content for Atlas markers. Read-only.
 func InspectAgentsMarkers(content []byte) AgentsMarkers {
 	text := string(content)
-	return AgentsMarkers{
-		ManagedBegin: strings.Contains(text, AgentsManagedBegin),
-		ManagedEnd:   strings.Contains(text, AgentsManagedEnd),
-		UserBegin:    strings.Contains(text, AgentsUserBegin),
-		UserEnd:      strings.Contains(text, AgentsUserEnd),
+	markers := AgentsMarkers{
+		BaseBegin:     strings.Contains(text, AgentsBaseBegin),
+		BaseEnd:       strings.Contains(text, AgentsBaseEnd),
+		UserBegin:     strings.Contains(text, AgentsUserBegin),
+		UserEnd:       strings.Contains(text, AgentsUserEnd),
+		AdapterBlocks: map[string]bool{},
 	}
+
+	seen := map[string]struct {
+		begin bool
+		end   bool
+	}{}
+	var order []string
+	for _, match := range adapterMarkerRE.FindAllStringSubmatch(text, -1) {
+		if len(match) != 3 {
+			continue
+		}
+		id := strings.ToLower(match[1])
+		state, ok := seen[id]
+		if !ok {
+			order = append(order, id)
+		}
+		switch match[2] {
+		case "BEGIN":
+			state.begin = true
+		case "END":
+			state.end = true
+		}
+		seen[id] = state
+	}
+	for _, id := range order {
+		state := seen[id]
+		markers.AdapterBlocks[id] = state.begin && state.end
+		markers.FoundAdapters = append(markers.FoundAdapters, id)
+	}
+	return markers
+}
+
+// AdapterBlockBegin returns the BEGIN marker for an adapter id.
+func AdapterBlockBegin(adapter string) string {
+	return fmt.Sprintf("<!-- ATLAS:ADAPTER:%s:BEGIN -->", strings.ToUpper(strings.TrimSpace(adapter)))
+}
+
+// AdapterBlockEnd returns the END marker for an adapter id.
+func AdapterBlockEnd(adapter string) string {
+	return fmt.Sprintf("<!-- ATLAS:ADAPTER:%s:END -->", strings.ToUpper(strings.TrimSpace(adapter)))
 }
 
 // RuntimeTargets returns allowlisted runtime files for the selected adapters.
 // AGENTS.md is always included. Cursor/OpenCode files are conditional.
 func RuntimeTargets(doc ProjectDocument) []string {
 	targets := []string{FileAgentsMD}
-	for _, adapter := range doc.Adapters.Selected {
+	for _, adapter := range normalizeSelectedAdapters(doc.Adapters.Selected) {
 		switch adapter {
 		case "cursor":
 			targets = append(targets, FileCursorAtlasMDC)
@@ -51,130 +143,124 @@ func RuntimeTargets(doc ProjectDocument) []string {
 	return targets
 }
 
-// RenderAgentsMD builds AGENTS.md with the compact Atlas gateway contract.
-// When existing content has a USER section, that body is preserved.
-func RenderAgentsMD(projectName string, contextGraphEnabled bool, existing []byte) string {
+// RenderAgentsMD composes AGENTS.md from the Base Atlas Contract, selected
+// adapter blocks, and a preserved ATLAS:USER section when markers are valid.
+func RenderAgentsMD(projectName string, contextGraphEnabled bool, selected []string, existing []byte) string {
 	name := strings.TrimSpace(projectName)
 	if name == "" {
 		name = "this project"
 	}
 	userBody := extractMarkedSection(string(existing), AgentsUserBegin, AgentsUserEnd)
-	if strings.TrimSpace(userBody) == "" {
-		userBody = "Add project-specific agent instructions here.\nAtlas preserves this section on later updates when possible."
-	} else {
-		userBody = strings.TrimSpace(userBody)
+	useDefaultUser := strings.TrimSpace(userBody) == ""
+	if useDefaultUser {
+		userBody = defaultAgentsUserBody
 	}
 
-	graphPref := "enabled"
+	graphStatus := "enabled"
 	if !contextGraphEnabled {
-		graphPref = "disabled"
+		graphStatus = "disabled"
 	}
 
-	var managed strings.Builder
-	fmt.Fprintf(&managed, "# AGENTS.md\n\n")
-	fmt.Fprintf(&managed, "Atlas project gateway for **%s**.\n\n", name)
-	fmt.Fprintf(&managed, "This repository is a compact gateway. Atlas Home / the local Atlas framework environment is the canonical source of skills, agents, rules, personas, templates, adapter instructions, and runtime contracts. Do not expect a full skills or agents catalog to be copied into this project.\n\n")
-	fmt.Fprintf(&managed, "Read `%s`, `%s`, and selected adapter projections before acting.\n\n", FileAgentsMD, FileConfig)
-
-	fmt.Fprintf(&managed, "## 1. Rules\n\n")
-	fmt.Fprintf(&managed, "- Follow Atlas governance and project configuration under `%s`.\n", FileConfig)
-	fmt.Fprintf(&managed, "- Prefer Atlas-owned state under `%s/` for Atlas configuration.\n", DirAtlas)
-	fmt.Fprintf(&managed, "- Do not store secrets, credentials, or tokens in this file.\n")
-	fmt.Fprintf(&managed, "- Do not invent missing Atlas Home assets or project context.\n")
-	fmt.Fprintf(&managed, "- Do not perform Git operations unless a human explicitly requests them.\n")
-	fmt.Fprintf(&managed, "- When commit text is requested, use Conventional Commits.\n")
-	fmt.Fprintf(&managed, "- Do not add `Co-Authored-By` or any attribution to AI/tools.\n")
-	fmt.Fprintf(&managed, "- Tests, review, evidence, or delegation never equal delivery approval.\n")
-	fmt.Fprintf(&managed, "- Do not expand scope without a clear proposal and human agreement.\n\n")
-
-	fmt.Fprintf(&managed, "## 2. Professional Identity\n\n")
-	fmt.Fprintf(&managed, "- Act as a capable engineering agent operating through Atlas.\n")
-	fmt.Fprintf(&managed, "- Stay practical, verification-minded, and aligned with the project's Atlas setup.\n\n")
-
-	fmt.Fprintf(&managed, "## 3. Persona Scope\n\n")
-	fmt.Fprintf(&managed, "- Stay within the active Atlas persona or role when Atlas provides one.\n")
-	fmt.Fprintf(&managed, "- Do not assume every persona definition is vendored inside this repository.\n\n")
-
-	fmt.Fprintf(&managed, "## 4. Language\n\n")
-	fmt.Fprintf(&managed, "- Prefer the project's working language.\n")
-	fmt.Fprintf(&managed, "- Keep technical terms clear and unambiguous.\n\n")
-
-	fmt.Fprintf(&managed, "## 5. Tone\n\n")
-	fmt.Fprintf(&managed, "- Direct, precise, and compact.\n")
-	fmt.Fprintf(&managed, "- Prefer actionable guidance over ceremony.\n\n")
-
-	fmt.Fprintf(&managed, "## 6. Philosophy\n\n")
-	fmt.Fprintf(&managed, "- Keep the project surface small: gateway instructions, config/state, and adapter projections.\n")
-	fmt.Fprintf(&managed, "- Prefer contextual loading from Atlas Home over copying catalogs into the repo.\n\n")
-
-	fmt.Fprintf(&managed, "## 7. Expertise\n\n")
-	fmt.Fprintf(&managed, "- Use Atlas Home expertise sources when available.\n")
-	fmt.Fprintf(&managed, "- Do not assume skills, agents, or templates are installed locally in this project.\n\n")
-
-	fmt.Fprintf(&managed, "## 8. Behavior\n\n")
-	fmt.Fprintf(&managed, "- Inspect AGENTS.md, `%s`, and adapter projections before changing project behavior.\n", FileConfig)
-	fmt.Fprintf(&managed, "- Do not download, install, generate, or copy skills during normal work.\n")
-	fmt.Fprintf(&managed, "- Do not resolve remote asset catalogs during normal work.\n")
-	fmt.Fprintf(&managed, "- Do not materialize CLAUDE.md, GEMINI.md, `.agents/`, or `.claude/` unless a future Atlas slice explicitly allows it.\n\n")
-
-	fmt.Fprintf(&managed, "## 9. Contextual Skill Loading\n\n")
-	fmt.Fprintf(&managed, "- Load skills only from local paths provided by Atlas.\n")
-	fmt.Fprintf(&managed, "- Do not expect a complete skills catalog inside this repository.\n\n")
-
-	fmt.Fprintf(&managed, "## 10. Agent and Subagent Orchestration\n\n")
-	fmt.Fprintf(&managed, "- Prefer Atlas-provided agent and subagent contracts when available.\n")
-	fmt.Fprintf(&managed, "- Subagents are bounded workers/reviewers; the primary agent keeps responsibility.\n")
-	fmt.Fprintf(&managed, "- If safe runtime-native delegation is unavailable, fall back to inline work.\n")
-	fmt.Fprintf(&managed, "- Do not assume this project contains a full local agent catalog.\n\n")
-
-	fmt.Fprintf(&managed, "## Context Graph\n\n")
-	fmt.Fprintf(&managed, "- Project preference: Context Graph is **%s** (`context.graph.enabled`).\n", graphPref)
-	fmt.Fprintf(&managed, "- Context Graph is a preference/context aid only: no graph engine, database, embeddings, index, capsules, or context packs in this project.\n")
-	fmt.Fprintf(&managed, "- Use Context Graph only when Atlas enables or provides it.\n")
-	fmt.Fprintf(&managed, "- Do not assume the graph lives inside this project.\n")
-	fmt.Fprintf(&managed, "- Do not invent graph context when it is unavailable.\n")
-	fmt.Fprintf(&managed, "- Do not load the full repository by default.\n")
-	fmt.Fprintf(&managed, "- Load raw files only when Atlas context references are insufficient for correctness.")
+	baseBody, err := loadAgentsAsset("agents/base.md")
+	if err != nil {
+		baseBody = fallbackBaseContract(name, graphStatus)
+	}
+	baseBody = applyAgentsPlaceholders(baseBody, name, graphStatus)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n%s\n%s\n\n", AgentsManagedBegin, managed.String(), AgentsManagedEnd)
-	fmt.Fprintf(&b, "%s\n%s\n%s\n", AgentsUserBegin, userBody, AgentsUserEnd)
+	fmt.Fprintf(&b, "# Atlas Project Runtime Contract\n\n")
+	fmt.Fprintf(&b, "%s\n%s\n%s\n\n", AgentsBaseBegin, strings.TrimSpace(baseBody), AgentsBaseEnd)
+
+	for _, adapter := range normalizeSelectedAdapters(selected) {
+		body, err := loadAgentsAsset("agents/adapters/" + adapter + ".md")
+		if err != nil {
+			continue
+		}
+		body = applyAgentsPlaceholders(strings.TrimSpace(body), name, graphStatus)
+		fmt.Fprintf(&b, "%s\n%s\n%s\n\n", AdapterBlockBegin(adapter), body, AdapterBlockEnd(adapter))
+	}
+
+	// Preserve the exact USER body between markers. Do not inject extra
+	// newlines around a preserved body; only format the default body.
+	if useDefaultUser {
+		fmt.Fprintf(&b, "%s\n%s\n%s\n", AgentsUserBegin, userBody, AgentsUserEnd)
+	} else {
+		fmt.Fprintf(&b, "%s%s%s\n", AgentsUserBegin, userBody, AgentsUserEnd)
+	}
 	return b.String()
 }
 
-// RenderCursorAtlasMDC builds the Cursor adapter projection.
+// RenderCursorAtlasMDC builds the minimal Cursor adapter projection.
 func RenderCursorAtlasMDC(projectName string) string {
-	name := strings.TrimSpace(projectName)
-	if name == "" {
-		name = "this project"
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "---\n")
-	fmt.Fprintf(&b, "description: Atlas adapter projection for %s\n", name)
-	fmt.Fprintf(&b, "alwaysApply: true\n")
-	fmt.Fprintf(&b, "---\n\n")
-	fmt.Fprintf(&b, "# Atlas adapter projection (Cursor)\n\n")
-	fmt.Fprintf(&b, "- Root `%s` is authoritative; do not bypass it.\n", FileAgentsMD)
-	fmt.Fprintf(&b, "- This file is an Atlas adapter projection, not a full contract or catalog.\n")
-	fmt.Fprintf(&b, "- Do not duplicate the full AGENTS.md contract here.\n")
-	fmt.Fprintf(&b, "- Project configuration lives under `%s`.\n", FileConfig)
-	return b.String()
+	return renderAdapterFile("adapter-files/cursor/atlas.mdc", projectName)
 }
 
-// RenderOpenCodeAtlas builds the OpenCode adapter projection.
+// RenderOpenCodeAtlas builds the minimal OpenCode adapter projection.
 func RenderOpenCodeAtlas(projectName string) string {
+	return renderAdapterFile("adapter-files/opencode/atlas.md", projectName)
+}
+
+func renderAdapterFile(rel, projectName string) string {
 	name := strings.TrimSpace(projectName)
 	if name == "" {
 		name = "this project"
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "# Atlas adapter projection (OpenCode)\n\n")
-	fmt.Fprintf(&b, "Project: %s\n\n", name)
-	fmt.Fprintf(&b, "- Root `%s` is authoritative; do not bypass it.\n", FileAgentsMD)
-	fmt.Fprintf(&b, "- This file (`%s`) is an Atlas adapter projection, not a full contract or catalog.\n", FileOpenCodeAtlas)
-	fmt.Fprintf(&b, "- Do not duplicate the full AGENTS.md contract here.\n")
-	fmt.Fprintf(&b, "- Project configuration lives under `%s`.\n", FileConfig)
-	return b.String()
+	body, err := loadAgentsAsset(rel)
+	if err != nil {
+		return fallbackAdapterProjection(rel, name)
+	}
+	return applyAgentsPlaceholders(strings.TrimSpace(body), name, "") + "\n"
+}
+
+func loadAgentsAsset(rel string) (string, error) {
+	data, err := assets.Content.ReadFile(rel)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func applyAgentsPlaceholders(body, projectName, graphStatus string) string {
+	out := body
+	out = strings.ReplaceAll(out, "{{PROJECT_NAME}}", projectName)
+	if graphStatus != "" {
+		out = strings.ReplaceAll(out, "{{CONTEXT_GRAPH_STATUS}}", graphStatus)
+	}
+	return out
+}
+
+func normalizeSelectedAdapters(selected []string) []string {
+	wanted := map[string]bool{}
+	for _, adapter := range selected {
+		switch adapter {
+		case "cursor", "opencode":
+			wanted[adapter] = true
+		}
+	}
+	var out []string
+	for _, adapter := range supportedAgentsAdapters {
+		if wanted[adapter] {
+			out = append(out, adapter)
+		}
+	}
+	return out
+}
+
+func fallbackBaseContract(projectName, graphStatus string) string {
+	return fmt.Sprintf(
+		"Atlas project runtime contract for **%s**.\n\nContext Graph preference: **%s**.\nFollow human authority, scope control, and explicit Git authorization.",
+		projectName,
+		graphStatus,
+	)
+}
+
+func fallbackAdapterProjection(rel, projectName string) string {
+	switch {
+	case strings.Contains(rel, "cursor"):
+		return fmt.Sprintf("---\ndescription: Atlas Cursor entrypoint for %s\nalwaysApply: true\n---\n\n# Atlas Cursor Entrypoint\n\n- Root `%s` is the project authority; do not bypass it.\n", projectName, FileAgentsMD)
+	default:
+		return fmt.Sprintf("# Atlas OpenCode Entrypoint\n\nProject: %s\n\n- Root `%s` is the project authority; do not bypass it.\n", projectName, FileAgentsMD)
+	}
 }
 
 func extractMarkedSection(content, begin, end string) string {
@@ -187,13 +273,14 @@ func extractMarkedSection(content, begin, end string) string {
 	if stop < 0 {
 		return ""
 	}
-	return strings.TrimSpace(content[start : start+stop])
+	// Return the raw interior between markers; callers decide emptiness.
+	return content[start : start+stop]
 }
 
 func renderRuntimeFile(rel string, doc ProjectDocument, existing []byte) (string, error) {
 	switch rel {
 	case FileAgentsMD:
-		return RenderAgentsMD(doc.Project.Name, doc.ContextGraphEnabled(), existing), nil
+		return RenderAgentsMD(doc.Project.Name, doc.ContextGraphEnabled(), doc.Adapters.Selected, existing), nil
 	case FileCursorAtlasMDC:
 		return RenderCursorAtlasMDC(doc.Project.Name), nil
 	case FileOpenCodeAtlas:

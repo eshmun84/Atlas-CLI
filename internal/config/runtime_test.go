@@ -30,110 +30,208 @@ func TestRuntimeTargets(t *testing.T) {
 	}
 }
 
-func TestRenderAgentsMD_ContractHardening(t *testing.T) {
+func TestRenderAgentsMD_BaseOnly(t *testing.T) {
 	t.Parallel()
 
-	existing := "<!-- ATLAS:USER:BEGIN -->\nCustom note\n<!-- ATLAS:USER:END -->"
-	got := config.RenderAgentsMD("Demo", true, []byte(existing))
-	for _, want := range []string{
-		"<!-- ATLAS:MANAGED:BEGIN -->",
-		"<!-- ATLAS:MANAGED:END -->",
-		"<!-- ATLAS:USER:BEGIN -->",
-		"Custom note",
-		"<!-- ATLAS:USER:END -->",
+	got := config.RenderAgentsMD("Demo", true, nil, nil)
+	assertContains(t, got,
+		"# Atlas Project Runtime Contract",
+		config.AgentsBaseBegin,
+		config.AgentsBaseEnd,
+		config.AgentsUserBegin,
+		"Project-specific instructions go here.",
+		config.AgentsUserEnd,
+		"## 1. Purpose and Authority",
+		"## 2. Professional Engineering Behavior",
+		"## 3. Scope Control",
+		"## 4. Planning and Execution Discipline",
+		"## 5. Git and Delivery Authorization",
+		"## 6. Remote and External Operations",
+		"## 7. Skill and Contract Loading",
+		"## 8. Agent and Subagent Orchestration",
+		"## 9. Review and Verification",
+		"## 10. Context Economy",
 		"Demo",
-		"## 1. Rules",
-		"## 2. Professional Identity",
-		"## 3. Persona Scope",
-		"## 4. Language",
-		"## 5. Tone",
-		"## 6. Philosophy",
-		"## 7. Expertise",
-		"## 8. Behavior",
-		"## 9. Contextual Skill Loading",
-		"## 10. Agent and Subagent Orchestration",
-		"## Context Graph",
-		"canonical source of skills",
-		"Do not perform Git operations unless a human explicitly requests them.",
-		"Conventional Commits",
-		"Co-Authored-By",
-		"never equal delivery approval",
-		"Do not expand scope without a clear proposal",
-		"Do not download, install, generate, or copy skills",
-		"Load skills only from local paths provided by Atlas",
-		"Subagents are bounded workers/reviewers",
-		"fall back to inline work",
-		"context.graph.enabled",
-		"no graph engine, database, embeddings, index, capsules, or context packs",
-		"Do not invent graph context",
-		"Do not load the full repository by default",
-		"Load raw files only when Atlas context references are insufficient for correctness",
-		"Do not expect a full skills or agents catalog",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("missing %q:\n%s", want, got)
-		}
+		"Context Graph is **enabled**",
+		"Do not add `Co-Authored-By`",
+		"Do not invent missing project facts",
+		"explicit human request",
+	)
+	assertNotContains(t, got,
+		config.AdapterBlockBegin("cursor"),
+		config.AdapterBlockBegin("opencode"),
+		"<!-- ATLAS:MANAGED:BEGIN -->",
+		"## Cursor Adapter Guidance",
+		"## OpenCode Adapter Guidance",
+	)
+}
+
+func TestRenderAgentsMD_CursorOnly(t *testing.T) {
+	t.Parallel()
+
+	got := config.RenderAgentsMD("Demo", true, []string{"cursor"}, nil)
+	assertContains(t, got,
+		config.AgentsBaseBegin,
+		config.AdapterBlockBegin("cursor"),
+		config.AdapterBlockEnd("cursor"),
+		"## Cursor Adapter Guidance",
+		"Cursor must treat root `AGENTS.md` as the project authority",
+	)
+	assertNotContains(t, got,
+		config.AdapterBlockBegin("opencode"),
+		"## OpenCode Adapter Guidance",
+	)
+}
+
+func TestRenderAgentsMD_OpenCodeOnly(t *testing.T) {
+	t.Parallel()
+
+	got := config.RenderAgentsMD("Demo", false, []string{"opencode"}, nil)
+	assertContains(t, got,
+		config.AgentsBaseBegin,
+		config.AdapterBlockBegin("opencode"),
+		config.AdapterBlockEnd("opencode"),
+		"## OpenCode Adapter Guidance",
+		"Context Graph is **disabled**",
+		"Delegated work produces evidence",
+	)
+	assertNotContains(t, got,
+		config.AdapterBlockBegin("cursor"),
+		"## Cursor Adapter Guidance",
+	)
+}
+
+func TestRenderAgentsMD_CursorAndOpenCode(t *testing.T) {
+	t.Parallel()
+
+	got := config.RenderAgentsMD("Demo", true, []string{"opencode", "cursor"}, nil)
+	cursorAt := strings.Index(got, config.AdapterBlockBegin("cursor"))
+	openAt := strings.Index(got, config.AdapterBlockBegin("opencode"))
+	if cursorAt < 0 || openAt < 0 || cursorAt > openAt {
+		t.Fatalf("expected cursor block before opencode:\ncursor=%d opencode=%d\n%s", cursorAt, openAt, got)
 	}
-	if strings.Contains(got, "source ofskills") {
-		t.Fatalf("typo source ofskills must be absent:\n%s", got)
+	assertNotContains(t, got,
+		config.AdapterBlockBegin("codex"),
+		config.AdapterBlockBegin("claude"),
+	)
+}
+
+func TestRenderAgentsMD_PreservesUserExactly(t *testing.T) {
+	t.Parallel()
+
+	userBody := "\n  Keep leading indent\n\n- first item\n- second item\n\nTrailing blank line kept:\n  \n"
+	existing := config.AgentsUserBegin + userBody + config.AgentsUserEnd
+	got := config.RenderAgentsMD("Demo", true, []string{"cursor"}, []byte(existing))
+
+	begin := strings.Index(got, config.AgentsUserBegin)
+	end := strings.Index(got, config.AgentsUserEnd)
+	if begin < 0 || end < 0 || end < begin {
+		t.Fatalf("USER markers missing:\n%s", got)
 	}
-	for _, banned := range []string{
-		"skills catalog installed",
-		"local skills directory",
-		"embeddings index",
-		"context pack storage",
-	} {
-		if strings.Contains(strings.ToLower(got), banned) {
-			t.Fatalf("banned catalog/engine language %q present:\n%s", banned, got)
-		}
+	gotBody := got[begin+len(config.AgentsUserBegin) : end]
+	if gotBody != userBody {
+		t.Fatalf("USER body not preserved exactly\nwant %q\ngot  %q", userBody, gotBody)
 	}
 
-	// USER preservation across regeneration.
-	again := config.RenderAgentsMD("Demo", true, []byte(got))
-	if !strings.Contains(again, "Custom note") {
-		t.Fatalf("USER section lost on regenerate:\n%s", again)
+	again := config.RenderAgentsMD("Demo", true, []string{"cursor"}, []byte(got))
+	begin = strings.Index(again, config.AgentsUserBegin)
+	end = strings.Index(again, config.AgentsUserEnd)
+	if begin < 0 || end < 0 || end < begin {
+		t.Fatalf("USER markers missing on regenerate:\n%s", again)
 	}
-	if !strings.Contains(again, "<!-- ATLAS:MANAGED:BEGIN -->") || !strings.Contains(again, "<!-- ATLAS:USER:BEGIN -->") {
-		t.Fatalf("markers missing on regenerate:\n%s", again)
+	againBody := again[begin+len(config.AgentsUserBegin) : end]
+	if againBody != userBody {
+		t.Fatalf("USER body lost formatting on regenerate\nwant %q\ngot  %q", userBody, againBody)
 	}
+	markers := config.InspectAgentsMarkers([]byte(again))
+	if !markers.ContractSatisfied([]string{"cursor"}) {
+		t.Fatalf("markers = %#v", markers)
+	}
+}
 
-	disabled := config.RenderAgentsMD("Demo", false, nil)
-	if !strings.Contains(disabled, "Context Graph is **disabled**") {
-		t.Fatalf("disabled graph copy missing:\n%s", disabled)
-	}
+func TestRenderAgentsMD_IgnoresUnselectedAndUnsupported(t *testing.T) {
+	t.Parallel()
+
+	got := config.RenderAgentsMD("Demo", true, []string{"cursor", "claude", "Codex", "OpenCode"}, nil)
+	assertContains(t, got, config.AdapterBlockBegin("cursor"))
+	assertNotContains(t, got,
+		config.AdapterBlockBegin("opencode"),
+		config.AdapterBlockBegin("claude"),
+		config.AdapterBlockBegin("codex"),
+	)
 }
 
 func TestRenderAdapterProjections(t *testing.T) {
 	t.Parallel()
 
 	cursor := config.RenderCursorAtlasMDC("Demo")
-	for _, want := range []string{
+	assertContains(t, cursor,
 		"alwaysApply: true",
-		"Atlas adapter projection (Cursor)",
-		"Root `AGENTS.md` is authoritative; do not bypass it.",
-		"Do not duplicate the full AGENTS.md contract here.",
-	} {
-		if !strings.Contains(cursor, want) {
-			t.Fatalf("cursor missing %q:\n%s", want, cursor)
-		}
-	}
-	if strings.Contains(cursor, "## 1. Rules") || strings.Contains(cursor, "Conventional Commits") {
-		t.Fatalf("cursor projection must not duplicate full AGENTS contract:\n%s", cursor)
-	}
+		"Atlas Cursor Entrypoint",
+		"Root `AGENTS.md` is the project authority; do not bypass it.",
+		"Cursor-native entrypoint only",
+		"Demo",
+	)
+	assertNotContains(t, cursor,
+		"## 1. Purpose and Authority",
+		"Conventional Commits",
+		"## Cursor Adapter Guidance",
+	)
 
 	opencode := config.RenderOpenCodeAtlas("Demo")
-	for _, want := range []string{
-		"Atlas adapter projection (OpenCode)",
+	assertContains(t, opencode,
+		"Atlas OpenCode Entrypoint",
 		".opencode/atlas.md",
-		"Root `AGENTS.md` is authoritative; do not bypass it.",
-		"Do not duplicate the full AGENTS.md contract here.",
+		"Root `AGENTS.md` is the project authority; do not bypass it.",
+		"execution surfaces, not independent authorities",
 		"Demo",
-	} {
-		if !strings.Contains(opencode, want) {
-			t.Fatalf("opencode missing %q:\n%s", want, opencode)
+	)
+	assertNotContains(t, opencode,
+		"## 1. Purpose and Authority",
+		"Conventional Commits",
+		"## OpenCode Adapter Guidance",
+	)
+}
+
+func TestInspectAgentsMarkers_V2(t *testing.T) {
+	t.Parallel()
+
+	complete := config.InspectAgentsMarkers([]byte(config.RenderAgentsMD("demo", true, []string{"cursor"}, nil)))
+	if !complete.Complete() || !complete.HasAdapter("cursor") || complete.HasAdapter("opencode") {
+		t.Fatalf("complete markers = %#v", complete)
+	}
+	if !complete.ContractSatisfied([]string{"cursor"}) {
+		t.Fatal("contract should be satisfied")
+	}
+	if extras := complete.UnselectedAdapters([]string{"cursor"}); len(extras) != 0 {
+		t.Fatalf("extras = %#v", extras)
+	}
+
+	partial := config.InspectAgentsMarkers([]byte("<!-- ATLAS:BASE:BEGIN -->\n"))
+	if partial.Complete() || !partial.BaseBegin || partial.UserEnd {
+		t.Fatalf("partial markers = %#v", partial)
+	}
+
+	legacy := config.InspectAgentsMarkers([]byte("<!-- ATLAS:MANAGED:BEGIN -->\n<!-- ATLAS:MANAGED:END -->\n<!-- ATLAS:USER:BEGIN -->\nx\n<!-- ATLAS:USER:END -->\n"))
+	if legacy.Complete() || legacy.BaseBegin {
+		t.Fatalf("legacy managed markers must not satisfy v2 Complete: %#v", legacy)
+	}
+}
+
+func assertContains(t *testing.T, got string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(opencode, "## 1. Rules") || strings.Contains(opencode, "Conventional Commits") {
-		t.Fatalf("opencode projection must not duplicate full AGENTS contract:\n%s", opencode)
+}
+
+func assertNotContains(t *testing.T, got string, banned ...string) {
+	t.Helper()
+	for _, item := range banned {
+		if strings.Contains(got, item) {
+			t.Fatalf("unexpected %q:\n%s", item, got)
+		}
 	}
 }

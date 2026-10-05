@@ -1,0 +1,11 @@
+---
+description: Atlas Cursor entrypoint for {{PROJECT_NAME}}
+alwaysApply: true
+---
+
+# Atlas Cursor Entrypoint
+
+- Root `AGENTS.md` is the project authority; do not bypass it.
+- This file is a Cursor-native entrypoint only, not a full Atlas contract.
+- Follow Atlas scope, Git authorization, verification, human authority, and skill-loading rules from `AGENTS.md`.
+- Project configuration lives under `.atlas/config.yaml`.

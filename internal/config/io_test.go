@@ -118,12 +118,12 @@ func TestLoadStateDocument_RoundTrip(t *testing.T) {
 func TestInspectAgentsMarkers(t *testing.T) {
 	t.Parallel()
 
-	complete := config.InspectAgentsMarkers([]byte(config.RenderAgentsMD("demo", true, nil)))
+	complete := config.InspectAgentsMarkers([]byte(config.RenderAgentsMD("demo", true, nil, nil)))
 	if !complete.Complete() {
 		t.Fatalf("complete markers = %#v", complete)
 	}
-	partial := config.InspectAgentsMarkers([]byte("<!-- ATLAS:MANAGED:BEGIN -->\n"))
-	if partial.Complete() || !partial.ManagedBegin || partial.UserEnd {
+	partial := config.InspectAgentsMarkers([]byte("<!-- ATLAS:BASE:BEGIN -->\n"))
+	if partial.Complete() || !partial.BaseBegin || partial.UserEnd {
 		t.Fatalf("partial markers = %#v", partial)
 	}
 }

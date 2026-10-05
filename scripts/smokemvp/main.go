@@ -302,7 +302,7 @@ func checkRepairStalePlan() error {
 	}
 
 	// Heal AGENTS.md so the reviewed signature is stale.
-	if err := os.WriteFile(filepath.Join(root, config.FileAgentsMD), []byte(config.RenderAgentsMD("smoke", true, nil)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, config.FileAgentsMD), []byte(config.RenderAgentsMD("smoke", true, []string{"cursor"}, nil)), 0o644); err != nil {
 		return err
 	}
 	applied, err := workspace.ApplyRuntimeRepair(root, sig, nil)

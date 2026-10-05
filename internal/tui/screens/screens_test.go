@@ -427,7 +427,9 @@ func TestStatusGitTechLibraries(t *testing.T) {
 			ContextGraphReadable: true,
 			ContextGraphEnabled:  true,
 			AgentsMarkers: config.AgentsMarkers{
-				ManagedBegin: true, ManagedEnd: true, UserBegin: true, UserEnd: true,
+				BaseBegin: true, BaseEnd: true, UserBegin: true, UserEnd: true,
+				AdapterBlocks: map[string]bool{"cursor": true},
+				FoundAdapters: []string{"cursor"},
 			},
 			AgentsExists:        true,
 			RuntimeMaterialized: true,

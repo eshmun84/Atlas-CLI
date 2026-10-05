@@ -233,7 +233,7 @@ func TestApplyRuntimeRepair_RejectsStalePlan(t *testing.T) {
 	}
 
 	// Mutate filesystem so the reviewed plan is stale.
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(config.RenderAgentsMD("demo", true, nil)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(config.RenderAgentsMD("demo", true, []string{"cursor"}, nil)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	before := snapshotTree(t, root)
@@ -341,6 +341,127 @@ func TestApplyRuntimeRepair_DoesNotCreateUnselectedAdapters(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".opencode")); !os.IsNotExist(err) {
 		t.Fatal("opencode created")
 	}
+}
+
+func TestApplyRuntimeRepair_MissingBaseBlock(t *testing.T) {
+	t.Parallel()
+	root := materializeProject(t, []string{"cursor"}, true)
+	broken := "<!-- ATLAS:USER:BEGIN -->\nkeep me\n<!-- ATLAS:USER:END -->\n"
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	if !containsPath(plan.Replaces, config.FileAgentsMD) {
+		t.Fatalf("expected AGENTS replace for missing base: %#v", plan)
+	}
+	result := applyRepair(t, root, plan.Signature(), func() time.Time {
+		return time.Date(2026, 10, 5, 17, 10, 0, 0, time.UTC)
+	})
+	if !containsPath(result.Replaced, config.FileAgentsMD) {
+		t.Fatalf("result = %#v", result)
+	}
+	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers := config.InspectAgentsMarkers(agents)
+	if !markers.ContractSatisfied([]string{"cursor"}) {
+		t.Fatalf("markers = %#v", markers)
+	}
+	if !strings.Contains(string(agents), "keep me") {
+		t.Fatalf("USER body lost:\n%s", agents)
+	}
+	assertDoctorRuntimeReady(t, root)
+}
+
+func TestApplyRuntimeRepair_MissingSelectedAdapterBlock(t *testing.T) {
+	t.Parallel()
+	root := materializeProject(t, []string{"cursor"}, true)
+	baseOnly := config.RenderAgentsMD("demo", true, nil, []byte(
+		config.AgentsUserBegin+"\nuser note\n"+config.AgentsUserEnd,
+	))
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(baseOnly), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	if !containsPath(plan.Replaces, config.FileAgentsMD) {
+		t.Fatalf("expected replace for missing adapter block: %#v", plan)
+	}
+	applyRepair(t, root, plan.Signature(), nil)
+	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(agents), config.AdapterBlockBegin("cursor")) {
+		t.Fatalf("cursor block missing:\n%s", agents)
+	}
+	if !strings.Contains(string(agents), "user note") {
+		t.Fatalf("USER lost:\n%s", agents)
+	}
+	assertDoctorRuntimeReady(t, root)
+}
+
+func TestApplyRuntimeRepair_DriftedSelectedAdapterBlock(t *testing.T) {
+	t.Parallel()
+	root := materializeProject(t, []string{"cursor"}, true)
+	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := strings.Replace(string(agents), "## Cursor Adapter Guidance", "## Cursor Adapter Guidance\nTAMPERED", 1)
+	if tampered == string(agents) {
+		t.Fatal("failed to tamper adapter block")
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(tampered), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	if !containsPath(plan.Replaces, config.FileAgentsMD) {
+		t.Fatalf("expected replace for drifted adapters: %#v", plan)
+	}
+	applyRepair(t, root, plan.Signature(), nil)
+	fixed, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(fixed), "TAMPERED") {
+		t.Fatalf("drift not repaired:\n%s", fixed)
+	}
+	want := config.RenderAgentsMD("demo", true, []string{"cursor"}, fixed)
+	if string(fixed) != want {
+		t.Fatalf("repaired AGENTS.md does not match renderer")
+	}
+	assertDoctorRuntimeReady(t, root)
+}
+
+func TestApplyRuntimeRepair_RemovesUnselectedAdapterBlock(t *testing.T) {
+	t.Parallel()
+	root := materializeProject(t, []string{"cursor"}, true)
+	both := config.RenderAgentsMD("demo", true, []string{"cursor", "opencode"}, []byte(
+		config.AgentsUserBegin+"\nstay\n"+config.AgentsUserEnd,
+	))
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(both), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	if !containsPath(plan.Replaces, config.FileAgentsMD) {
+		t.Fatalf("expected replace for unselected adapter block: %#v", plan)
+	}
+	applyRepair(t, root, plan.Signature(), nil)
+	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(agents), config.AdapterBlockBegin("opencode")) {
+		t.Fatalf("unselected opencode block still present:\n%s", agents)
+	}
+	if !strings.Contains(string(agents), config.AdapterBlockBegin("cursor")) {
+		t.Fatal("cursor block missing")
+	}
+	if !strings.Contains(string(agents), "stay") {
+		t.Fatal("USER lost")
+	}
+	assertDoctorRuntimeReady(t, root)
 }
 
 func applyRepair(t *testing.T, root, signature string, nowFn func() time.Time) workspace.RuntimeRepairResult {
