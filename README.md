@@ -50,6 +50,8 @@ MCP is configured during Init Step 2 or later in Configure. Built-in MCPs are Ji
 
 Init Apply creates `.atlas` config files and the allowlisted runtime gateway files above. `AGENTS.md` uses Atlas managed/user marker sections and a compact hardened gateway contract (Rules through Agent/Subagent Orchestration), including critical Git/commit/scope/skills/subagent rules and a Context Graph preference note. Configure **Apply changes** still updates `.atlas/config.yaml` only and does not rematerialize runtime files.
 
+`atlas status` and `atlas doctor` are read-only. Status shows Atlas runtime health (config/state, `runtime_materialized`, AGENTS.md markers, selected adapters and expected projections, Context Graph preference, backups). Doctor reports PASS/WARN/FAIL checks for the same surface, including basic drift. Neither command repairs, rematerializes, migrates, or writes files.
+
 `atlas start`, `atlas change`, and `atlas mcp` are intentionally unsupported. They are not real commands.
 
 ## Requirements

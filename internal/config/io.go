@@ -56,6 +56,20 @@ func LoadProjectDocument(path string) (ProjectDocument, error) {
 	return persisted, nil
 }
 
+// LoadStateDocument reads .atlas/state.yaml without mutating the workspace.
+func LoadStateDocument(path string) (StateDocument, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return StateDocument{}, fmt.Errorf("load state: %w", err)
+	}
+
+	var state StateDocument
+	if err := yaml.Unmarshal(data, &state); err != nil {
+		return StateDocument{}, fmt.Errorf("parse state: %w", err)
+	}
+	return state, nil
+}
+
 // Save validates cfg and writes it as YAML, creating parent directories as needed.
 func Save(path string, cfg Config) error {
 	if err := Validate(cfg); err != nil {

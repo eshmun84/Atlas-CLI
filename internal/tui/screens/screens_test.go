@@ -414,8 +414,36 @@ func TestStatusGitTechLibraries(t *testing.T) {
 			{Name: "Bubble Tea", Module: "github.com/charmbracelet/bubbletea"},
 		},
 		Atlas: workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
+		Runtime: workspace.RuntimeHealth{
+			SelectedAdapters: []string{"cursor"},
+			ExpectedProjections: []workspace.ProjectionStatus{
+				{Adapter: "cursor", Path: ".cursor/rules/atlas.mdc", Present: true},
+			},
+			ContextGraphReadable: true,
+			ContextGraphEnabled:  true,
+			AgentsMarkers: config.AgentsMarkers{
+				ManagedBegin: true, ManagedEnd: true, UserBegin: true, UserEnd: true,
+			},
+			AgentsExists:        true,
+			RuntimeMaterialized: true,
+			Initialized:         true,
+			ConfigExists:        true,
+			ConfigLoads:         true,
+			StateExists:         true,
+			StateLoads:          true,
+			BackupsDirExists:    true,
+		},
 	})
-	for _, want := range []string{"Default remote: origin", "Technologies", "Bubble Tea"} {
+	for _, want := range []string{
+		"Default remote: origin",
+		"Technologies",
+		"Bubble Tea",
+		"Atlas Runtime",
+		"runtime_materialized",
+		"Adapters",
+		".cursor/rules/atlas.mdc",
+		"Context Graph",
+	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}

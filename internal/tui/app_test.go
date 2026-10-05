@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
@@ -1011,19 +1012,73 @@ func TestShellViews(t *testing.T) {
 		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	assertShell(t, status.View(), "Atlas Status")
-	for _, want := range []string{"Technologies", "Libraries", "Bubble Tea"} {
+	for _, want := range []string{"Atlas Runtime", "Technologies", "Libraries", "Bubble Tea", "runtime_materialized"} {
 		if !strings.Contains(status.View(), want) {
 			t.Fatalf("status missing %q:\n%s", want, status.View())
 		}
 	}
+	assertNoMutation(t, root)
 
 	doc := loadWorkspace(t, tui.Options{
 		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	assertShell(t, doc.View(), "Atlas Doctor")
+	assertNoMutation(t, root)
 
 	help := sized(tui.NewModel(tui.Options{Route: tui.RouteHelp}))
 	assertShell(t, help.View(), "Atlas Help")
+}
+
+func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
+	root := t.TempDir()
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:    "demo",
+		ProjectMode:    "existing",
+		DefaultRemote:  "origin",
+		CursorDetected: true,
+	})
+	if _, err := config.ApplyConfig(config.ApplyInput{
+		Root:  root,
+		Draft: draft,
+		MCP:   config.EmptyMCPDraft(),
+		Now:   func() time.Time { return time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC) },
+	}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	before := snapshotDir(t, root)
+
+	status := loadWorkspace(t, tui.Options{
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	view := status.View()
+	for _, want := range []string{
+		"Atlas Runtime",
+		"Initialized",
+		"runtime_materialized",
+		".cursor/rules/atlas.mdc",
+		"Context Graph",
+		"AGENTS markers",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("status missing %q:\n%s", want, view)
+		}
+	}
+	assertSnapshotUnchanged(t, root, before)
+
+	doc := loadWorkspace(t, tui.Options{
+		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	docView := doc.View()
+	for _, want := range []string{"PASS", "atlas config", "agents markers", "adapter projection cursor"} {
+		if !strings.Contains(docView, want) {
+			t.Fatalf("doctor missing %q:\n%s", want, docView)
+		}
+	}
+	if strings.Contains(docView, "FAIL") {
+		t.Fatalf("doctor unexpected FAIL:\n%s", docView)
+	}
+	assertSnapshotUnchanged(t, root, before)
 }
 
 func TestInitFocusNameModeDecision(t *testing.T) {
@@ -2400,5 +2455,50 @@ func assertNoMutation(t *testing.T, root string) {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join(root, ".atlas")); !os.IsNotExist(err) {
 		t.Fatalf(".atlas should not be created, stat err = %v", err)
+	}
+}
+
+func snapshotDir(t *testing.T, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			out[filepath.ToSlash(rel)+"/"] = "dir"
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		out[filepath.ToSlash(rel)] = string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func assertSnapshotUnchanged(t *testing.T, root string, before map[string]string) {
+	t.Helper()
+	after := snapshotDir(t, root)
+	if len(before) != len(after) {
+		t.Fatalf("tree size changed: before=%d after=%d", len(before), len(after))
+	}
+	for path, content := range before {
+		got, ok := after[path]
+		if !ok {
+			t.Fatalf("path removed: %s", path)
+		}
+		if got != content {
+			t.Fatalf("path mutated: %s", path)
+		}
 	}
 }

@@ -13,11 +13,13 @@ var (
 	statusYes  = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	statusNo   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	statusWarn = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	statusFail = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 )
 
 // Status renders the read-only workspace status screen.
 func Status(result workspace.DiscoveryResult) string {
 	var b strings.Builder
+	rt := result.Runtime
 
 	fmt.Fprintln(&b, statusHead.Render("Atlas Status"))
 	fmt.Fprintln(&b)
@@ -25,6 +27,26 @@ func Status(result workspace.DiscoveryResult) string {
 	fmt.Fprintf(&b, "  Root: %s\n", result.RootPath)
 	fmt.Fprintf(&b, "  Atlas state: %s\n\n", result.Atlas.State)
 
+	fmt.Fprintln(&b, statusHead.Render("Atlas Runtime"))
+	fmt.Fprintf(&b, "  Initialized: %s\n", yesNo(rt.Initialized))
+	fmt.Fprintf(&b, "  .atlas/config.yaml: %s\n", configStatus(rt))
+	fmt.Fprintf(&b, "  .atlas/state.yaml: %s\n", stateStatus(rt))
+	fmt.Fprintf(&b, "  runtime_materialized: %s\n", boolBadge(rt.RuntimeMaterialized))
+	fmt.Fprintf(&b, "  AGENTS.md: %s\n", agentsStatus(rt))
+	fmt.Fprintf(&b, "  AGENTS markers: %s\n", markersStatus(rt))
+	fmt.Fprintf(&b, "  Adapters: %s\n", adaptersLabel(rt.SelectedAdapters))
+	fmt.Fprintln(&b, "  Adapter projections:")
+	if len(rt.ExpectedProjections) == 0 {
+		fmt.Fprintln(&b, "    none expected")
+	} else {
+		for _, proj := range rt.ExpectedProjections {
+			fmt.Fprintf(&b, "    - %s (%s): %s\n", proj.Path, proj.Adapter, presentMissing(proj.Present))
+		}
+	}
+	fmt.Fprintf(&b, "  Context Graph: %s\n", contextGraphStatus(rt))
+	fmt.Fprintf(&b, "  .atlas/backups: %s\n", backupsStatus(rt))
+
+	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, statusHead.Render("Git"))
 	fmt.Fprintf(&b, "  Repository: %s\n", yesNo(result.Git.IsRepo))
 	fmt.Fprintf(&b, "  Current branch: %s\n", displayOrUnknown(result.Git.CurrentBranch))
@@ -86,10 +108,22 @@ func Status(result workspace.DiscoveryResult) string {
 		fmt.Fprintf(&b, "  %s: %s\n", tool.Name, availability(tool.Available))
 	}
 
-	if len(result.Warnings) > 0 {
+	if len(rt.Warnings) > 0 || len(result.Warnings) > 0 {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, statusHead.Render("Warnings"))
+		seen := map[string]struct{}{}
+		for _, warning := range rt.Warnings {
+			if _, ok := seen[warning]; ok {
+				continue
+			}
+			seen[warning] = struct{}{}
+			fmt.Fprintf(&b, "  - %s\n", statusWarn.Render(warning))
+		}
 		for _, warning := range result.Warnings {
+			if _, ok := seen[warning]; ok {
+				continue
+			}
+			seen[warning] = struct{}{}
 			fmt.Fprintf(&b, "  - %s\n", statusWarn.Render(warning))
 		}
 	}
@@ -111,9 +145,116 @@ func yesNo(v bool) string {
 	return statusNo.Render("no")
 }
 
+func boolBadge(v bool) string {
+	if v {
+		return statusYes.Render("true")
+	}
+	return statusNo.Render("false")
+}
+
+func presentMissing(present bool) string {
+	if present {
+		return statusYes.Render("present")
+	}
+	return statusFail.Render("missing")
+}
+
 func availability(available bool) string {
 	if available {
 		return statusYes.Render("available")
 	}
 	return statusNo.Render("unavailable")
+}
+
+func configStatus(rt workspace.RuntimeHealth) string {
+	switch {
+	case !rt.ConfigExists:
+		return statusNo.Render("missing")
+	case rt.ConfigLoads:
+		return statusYes.Render("ok")
+	default:
+		return statusFail.Render("invalid")
+	}
+}
+
+func stateStatus(rt workspace.RuntimeHealth) string {
+	switch {
+	case !rt.StateExists:
+		if rt.Initialized {
+			return statusFail.Render("missing")
+		}
+		return statusNo.Render("missing")
+	case rt.StateLoads:
+		return statusYes.Render("ok")
+	default:
+		return statusFail.Render("invalid")
+	}
+}
+
+func agentsStatus(rt workspace.RuntimeHealth) string {
+	if rt.AgentsExists {
+		return statusYes.Render("present")
+	}
+	if rt.RuntimeMaterialized {
+		return statusFail.Render("missing")
+	}
+	return statusNo.Render("missing")
+}
+
+func markersStatus(rt workspace.RuntimeHealth) string {
+	if !rt.AgentsExists {
+		return statusNo.Render("n/a")
+	}
+	m := rt.AgentsMarkers
+	parts := []string{
+		markerFlag("MANAGED:BEGIN", m.ManagedBegin),
+		markerFlag("MANAGED:END", m.ManagedEnd),
+		markerFlag("USER:BEGIN", m.UserBegin),
+		markerFlag("USER:END", m.UserEnd),
+	}
+	label := strings.Join(parts, " ")
+	if m.Complete() {
+		return statusYes.Render(label)
+	}
+	if rt.RuntimeMaterialized {
+		return statusFail.Render(label)
+	}
+	return statusWarn.Render(label)
+}
+
+func markerFlag(name string, ok bool) string {
+	if ok {
+		return name + "=yes"
+	}
+	return name + "=no"
+}
+
+func adaptersLabel(adapters []string) string {
+	if len(adapters) == 0 {
+		return statusNo.Render("none")
+	}
+	return statusYes.Render(strings.Join(adapters, ", "))
+}
+
+func contextGraphStatus(rt workspace.RuntimeHealth) string {
+	if !rt.ContextGraphReadable {
+		if rt.ConfigExists && !rt.ConfigLoads {
+			return statusWarn.Render("unreadable (invalid config)")
+		}
+		return statusNo.Render("n/a")
+	}
+	if rt.ContextGraphEnabled {
+		return statusYes.Render("enabled")
+	}
+	return statusNo.Render("disabled")
+}
+
+func backupsStatus(rt workspace.RuntimeHealth) string {
+	if rt.BackupsDirExists {
+		return statusYes.Render("present")
+	}
+	if rt.Initialized {
+		return statusWarn.Render("missing")
+	}
+	return statusNo.Render("missing")
 }

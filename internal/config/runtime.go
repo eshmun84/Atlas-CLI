@@ -12,6 +12,30 @@ const (
 	AgentsUserEnd      = "<!-- ATLAS:USER:END -->"
 )
 
+// AgentsMarkers reports which AGENTS.md Atlas markers are present.
+type AgentsMarkers struct {
+	ManagedBegin bool
+	ManagedEnd   bool
+	UserBegin    bool
+	UserEnd      bool
+}
+
+// Complete reports whether all four AGENTS.md markers are present.
+func (m AgentsMarkers) Complete() bool {
+	return m.ManagedBegin && m.ManagedEnd && m.UserBegin && m.UserEnd
+}
+
+// InspectAgentsMarkers scans AGENTS.md content for Atlas markers. Read-only.
+func InspectAgentsMarkers(content []byte) AgentsMarkers {
+	text := string(content)
+	return AgentsMarkers{
+		ManagedBegin: strings.Contains(text, AgentsManagedBegin),
+		ManagedEnd:   strings.Contains(text, AgentsManagedEnd),
+		UserBegin:    strings.Contains(text, AgentsUserBegin),
+		UserEnd:      strings.Contains(text, AgentsUserEnd),
+	}
+}
+
 // RuntimeTargets returns allowlisted runtime files for the selected adapters.
 // AGENTS.md is always included. Cursor/OpenCode files are conditional.
 func RuntimeTargets(doc ProjectDocument) []string {

@@ -17,6 +17,7 @@ type DiscoveryResult struct {
 	Libraries        []Library
 	RuntimeArtifacts []string
 	Atlas            AtlasStatus
+	Runtime          RuntimeHealth
 	Tools            []ToolInfo
 
 	Warnings []string
@@ -57,6 +58,7 @@ func Discover(root string) (DiscoveryResult, error) {
 	result.Libraries = DiscoverLibraries(absRoot, files)
 	result.RuntimeArtifacts = DiscoverRuntimeArtifacts(absRoot)
 	result.Atlas = EvaluateAtlasStatus(absRoot, files)
+	result.Runtime = EvaluateRuntimeHealth(absRoot, result.Atlas, files)
 	result.Tools = DiscoverTools()
 
 	gitInfo, warnings, err := discoverGit(absRoot)
@@ -65,6 +67,7 @@ func Discover(root string) (DiscoveryResult, error) {
 	}
 	result.Git = gitInfo
 	result.Warnings = append(result.Warnings, warnings...)
+	result.Warnings = append(result.Warnings, result.Runtime.Warnings...)
 
 	return result, nil
 }

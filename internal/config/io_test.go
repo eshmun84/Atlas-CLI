@@ -96,3 +96,34 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		t.Fatal("expected load to reject invalid config")
 	}
 }
+
+func TestLoadStateDocument_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.yaml")
+	raw := []byte("schema_version: 1\ninitialized: true\nruntime_materialized: true\nruntime_materialized_at: \"2026-10-05T12:00:00Z\"\napplied_at: \"2026-10-05T12:00:00Z\"\natlas_version: 0.1.0\nproject_name: demo\n")
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state, err := config.LoadStateDocument(path)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	if !state.Initialized || !state.RuntimeMaterialized || state.ProjectName != "demo" {
+		t.Fatalf("state = %#v", state)
+	}
+}
+
+func TestInspectAgentsMarkers(t *testing.T) {
+	t.Parallel()
+
+	complete := config.InspectAgentsMarkers([]byte(config.RenderAgentsMD("demo", true, nil)))
+	if !complete.Complete() {
+		t.Fatalf("complete markers = %#v", complete)
+	}
+	partial := config.InspectAgentsMarkers([]byte("<!-- ATLAS:MANAGED:BEGIN -->\n"))
+	if partial.Complete() || !partial.ManagedBegin || partial.UserEnd {
+		t.Fatalf("partial markers = %#v", partial)
+	}
+}
