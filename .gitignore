@@ -11,6 +11,7 @@ bin/
 *.out
 coverage.out
 coverage.html
+.tmp-smoke-mvp/
 
 # Go workspace
 go.work

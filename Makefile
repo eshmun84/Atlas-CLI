@@ -1,4 +1,4 @@
-.PHONY: build test fmt vet check clean
+.PHONY: build test fmt vet check clean smoke-mvp
 
 BINARY := bin/atlas
 
@@ -23,6 +23,9 @@ check:
 	fi
 	go vet ./...
 	go test ./...
+
+smoke-mvp:
+	@bash scripts/smoke-mvp.sh
 
 clean:
 	rm -rf bin/

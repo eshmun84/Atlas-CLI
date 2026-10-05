@@ -2,74 +2,100 @@
 
 Atlas is a governed AI-assisted software engineering framework.
 
-Atlas is **not** a coding agent. The CLI is a launcher; the primary interface is a full-screen interactive TUI.
+Atlas is **not** a coding agent. The CLI launches a full-screen interactive TUI. Product work happens in that shell, not as console report dumps.
 
-## TUI-first
+## MVP status (`0.1.0`)
 
-Atlas is TUI-first.
+Usable first release candidate for project-local Atlas setup:
 
-`atlas --version` is the only normal console output. Every other command launches a full-screen TUI shell with:
+- TUI-first shell (Dashboard, Init, Configure, Status, Doctor, Runtime Repair, Help)
+- Init / Configure with config persistence under `.atlas/`
+- Runtime gateway materialization (`AGENTS.md` + selected Cursor/OpenCode projections)
+- Status + Doctor runtime awareness
+- Explicit Runtime Repair (Review → Apply) with backup/quarantine of conflicts
+- Context Graph as a preference placeholder only (no graph engine)
 
-- left sidebar navigation
-- right content panel
-- shared compact header and content-sized footer
-- content-fit shell on short screens: action row sits directly above the footer, without stretching the body to fill the terminal
-- one-line top gap on normal-height terminals
-- scrollable content (`PgUp` / `PgDn`) when the screen is taller than the terminal
+Not included: Atlas Home, memory engines, MCP connections, Git automation, or daily workflow commands.
 
-| Command | Behavior |
-| --- | --- |
-| `atlas --version` | Console: print version only |
-| `atlas` | TUI shell, Dashboard |
-| `atlas help` / `--help` / `-h` | TUI shell, Help |
-| `atlas init` / `atlas init --dry-run` | TUI shell, Init / Setup wizard |
-| `atlas status` | TUI shell, Status |
-| `atlas doctor` | TUI shell, Doctor |
-| `atlas start` / `atlas change` / `atlas mcp` | Header + centered Error dialog + footer (Salir) |
+## Install / local build
 
-Sidebar entries:
-
-- Not initialized: Dashboard, Init / Setup, Status, Doctor, Help, Exit
-- Initialized (valid `.atlas/config.yaml`): Dashboard, Configure, Status, Doctor, Runtime Repair, Help, Exit
-
-Init / Setup is a three-step in-memory wizard:
-
-1. **Project Setup** — project name, New/Existing mode, runtime artifact gate
-2. **Initial Configuration** — sectioned selector with Governance, Adapters, Source Control, Memory, Context, and MCP
-3. **Review / Materialization Plan** — preview of planned creates, backups, replacements, and preservations
-
-Init Step 1, Init Step 2, Init Step 3, and Configure place their action row immediately after the screen content. The global footer follows that row. On tall terminals the extra space stays below the shell, not between the action row and the footer.
-
-Init Step 2 uses vertical checkbox/radio-style rows. Arrow keys move focus only. Values change only with Space or Enter. Workflow currently supports SDD only. Spec engine supports OpenSpec or None. Source Control includes Atlas governance files (Local only / Versioned). Memory strategy supports SQLite, Context Capsule, or SQLite + Context Capsule. Context exposes a single preference checkbox: **Enable Context Graph** (default enabled; preference/context aid only — no graph engine, database, embeddings, index, capsules, or packs). MCP follows Context. The project remains a compact gateway; Atlas Home stays the canonical source of skills/agents/rules. Persisted adapters allow only exact `cursor` and `opencode`. There is no Project Stack configuration in init.
-
-Init Step 3 summarizes the in-memory project setup, configuration, and MCP draft. **Apply config** writes Atlas-owned files under `.atlas/` (`config.yaml`, `local.yaml`, `state.yaml`, `assets.lock.yaml`, and `backups/`) and materializes runtime gateway files: `AGENTS.md` always; Cursor/OpenCode **adapter projections** when selected (`.cursor/rules/atlas.mdc`, `.opencode/atlas.md`). Those projections must not bypass or duplicate the full AGENTS.md contract. Existing Atlas-managed targets are backed up under `.atlas/backups/<timestamp>/` with `manifest.json` before replacement. Apply does not commit, push, or modify Git.
-
-Configure uses the same visible sections after initialization, including MCP. It loads values from `.atlas/config.yaml` when present. The action row always shows **[ Close ]** and **[ Apply changes ]** (including while editing the MCP section). **Close** discards unsaved edits. **Apply changes** persists the current Configure draft (including MCP) to `.atlas/config.yaml` only and shows `Configuration changes saved.`
-
-MCP is configured during Init Step 2 or later in Configure. Built-in MCPs are Jira, Context7, and Chrome DevTools (multi-select). Add MCP creates a custom MCP entry with Name, Transport (stdio / http / sse), Command or URL, Arguments, and Environment references. Custom entries can be removed in memory with `d`. Custom is not a built-in row. Review summarizes selected built-ins and custom entries. Init **Apply config** and Configure **Apply changes** both persist MCP enablement and custom connection references in `.atlas/config.yaml`. MCP does not connect to servers or store credentials. There is no standalone MCP sidebar item and `atlas mcp` is unsupported.
-
-Init Apply creates `.atlas` config files and the allowlisted runtime gateway files above. `AGENTS.md` uses Atlas managed/user marker sections and a compact hardened gateway contract (Rules through Agent/Subagent Orchestration), including critical Git/commit/scope/skills/subagent rules and a Context Graph preference note. Configure **Apply changes** still updates `.atlas/config.yaml` only and does not rematerialize runtime files.
-
-`atlas status` and `atlas doctor` are read-only. Status shows Atlas runtime health (config/state, `runtime_materialized`, AGENTS.md markers, selected adapters and expected projections, Context Graph preference, backups). Doctor reports PASS/WARN/FAIL checks for the same surface, including basic drift. Neither command repairs, rematerializes, migrates, or writes files.
-
-**Runtime Repair** is an explicit TUI Review → Apply flow (sidebar item after initialization). It recomputes the plan immediately before Apply. Conflicting active runtime artifacts (`AGENTS.md` without valid Atlas markers, competing `AGENT.md` / `CLAUDE.md` / `GEMINI.md` / `.agents/` / `.claude/`, extra or unselected `.cursor` / `.opencode` content) are backed up under `.atlas/backups/<timestamp>/` with a manifest, then moved out of the active surface. Atlas then writes governed `AGENTS.md` and selected adapter projections. Backup is mandatory; there is no skip, merge, or silent delete. Valid `ATLAS:USER` content is preserved. Configure **Apply changes** still does not rematerialize runtime files.
-
-`atlas start`, `atlas change`, and `atlas mcp` are intentionally unsupported. They are not real commands.
-
-## Requirements
-
-- Go 1.22+ (developed with Go 1.27)
-
-## Build & test
+Requirements: Go toolchain compatible with go.mod (`go 1.27.1`).
+Offline environments must have Go 1.27.1 installed locally.
 
 ```bash
-make build
-make test
-make fmt
-make vet
-make check
-make clean
+make build          # writes bin/atlas
+./bin/atlas --version
 ```
+
+Optionally add `bin/` to your `PATH`, or run via `./bin/atlas`.
+
+## Run
+
+```bash
+atlas                 # TUI → Dashboard
+atlas init            # TUI → Init / Setup
+atlas status          # TUI → Status
+atlas doctor          # TUI → Doctor
+atlas --version       # console: version only
+```
+
+TUI-first is the primary UX. `atlas --version` is the only normal console output. Every other route opens the interactive shell (left sidebar + right content panel). Unsupported commands such as `atlas start`, `atlas change`, and `atlas mcp` open an Error dialog inside the TUI — they are not real commands.
+
+## What each surface does
+
+| Surface | Role |
+| --- | --- |
+| **Init / Setup** | Three-step wizard: Project Setup → Initial Configuration → Review / Materialization Plan. **Apply config** writes `.atlas/` and materializes runtime gateway files. |
+| **Configure** | Edit persisted settings after init. **Apply changes** updates `.atlas/config.yaml` only; it does not rematerialize runtime files. |
+| **Status** | Read-only runtime health (config/state, `AGENTS.md` markers, selected adapters/projections, Context Graph preference, backups). |
+| **Doctor** | Read-only PASS/WARN/FAIL checks for the same surface, including basic drift. Does not repair. |
+| **Runtime Repair** | Explicit Review → Apply. Recomputes the plan before Apply. Creates/replaces missing or broken Atlas runtime files; quarantines conflicting artifacts after mandatory backup. |
+
+## Runtime files and adapters
+
+Init Apply always materializes `AGENTS.md` (Atlas managed/user markers + compact hardened gateway contract).
+
+Selected adapters only:
+
+- Cursor → `.cursor/rules/atlas.mdc`
+- OpenCode → `.opencode/atlas.md`
+
+Projections must not bypass or duplicate the full `AGENTS.md` contract. Broader surfaces (`CLAUDE.md`, `GEMINI.md`, `.agents/`, `.claude/`) are not materialized.
+
+## Backup / quarantine
+
+When Runtime Repair finds conflicting active runtime artifacts (unmarked `AGENTS.md`, competing `AGENT.md` / `CLAUDE.md` / `GEMINI.md` / `.agents/` / `.claude/`, extra or unselected `.cursor` / `.opencode` content), it:
+
+1. Backs them up under `.atlas/backups/<timestamp>/` with `manifest.json`
+2. Moves them out of the active surface
+3. Writes governed Atlas runtime files
+
+Backup is mandatory. There is no skip, merge, or silent delete. Valid `ATLAS:USER` content is preserved.
+
+## Context Graph
+
+Configure/Init expose **Enable Context Graph** as a preference only. There is no graph engine, database, embeddings, index, capsules, or packs in this MVP.
+
+## Known limitations
+
+- No Atlas Home / skills catalog marketplace
+- No SQLite memory or context capsule file generation
+- Configure Apply does not rematerialize runtime files (use Runtime Repair)
+- No MCP server connections or credential storage
+- No Git commit/push/automation
+- `atlas start` / `atlas change` / `atlas mcp` intentionally unsupported
+- Context Graph preference has no engine behind it
+
+## Validation
+
+```bash
+make check          # fmt + vet + unit tests
+make smoke-mvp      # MVP release-readiness smoke (build + matrix)
+```
+
+`make smoke-mvp` runs `scripts/smoke-mvp.sh`: local build, `atlas --version`, CLI routing checks, temp-workspace init/status/doctor/repair matrix, focused package tests, and a repo-root cleanliness check. Interactive TUI navigation steps are printed at the end for manual confirmation.
+
+See also [docs/release-notes.md](docs/release-notes.md).
 
 ## Project layout
 
@@ -77,21 +103,12 @@ make clean
 cmd/atlas/           # process entrypoint
 internal/app/        # application wiring
 internal/cli/        # arg parse + TUI launcher
-internal/tui/        # sidebar shell Bubble Tea + Lip Gloss TUI
-internal/config/     # config schema + ConfigDraft + MCPDraft + .atlas persistence
+internal/tui/        # sidebar shell (Bubble Tea + Lip Gloss)
+internal/config/     # schema, drafts, persistence, runtime materialization
 internal/doctor/     # diagnostics model
 internal/initplan/   # init dry-run planning
-internal/workspace/  # read-only discovery
+internal/workspace/  # discovery, runtime health, repair
 internal/version/    # version string
+scripts/             # release smoke helpers
+docs/                # release notes
 ```
-
-## Intentionally out of scope
-
-- SQLite memory / context capsule files
-- Assets registry / marketplace
-- Broader adapter surfaces beyond `.cursor/rules/atlas.mdc` and `.opencode/atlas.md`
-- CLAUDE.md / GEMINI.md / `.agents/` / `.claude/` materialization
-- OpenSpec automation
-- MCP connections or credentials
-- Jira / Git / GitHub automation
-- Daily workflow commands such as `atlas start` or `atlas change new`
