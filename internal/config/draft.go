@@ -139,7 +139,7 @@ func (d ConfigDraft) SelectorSections() []ConfigSection {
 	out := make([]ConfigSection, 0, len(d.Sections))
 	for _, section := range d.Sections {
 		switch section.Key {
-		case "governance", "adapters", "source_control", "memory", "mcp":
+		case "governance", "adapters", "source_control", "memory", "context", "mcp":
 			out = append(out, section)
 		}
 	}

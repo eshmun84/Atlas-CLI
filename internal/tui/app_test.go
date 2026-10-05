@@ -103,6 +103,7 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 		"Adapters",
 		"Source Control",
 		"Memory",
+		"Context",
 		"MCP",
 		"Project:",
 		"[ Close ]",
@@ -1177,6 +1178,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		"Adapters",
 		"Source Control",
 		"Memory",
+		"Context",
 		"MCP",
 		"[ Back ]",
 		"[ Next ]",
@@ -1204,11 +1206,11 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		}
 	}
 	selector := m.ConfigDraft().SelectorSections()
-	if len(selector) != 5 {
-		t.Fatalf("selector sections = %d, want 5", len(selector))
+	if len(selector) != 6 {
+		t.Fatalf("selector sections = %d, want 6", len(selector))
 	}
-	if selector[4].Key != "mcp" {
-		t.Fatalf("last section = %q, want mcp", selector[4].Key)
+	if selector[4].Key != "context" || selector[5].Key != "mcp" {
+		t.Fatalf("sections = %#v", selector)
 	}
 	if strings.Contains(view, "Plan Preview") {
 		t.Fatal("step 2 must not show Plan Preview")
@@ -1385,6 +1387,28 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		t.Fatalf("memory strategy lost after navigate, got %q", memBack.Value)
 	}
 
+	// Context Graph is a single checkbox; default enabled; Space/Enter toggles.
+	m = mustModel(m.Update(key("left")))
+	m = gotoConfigSection(t, m, "context")
+	m = mustModel(m.Update(key("enter")))
+	graph, _ := m.ConfigDraft().FieldByKey("context.graph.enabled")
+	if graph.Value != "true" {
+		t.Fatalf("default context graph = %q", graph.Value)
+	}
+	if !strings.Contains(m.View(), "[x] Enable Context Graph") {
+		t.Fatalf("context checkbox missing:\n%s", m.View())
+	}
+	m = mustModel(m.Update(key("enter")))
+	graph, _ = m.ConfigDraft().FieldByKey("context.graph.enabled")
+	if graph.Value != "false" {
+		t.Fatalf("context graph after toggle = %q", graph.Value)
+	}
+	m = mustModel(m.Update(key("enter"))) // re-enable for later review expectations
+	graph, _ = m.ConfigDraft().FieldByKey("context.graph.enabled")
+	if graph.Value != "true" {
+		t.Fatalf("context graph re-enabled = %q", graph.Value)
+	}
+
 	// Locked project.name cannot change.
 	draft := m.ConfigDraft()
 	if draft.SelectOption("project.name", "hacked") {
@@ -1400,7 +1424,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	view = m.View()
 	for _, want := range []string{
 		"Review / Materialization Plan",
-		"Apply writes Atlas configuration under .atlas/. Runtime files are not materialized.",
+		"Apply writes Atlas configuration under .atlas/ and materializes runtime entrypoints.",
 		"[ Back ]",
 		"[ Apply config ]",
 	} {
@@ -1537,6 +1561,7 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		"Branch strategy: Manual",
 		"Atlas governance files: Local only",
 		"Memory strategy: SQLite + Context Capsule",
+		"Context Graph: Enabled",
 		"MCP integrations: 0 configured",
 		".atlas/config.yaml",
 		".atlas/local.yaml",
@@ -1554,16 +1579,17 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		"No branches are created.",
 		"No remote operations are performed.",
 		"Secrets and credentials are not stored.",
-		"Apply writes Atlas configuration under .atlas/ only.",
-		"planned for later",
-		"create this slice",
-		"Runtime files such as AGENTS.md are not created in this slice.",
+		"Apply writes Atlas configuration under .atlas/ and materializes runtime entrypoints.",
+		"create/update this slice",
 		"[ Back ]",
 		"[ Apply config ]",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("review missing %q:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, "planned for later") {
+		t.Fatalf("review must not say planned for later:\n%s", view)
 	}
 	for _, line := range strings.Split(m.View(), "\n") {
 		if strings.TrimSpace(line) == "Action" {
@@ -1579,10 +1605,10 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 	if !m.InitApplied() {
 		t.Fatalf("expected apply success, message = %q", m.InitReviewMessage())
 	}
-	if !strings.Contains(m.View(), "Atlas configuration initialized.") {
+	if !strings.Contains(m.View(), "Atlas configuration and runtime initialized.") {
 		t.Fatalf("missing success title:\n%s", m.View())
 	}
-	if !strings.Contains(m.View(), "No runtime files were materialized.") {
+	if !strings.Contains(m.View(), "Runtime files materialized.") {
 		t.Fatalf("missing success body:\n%s", m.View())
 	}
 	if !strings.Contains(m.View(), "[ Close ]") {
@@ -1592,10 +1618,10 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		t.Fatalf("Apply config should be gone after success:\n%s", m.View())
 	}
 	assertAtlasConfigPersisted(t, root)
-	assertRuntimeNotMaterialized(t, root)
-	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
-		t.Fatalf("AGENTS.md should not be created, stat err = %v", err)
-	}
+	assertAgentsMaterialized(t, root)
+	assertForbiddenRuntimeAbsent(t, root)
+	assertMissingPath(t, root, ".cursor")
+	assertMissingPath(t, root, ".opencode")
 
 	updated, cmd := m.Update(key("enter"))
 	m = applyCmd(t, updated.(tui.Model), cmd)
@@ -1629,7 +1655,7 @@ func TestInitReviewArtifactsAndAdapters(t *testing.T) {
 		"AGENTS.md",
 		".atlas/backups/<timestamp>/",
 		".atlas/backups/<timestamp>/AGENTS.md",
-		"Atlas would replace runtime artifacts after backup.",
+		"Atlas will replace runtime targets after backup.",
 		".cursor/rules/atlas.mdc",
 		"Adapters: Cursor",
 	} {
@@ -1648,18 +1674,28 @@ func TestInitReviewArtifactsAndAdapters(t *testing.T) {
 	}
 	assertAtlasConfigPersisted(t, root)
 	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
-	if err != nil || string(agents) != "# agents" {
-		t.Fatalf("AGENTS.md mutated: %q err=%v", agents, err)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".atlas", "backups")); err != nil {
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(string(agents), "<!-- ATLAS:MANAGED:BEGIN -->") {
+		t.Fatalf("AGENTS.md not materialized:\n%s", agents)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".cursor", "rules", "atlas.mdc")); err != nil {
+		t.Fatalf("cursor rule missing: %v", err)
 	}
 	entries, err := os.ReadDir(filepath.Join(root, ".atlas", "backups"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 0 {
-		t.Fatalf("runtime backups must not be created, entries=%v", entries)
+	if len(entries) != 1 {
+		t.Fatalf("expected one backup timestamp dir, entries=%v", entries)
+	}
+	backupAgents, err := os.ReadFile(filepath.Join(root, ".atlas", "backups", entries[0].Name(), "AGENTS.md"))
+	if err != nil || string(backupAgents) != "# agents" {
+		t.Fatalf("backup AGENTS.md = %q err=%v", backupAgents, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".atlas", "backups", entries[0].Name(), "manifest.json")); err != nil {
+		t.Fatalf("manifest missing: %v", err)
 	}
 }
 
@@ -1906,7 +1942,8 @@ func TestInitStep2MCPSectionAndAdd(t *testing.T) {
 			t.Fatalf("persisted config missing %q:\n%s", want, text)
 		}
 	}
-	assertRuntimeNotMaterialized(t, root)
+	assertAgentsMaterialized(t, root)
+	assertForbiddenRuntimeAbsent(t, root)
 }
 
 func gotoConfigSection(t *testing.T, m tui.Model, sectionKey string) tui.Model {
@@ -2299,13 +2336,39 @@ func assertAtlasConfigPersisted(t *testing.T, root string) {
 			t.Fatalf("expected %s: %v", rel, err)
 		}
 	}
+	stateRaw, err := os.ReadFile(filepath.Join(root, ".atlas", "state.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(stateRaw), "runtime_materialized: true") {
+		t.Fatalf("state missing runtime_materialized true:\n%s", stateRaw)
+	}
+	if !strings.Contains(string(stateRaw), "runtime_materialized_at:") {
+		t.Fatalf("state missing runtime_materialized_at:\n%s", stateRaw)
+	}
 }
 
-func assertRuntimeNotMaterialized(t *testing.T, root string) {
+func assertAgentsMaterialized(t *testing.T, root string) {
+	t.Helper()
+	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("AGENTS.md missing: %v", err)
+	}
+	for _, want := range []string{
+		"<!-- ATLAS:MANAGED:BEGIN -->",
+		"<!-- ATLAS:MANAGED:END -->",
+		"<!-- ATLAS:USER:BEGIN -->",
+		"<!-- ATLAS:USER:END -->",
+	} {
+		if !strings.Contains(string(agents), want) {
+			t.Fatalf("AGENTS.md missing %q:\n%s", want, agents)
+		}
+	}
+}
+
+func assertForbiddenRuntimeAbsent(t *testing.T, root string) {
 	t.Helper()
 	for _, rel := range []string{
-		".cursor",
-		".opencode",
 		".agents",
 		".claude",
 		"CLAUDE.md",
@@ -2313,10 +2376,24 @@ func assertRuntimeNotMaterialized(t *testing.T, root string) {
 		filepath.Join(".atlas", "memory", "atlas.sqlite"),
 		filepath.Join(".atlas", "context", "memory-capsule.md"),
 	} {
-		if _, err := os.Stat(filepath.Join(root, rel)); !os.IsNotExist(err) {
-			t.Fatalf("%s should not exist, err=%v", rel, err)
-		}
+		assertMissingPath(t, root, rel)
 	}
+}
+
+func assertMissingPath(t *testing.T, root, rel string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(root, rel)); !os.IsNotExist(err) {
+		t.Fatalf("%s should not exist, err=%v", rel, err)
+	}
+}
+
+// assertRuntimeNotMaterialized asserts Configure/non-init paths did not create runtime files.
+func assertRuntimeNotMaterialized(t *testing.T, root string) {
+	t.Helper()
+	assertMissingPath(t, root, "AGENTS.md")
+	assertMissingPath(t, root, ".cursor")
+	assertMissingPath(t, root, ".opencode")
+	assertForbiddenRuntimeAbsent(t, root)
 }
 
 func assertNoMutation(t *testing.T, root string) {

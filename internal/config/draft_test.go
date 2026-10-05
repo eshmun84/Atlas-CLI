@@ -18,7 +18,7 @@ func TestBuildConfigDraft_VisibleSectionsAndDefaults(t *testing.T) {
 	})
 
 	selector := draft.SelectorSections()
-	wantSections := []string{"governance", "adapters", "source_control", "memory", "mcp"}
+	wantSections := []string{"governance", "adapters", "source_control", "memory", "context", "mcp"}
 	if len(selector) != len(wantSections) {
 		t.Fatalf("selector sections = %d, want %d", len(selector), len(wantSections))
 	}
@@ -43,6 +43,7 @@ func TestBuildConfigDraft_VisibleSectionsAndDefaults(t *testing.T) {
 	assertField(t, draft, "source_control.mode", "none", config.FieldEditable, config.FieldEditable)
 	assertField(t, draft, "source_control.governance_storage", "local_only", config.FieldEditable, config.FieldEditable)
 	assertField(t, draft, "memory.strategy", "sqlite_plus_context_capsule", config.FieldEditable, config.FieldEditable)
+	assertField(t, draft, "context.graph.enabled", "true", config.FieldEditable, config.FieldEditable)
 
 	if _, ok := draft.FieldByKey("governance.enabled"); ok {
 		t.Fatal("governance.enabled must not exist")
@@ -112,14 +113,23 @@ func TestConfigDraft_Edits(t *testing.T) {
 		t.Fatal("memory.strategy should be editable in configure")
 	}
 	cfgSelector := cfg.SelectorSections()
-	foundMCP := false
+	foundMCP, foundContext := false, false
 	for _, section := range cfgSelector {
 		if section.Key == "mcp" {
 			foundMCP = true
 		}
+		if section.Key == "context" {
+			foundContext = true
+		}
 	}
 	if !foundMCP {
 		t.Fatal("configure must show MCP section")
+	}
+	if !foundContext {
+		t.Fatal("configure must show Context section")
+	}
+	if !cfg.SetValue("context.graph.enabled", "false") {
+		t.Fatal("context.graph.enabled should be editable in configure")
 	}
 }
 

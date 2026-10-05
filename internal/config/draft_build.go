@@ -123,6 +123,26 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 				},
 			},
 			{
+				Key:         "context",
+				Title:       "Context",
+				Description: "Context Graph is a configuration preference only in this slice. Atlas Home remains the canonical source of skills, agents, rules, and runtime contracts; this project is a compact gateway.",
+				Fields: []ConfigField{
+					field(
+						"context.graph.enabled",
+						"Enable Context Graph",
+						"Preference only. No graph engine, database, or embeddings are created in this slice.",
+						"true",
+						"true",
+						FieldTypeBool,
+						nil,
+						FieldEditable,
+						FieldEditable,
+						false,
+						false,
+					),
+				},
+			},
+			{
 				Key:         "mcp",
 				Title:       "MCP",
 				Description: "Configure external MCP integrations for Atlas.",

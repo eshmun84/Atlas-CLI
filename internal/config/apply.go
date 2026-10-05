@@ -12,17 +12,14 @@ import (
 )
 
 const (
-	ApplySuccessTitle        = "Atlas configuration initialized."
-	ApplySuccessBody         = "No runtime files were materialized."
+	ApplySuccessTitle        = "Atlas configuration and runtime initialized."
+	ApplySuccessBody         = "Runtime files materialized."
 	ConfigureApplySuccess    = "Configuration changes saved."
 	ConfigureApplyFooterNote = "Close discards unsaved changes. Apply changes writes .atlas/config.yaml."
 )
 
-// Runtime paths that Apply must never create, modify, backup, replace, or delete.
+// Paths Apply must never create, modify, backup, replace, or delete.
 var forbiddenApplyRelPaths = []string{
-	"AGENTS.md",
-	".cursor",
-	".opencode",
 	".agents",
 	".claude",
 	"CLAUDE.md",
@@ -33,7 +30,7 @@ var forbiddenApplyRelPaths = []string{
 	FileCapsule,
 }
 
-// ApplyInput is the in-memory init state used to persist Atlas config files.
+// ApplyInput is the in-memory init state used to persist Atlas config and runtime files.
 type ApplyInput struct {
 	Root  string
 	Draft ConfigDraft
@@ -41,14 +38,16 @@ type ApplyInput struct {
 	Now   func() time.Time
 }
 
-// ApplyResult lists Atlas-owned paths created by Apply.
+// ApplyResult lists Atlas-owned and runtime paths created by Apply.
 type ApplyResult struct {
-	Directories []string
-	Files       []string
+	Directories  []string
+	Files        []string
+	RuntimeFiles []string
+	BackupDir    string
 }
 
-// ApplyConfig persists Atlas-owned configuration under .atlas/.
-// It never materializes runtime files, never modifies Git, and never stores secrets.
+// ApplyConfig persists Atlas-owned configuration under .atlas/ and materializes
+// allowlisted runtime entrypoints. It never modifies Git and never stores secrets.
 func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	root := filepath.Clean(strings.TrimSpace(in.Root))
 	if root == "" || root == "." {
@@ -65,31 +64,14 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		now = in.Now().UTC()
 	}
 
-	files := []struct {
-		rel  string
-		data any
-	}{
-		{rel: FileConfig, data: doc},
-		{rel: FileLocal, data: BuildLocalDocument(in.Draft)},
-		{rel: FileState, data: BuildStateDocument(in.Draft, now.Format(time.RFC3339))},
-		{rel: FileAssetsLock, data: BuildAssetsLockDocument()},
-	}
-
-	dirs := []string{DirAtlas, DirBackups}
-	for _, rel := range dirs {
-		if err := assertAllowedAtlasPath(rel); err != nil {
-			return ApplyResult{}, err
-		}
-	}
-	for _, file := range files {
-		if err := assertAllowedAtlasPath(file.rel); err != nil {
-			return ApplyResult{}, err
-		}
+	targets := RuntimeTargets(doc)
+	if err := validateRuntimeTargets(root, targets); err != nil {
+		return ApplyResult{}, err
 	}
 
 	result := ApplyResult{}
-	for _, rel := range dirs {
-		path, err := safeJoin(root, rel)
+	for _, rel := range []string{DirAtlas, DirBackups} {
+		path, err := safeJoinAtlas(root, rel)
 		if err != nil {
 			return ApplyResult{}, err
 		}
@@ -99,8 +81,22 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		result.Directories = append(result.Directories, rel)
 	}
 
-	for _, file := range files {
-		path, err := safeJoin(root, file.rel)
+	backupDir, _, err := BackupExistingTargets(root, targets, now)
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("apply config: %w", err)
+	}
+	result.BackupDir = backupDir
+
+	atlasFiles := []struct {
+		rel  string
+		data any
+	}{
+		{rel: FileConfig, data: doc},
+		{rel: FileLocal, data: BuildLocalDocument(in.Draft)},
+		{rel: FileAssetsLock, data: BuildAssetsLockDocument()},
+	}
+	for _, file := range atlasFiles {
+		path, err := safeJoinAtlas(root, file.rel)
 		if err != nil {
 			return ApplyResult{}, err
 		}
@@ -113,6 +109,44 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		}
 		result.Files = append(result.Files, file.rel)
 	}
+
+	for _, rel := range targets {
+		full, err := safeJoinRuntime(root, rel)
+		if err != nil {
+			return ApplyResult{}, err
+		}
+		var existing []byte
+		if data, readErr := os.ReadFile(full); readErr == nil {
+			existing = data
+		} else if !os.IsNotExist(readErr) {
+			return ApplyResult{}, fmt.Errorf("apply config: read %s: %w", rel, readErr)
+		}
+		content, err := renderRuntimeFile(rel, doc, existing)
+		if err != nil {
+			return ApplyResult{}, fmt.Errorf("apply config: %w", err)
+		}
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return ApplyResult{}, fmt.Errorf("apply config: create parent for %s: %w", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			return ApplyResult{}, fmt.Errorf("apply config: write %s: %w", rel, err)
+		}
+		result.RuntimeFiles = append(result.RuntimeFiles, rel)
+	}
+
+	statePath, err := safeJoinAtlas(root, FileState)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	state := BuildStateDocument(in.Draft, now.Format(time.RFC3339), true)
+	stateData, err := marshalYAML(state)
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("apply config: marshal %s: %w", FileState, err)
+	}
+	if err := os.WriteFile(statePath, stateData, 0o644); err != nil {
+		return ApplyResult{}, fmt.Errorf("apply config: write %s: %w", FileState, err)
+	}
+	result.Files = append(result.Files, FileState)
 
 	return result, nil
 }
@@ -129,10 +163,7 @@ func PersistConfigure(in ApplyInput) error {
 	if err := ValidateProjectDocument(doc); err != nil {
 		return fmt.Errorf("persist configure: %w", err)
 	}
-	if err := assertAllowedAtlasPath(FileConfig); err != nil {
-		return err
-	}
-	path, err := safeJoin(root, FileConfig)
+	path, err := safeJoinAtlas(root, FileConfig)
 	if err != nil {
 		return err
 	}
@@ -145,6 +176,26 @@ func PersistConfigure(in ApplyInput) error {
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("persist configure: write %s: %w", FileConfig, err)
+	}
+	return nil
+}
+
+func validateRuntimeTargets(root string, targets []string) error {
+	for _, rel := range targets {
+		full, err := safeJoinRuntime(root, rel)
+		if err != nil {
+			return err
+		}
+		info, err := os.Lstat(full)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("apply config: stat %s: %w", rel, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("apply config: %s exists as a directory; expected a file", rel)
+		}
 	}
 	return nil
 }
@@ -163,6 +214,16 @@ func marshalYAML(v any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func isAllowedRuntimePath(rel string) bool {
+	clean := filepath.ToSlash(filepath.Clean(rel))
+	switch clean {
+	case FileAgentsMD, FileCursorAtlasMDC, FileOpenCodeAtlas:
+		return true
+	default:
+		return false
+	}
+}
+
 func assertAllowedAtlasPath(rel string) error {
 	clean := filepath.ToSlash(filepath.Clean(rel))
 	if strings.HasPrefix(clean, "..") || filepath.IsAbs(rel) {
@@ -179,11 +240,38 @@ func assertAllowedAtlasPath(rel string) error {
 	return nil
 }
 
-func safeJoin(root, rel string) (string, error) {
+func assertAllowedRuntimePath(rel string) error {
+	clean := filepath.ToSlash(filepath.Clean(rel))
+	if strings.HasPrefix(clean, "..") || filepath.IsAbs(rel) {
+		return fmt.Errorf("apply config: refused path %q", rel)
+	}
+	if !isAllowedRuntimePath(clean) {
+		return fmt.Errorf("apply config: refused runtime path %q", rel)
+	}
+	for _, forbidden := range forbiddenApplyRelPaths {
+		if clean == forbidden || strings.HasPrefix(clean, forbidden+"/") {
+			return fmt.Errorf("apply config: refused forbidden path %q", rel)
+		}
+	}
+	return nil
+}
+
+func safeJoinAtlas(root, rel string) (string, error) {
 	if err := assertAllowedAtlasPath(rel); err != nil {
 		return "", err
 	}
-	full := filepath.Join(root, rel)
+	return safeJoinRoot(root, rel)
+}
+
+func safeJoinRuntime(root, rel string) (string, error) {
+	if err := assertAllowedRuntimePath(rel); err != nil {
+		return "", err
+	}
+	return safeJoinRoot(root, rel)
+}
+
+func safeJoinRoot(root, rel string) (string, error) {
+	full := filepath.Join(root, filepath.FromSlash(rel))
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		return "", fmt.Errorf("apply config: resolve root: %w", err)

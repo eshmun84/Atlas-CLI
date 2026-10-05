@@ -51,14 +51,17 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 	if plan.MemoryStrategy != "SQLite + Context Capsule" {
 		t.Fatalf("memory = %q", plan.MemoryStrategy)
 	}
+	if plan.ContextGraph != "Enabled" {
+		t.Fatalf("context graph = %q", plan.ContextGraph)
+	}
 	if plan.MCPCount != 0 {
 		t.Fatalf("mcp count = %d", plan.MCPCount)
 	}
 	if plan.PreviewOnly {
-		t.Fatal("config apply is enabled; plan must not be preview-only")
+		t.Fatal("apply is enabled; plan must not be preview-only")
 	}
-	if !plan.ConfigApplyOnly {
-		t.Fatal("plan must be config-apply-only")
+	if plan.ConfigApplyOnly {
+		t.Fatal("runtime materialization is enabled; plan must not be config-apply-only")
 	}
 	if len(plan.ExistingArtifacts) != 0 {
 		t.Fatalf("artifacts = %#v", plan.ExistingArtifacts)
@@ -74,9 +77,9 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 		"No branches are created.",
 		"No remote operations are performed.",
 		"Secrets and credentials are not stored.",
-		"Apply writes Atlas configuration under .atlas/ only.",
-		"Runtime files such as AGENTS.md are not created in this slice.",
-		"Existing runtime artifacts are not backed up or replaced in this slice.",
+		"Apply writes Atlas configuration under .atlas/ and materializes runtime entrypoints.",
+		"Existing Atlas-managed runtime targets are backed up under .atlas/backups/<timestamp>/ before replacement.",
+		"CLAUDE.md, GEMINI.md, .agents/, .claude/, README.md, and .gitignore are not materialized.",
 		"No Git operations are performed.",
 	}) {
 		t.Fatalf("missing preserve/warning copy: %#v %#v", plan.Preservations, plan.Warnings)
@@ -93,17 +96,40 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 		".atlas/backups/",
 		"AGENTS.md",
 		".cursor/rules/atlas.mdc",
-		"OpenCode runtime adapter files",
+		".opencode/atlas.md",
 	}
 	assertCreatePaths(t, plan, wantCreates)
+	for _, file := range plan.Creates {
+		if file.Path == ".atlas/backups/" {
+			if file.Status != "create if needed" {
+				t.Fatalf("backups status = %q", file.Status)
+			}
+			continue
+		}
+		if file.Status != "create/update this slice" {
+			t.Fatalf("status for %s = %q", file.Path, file.Status)
+		}
+	}
 }
 
 func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 	t.Parallel()
 
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# agents"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".cursor", "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".cursor", "rules", "atlas.mdc"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName: "demo",
-		ProjectMode: "existing",
+		ProjectName:    "demo",
+		ProjectMode:    "existing",
+		CursorDetected: true,
 	})
 	if !draft.SelectOption("source_control.governance_storage", "versioned") {
 		t.Fatal("set versioned")
@@ -118,6 +144,7 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 	mcp.ToggleCustom(0)
 
 	plan := initplan.BuildReview(initplan.ReviewInput{
+		Root:      root,
 		Draft:     draft,
 		MCP:       mcp,
 		Artifacts: []string{"AGENTS.md", ".cursor"},
@@ -142,10 +169,13 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 		t.Fatalf("governance note=%q storage=%q", plan.GovernanceNote, plan.GovernanceStorage)
 	}
 
-	foundBackup, foundManifest, foundReplace := false, false, false
+	foundAgents, foundCursor, foundManifest, foundReplaceAgents, foundReplaceCursor := false, false, false, false, false
 	for _, backup := range plan.Backups {
 		if backup.Path == ".atlas/backups/<timestamp>/AGENTS.md" {
-			foundBackup = true
+			foundAgents = true
+		}
+		if backup.Path == ".atlas/backups/<timestamp>/.cursor/rules/atlas.mdc" {
+			foundCursor = true
 		}
 		if backup.Path == ".atlas/backups/<timestamp>/manifest.json" {
 			foundManifest = true
@@ -153,10 +183,13 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 	}
 	for _, repl := range plan.Replacements {
 		if repl.Path == "AGENTS.md" {
-			foundReplace = true
+			foundReplaceAgents = true
+		}
+		if repl.Path == ".cursor/rules/atlas.mdc" {
+			foundReplaceCursor = true
 		}
 	}
-	if !foundBackup || !foundManifest || !foundReplace {
+	if !foundAgents || !foundCursor || !foundManifest || !foundReplaceAgents || !foundReplaceCursor {
 		t.Fatalf("backup/replace missing: backups=%#v replacements=%#v", plan.Backups, plan.Replacements)
 	}
 }

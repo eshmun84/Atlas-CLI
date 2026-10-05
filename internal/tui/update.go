@@ -510,6 +510,7 @@ func (m *Model) enterInitReview() {
 	m.configFooterIdx = 0
 	m.contentOffset = 0
 	m.initReviewPlan = initplan.BuildReview(initplan.ReviewInput{
+		Root:      m.discovery.RootPath,
 		Draft:     m.configDraft,
 		MCP:       m.mcpDraft,
 		Artifacts: m.discovery.RuntimeArtifacts,

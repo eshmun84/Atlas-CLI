@@ -2,22 +2,25 @@ package initplan
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 )
 
-// Backup timestamp is never generated in this slice.
+// Backup timestamp is never generated during review preview.
 const BackupTimestampPlaceholder = "<timestamp>"
 
 // ReviewInput is the in-memory state used to build a preview plan.
 type ReviewInput struct {
+	Root      string
 	Draft     config.ConfigDraft
 	MCP       config.MCPDraft
 	Artifacts []string
 }
 
-// MaterializationPlan is a typed preview of future init materialization.
+// MaterializationPlan is a typed preview of init materialization.
 // It never writes files.
 type MaterializationPlan struct {
 	ProjectName       string
@@ -30,6 +33,7 @@ type MaterializationPlan struct {
 	BranchStrategy    string
 	GovernanceStorage string
 	MemoryStrategy    string
+	ContextGraph      string
 	MCPCount          int
 	MCPEntries        []MCPPlanEntry
 	Creates           []PlannedFile
@@ -44,7 +48,7 @@ type MaterializationPlan struct {
 	ConfigApplyOnly   bool
 }
 
-// PlannedFile is one file or directory Atlas would create later.
+// PlannedFile is one file or directory Atlas would create or update.
 type PlannedFile struct {
 	Path   string
 	Kind   string
@@ -86,8 +90,8 @@ type MCPPlanEntry struct {
 	Status    string
 }
 
-// BuildReview constructs a materialization plan.
-// Atlas config files can be applied in this slice; runtime files remain planned for later.
+// BuildReview constructs a materialization plan for Init Apply.
+// Atlas config files and allowlisted runtime entrypoints are applied in this slice.
 func BuildReview(in ReviewInput) MaterializationPlan {
 	draft := in.Draft
 	adaptersValue := fieldValue(draft, "adapters.selected")
@@ -104,49 +108,52 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		BranchStrategy:    fieldLabel(draft, "source_control.branch_strategy"),
 		GovernanceStorage: fieldLabel(draft, "source_control.governance_storage"),
 		MemoryStrategy:    fieldLabel(draft, "memory.strategy"),
+		ContextGraph:      contextGraphLabel(draft),
 		MCPCount:          in.MCP.ConfiguredCount(),
 		MCPEntries:        mcpEntries(in.MCP),
 		ExistingArtifacts: append([]string(nil), in.Artifacts...),
 		PreviewOnly:       false,
-		ConfigApplyOnly:   true,
+		ConfigApplyOnly:   false,
 	}
 
+	const status = "create/update this slice"
 	plan.Creates = []PlannedFile{
-		{Path: config.FileConfig, Kind: "atlas", Status: "create this slice"},
-		{Path: config.FileLocal, Kind: "atlas", Status: "create this slice"},
-		{Path: config.FileState, Kind: "atlas", Status: "create this slice"},
-		{Path: config.FileAssetsLock, Kind: "atlas", Status: "create this slice"},
-		{Path: config.DirBackups + "/", Kind: "atlas", Status: "create this slice"},
-		{Path: "AGENTS.md", Kind: "runtime", Status: "planned for later"},
+		{Path: config.FileConfig, Kind: "atlas", Status: status},
+		{Path: config.FileLocal, Kind: "atlas", Status: status},
+		{Path: config.FileState, Kind: "atlas", Status: status},
+		{Path: config.FileAssetsLock, Kind: "atlas", Status: status},
+		{Path: config.DirBackups + "/", Kind: "atlas", Status: "create if needed"},
+		{Path: config.FileAgentsMD, Kind: "runtime", Status: status},
 	}
 	if config.ChipSelected(adaptersValue, "cursor") {
 		plan.Creates = append(plan.Creates, PlannedFile{
-			Path:   ".cursor/rules/atlas.mdc",
+			Path:   config.FileCursorAtlasMDC,
 			Kind:   "adapter",
-			Status: "planned for later",
+			Status: status,
 		})
 	}
 	if config.ChipSelected(adaptersValue, "opencode") {
 		plan.Creates = append(plan.Creates, PlannedFile{
-			Path:   "OpenCode runtime adapter files",
+			Path:   config.FileOpenCodeAtlas,
 			Kind:   "adapter",
-			Status: "planned for later",
+			Status: status,
 		})
 	}
 
+	replaceTargets := plannedReplaceTargets(in.Root, adaptersValue, in.Artifacts)
 	backupRoot := config.DirBackups + "/" + BackupTimestampPlaceholder + "/"
-	if len(in.Artifacts) == 0 {
+	if len(replaceTargets) == 0 {
 		plan.Backups = nil
 		plan.Replacements = nil
 	} else {
-		plan.Backups = make([]PlannedBackup, 0, len(in.Artifacts)+1)
-		plan.Replacements = make([]PlannedReplacement, 0, len(in.Artifacts))
-		for _, artifact := range in.Artifacts {
+		plan.Backups = make([]PlannedBackup, 0, len(replaceTargets)+1)
+		plan.Replacements = make([]PlannedReplacement, 0, len(replaceTargets))
+		for _, target := range replaceTargets {
 			plan.Backups = append(plan.Backups, PlannedBackup{
-				Path:   backupRoot + artifact,
-				Source: artifact,
+				Path:   backupRoot + target,
+				Source: target,
 			})
-			plan.Replacements = append(plan.Replacements, PlannedReplacement{Path: artifact})
+			plan.Replacements = append(plan.Replacements, PlannedReplacement{Path: target})
 		}
 		plan.Backups = append(plan.Backups, PlannedBackup{
 			Path:   backupRoot + "manifest.json",
@@ -162,6 +169,7 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Statement: "No branches are created."},
 		{Statement: "No remote operations are performed."},
 		{Statement: "Secrets and credentials are not stored."},
+		{Statement: "Unrelated files under .cursor/ and .opencode/ are left untouched."},
 	}
 
 	if storage == "versioned" {
@@ -171,14 +179,53 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 	}
 
 	plan.Warnings = []PlanWarning{
-		{Message: "Apply writes Atlas configuration under .atlas/ only."},
-		{Message: "Runtime files such as AGENTS.md are not created in this slice."},
-		{Message: "Existing runtime artifacts are not backed up or replaced in this slice."},
+		{Message: "Apply writes Atlas configuration under .atlas/ and materializes runtime entrypoints."},
+		{Message: "Existing Atlas-managed runtime targets are backed up under .atlas/backups/<timestamp>/ before replacement."},
+		{Message: "CLAUDE.md, GEMINI.md, .agents/, .claude/, README.md, and .gitignore are not materialized."},
 		{Message: "No Git operations are performed."},
 		{Message: "Secrets and credentials are not stored."},
 	}
 
 	return plan
+}
+
+func plannedReplaceTargets(root, adaptersValue string, artifacts []string) []string {
+	artifactSet := make(map[string]bool, len(artifacts))
+	for _, artifact := range artifacts {
+		artifactSet[filepath.ToSlash(artifact)] = true
+	}
+
+	var targets []string
+	if artifactSet[config.FileAgentsMD] || fileExists(root, config.FileAgentsMD) {
+		targets = append(targets, config.FileAgentsMD)
+	}
+	if config.ChipSelected(adaptersValue, "cursor") {
+		if fileExists(root, config.FileCursorAtlasMDC) {
+			targets = append(targets, config.FileCursorAtlasMDC)
+		}
+	}
+	if config.ChipSelected(adaptersValue, "opencode") {
+		if fileExists(root, config.FileOpenCodeAtlas) {
+			targets = append(targets, config.FileOpenCodeAtlas)
+		}
+	}
+	return targets
+}
+
+func fileExists(root, rel string) bool {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
+	return err == nil
+}
+
+func contextGraphLabel(draft config.ConfigDraft) string {
+	if strings.EqualFold(strings.TrimSpace(fieldValue(draft, "context.graph.enabled")), "false") {
+		return "Disabled"
+	}
+	return "Enabled"
 }
 
 func fieldValue(draft config.ConfigDraft, key string) string {

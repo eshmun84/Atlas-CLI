@@ -64,6 +64,9 @@ func TestBuildProjectDocument_FromDraftAndMCP(t *testing.T) {
 	if doc.Memory.Strategy != "sqlite_plus_context_capsule" {
 		t.Fatalf("memory = %q", doc.Memory.Strategy)
 	}
+	if !doc.ContextGraphEnabled() {
+		t.Fatalf("context graph default enabled = %#v", doc.Context)
+	}
 	if !doc.MCP.Builtins.Jira.Enabled || doc.MCP.Builtins.Context7.Enabled || !doc.MCP.Builtins.ChromeDevTools.Enabled {
 		t.Fatalf("builtins = %#v", doc.MCP.Builtins)
 	}
@@ -102,14 +105,31 @@ func TestBuildLocalStateAndLockDocuments(t *testing.T) {
 		t.Fatalf("local = %#v", local)
 	}
 
-	state := config.BuildStateDocument(draft, time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC).Format(time.RFC3339))
-	if !state.Initialized || state.RuntimeMaterialized || state.ProjectName != "demo" {
+	state := config.BuildStateDocument(draft, time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC).Format(time.RFC3339), false)
+	if !state.Initialized || state.RuntimeMaterialized || state.RuntimeMaterializedAt != "" || state.ProjectName != "demo" {
 		t.Fatalf("state = %#v", state)
+	}
+	stateRuntime := config.BuildStateDocument(draft, state.AppliedAt, true)
+	if !stateRuntime.RuntimeMaterialized || stateRuntime.RuntimeMaterializedAt != state.AppliedAt {
+		t.Fatalf("runtime state = %#v", stateRuntime)
 	}
 
 	lock := config.BuildAssetsLockDocument()
 	if lock.SchemaVersion != 1 || lock.Assets == nil || len(lock.Assets) != 0 {
 		t.Fatalf("lock = %#v", lock)
+	}
+}
+
+func TestContextGraphEnabled_DefaultsTrueWhenMissing(t *testing.T) {
+	t.Parallel()
+	doc := config.ProjectDocument{}
+	if !doc.ContextGraphEnabled() {
+		t.Fatal("missing context.graph.enabled must default to true")
+	}
+	off := false
+	doc.Context.Graph.Enabled = &off
+	if doc.ContextGraphEnabled() {
+		t.Fatal("explicit false must stay false")
 	}
 }
 

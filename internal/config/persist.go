@@ -28,6 +28,7 @@ type ProjectDocument struct {
 	Adapters      AdaptersPersist      `yaml:"adapters"`
 	SourceControl SourceControlPersist `yaml:"source_control"`
 	Memory        MemoryPersist        `yaml:"memory"`
+	Context       ContextPersist       `yaml:"context"`
 	MCP           MCPPersist           `yaml:"mcp"`
 }
 
@@ -63,6 +64,26 @@ type SourceControlPersist struct {
 // MemoryPersist is the persisted memory strategy.
 type MemoryPersist struct {
 	Strategy string `yaml:"strategy"`
+}
+
+// ContextPersist is the persisted context preferences.
+type ContextPersist struct {
+	Graph ContextGraphPersist `yaml:"graph"`
+}
+
+// ContextGraphPersist is the Context Graph preference.
+// Enabled is a pointer so missing YAML defaults to true.
+type ContextGraphPersist struct {
+	Enabled *bool `yaml:"enabled"`
+}
+
+// ContextGraphEnabled reports whether Context Graph is enabled.
+// Missing config defaults to true.
+func (d ProjectDocument) ContextGraphEnabled() bool {
+	if d.Context.Graph.Enabled == nil {
+		return true
+	}
+	return *d.Context.Graph.Enabled
 }
 
 // MCPPersist is persisted MCP configuration without credentials.
@@ -107,12 +128,13 @@ type LocalSourceControl struct {
 
 // StateDocument is generated .atlas/state.yaml.
 type StateDocument struct {
-	SchemaVersion       int    `yaml:"schema_version"`
-	Initialized         bool   `yaml:"initialized"`
-	RuntimeMaterialized bool   `yaml:"runtime_materialized"`
-	AppliedAt           string `yaml:"applied_at"`
-	AtlasVersion        string `yaml:"atlas_version"`
-	ProjectName         string `yaml:"project_name"`
+	SchemaVersion         int    `yaml:"schema_version"`
+	Initialized           bool   `yaml:"initialized"`
+	RuntimeMaterialized   bool   `yaml:"runtime_materialized"`
+	RuntimeMaterializedAt string `yaml:"runtime_materialized_at,omitempty"`
+	AppliedAt             string `yaml:"applied_at"`
+	AtlasVersion          string `yaml:"atlas_version"`
+	ProjectName           string `yaml:"project_name"`
 }
 
 // AssetsLockDocument is .atlas/assets.lock.yaml. No assets are installed in this slice.
@@ -177,6 +199,11 @@ func BuildProjectDocument(draft ConfigDraft, mcp MCPDraft) ProjectDocument {
 		Memory: MemoryPersist{
 			Strategy: fieldValueOr(draft, "memory.strategy", MemoryStrategyBoth),
 		},
+		Context: ContextPersist{
+			Graph: ContextGraphPersist{
+				Enabled: boolPtr(boolField(draft, "context.graph.enabled", true)),
+			},
+		},
 		MCP: MCPPersist{
 			Builtins: MCPBuiltinsPersist{
 				Jira:           MCPBuiltinPersist{Enabled: builtinEnabled(mcp, MCPBuiltinJira)},
@@ -204,19 +231,27 @@ func BuildLocalDocument(draft ConfigDraft) LocalDocument {
 }
 
 // BuildStateDocument maps drafts onto persisted state.yaml.
-func BuildStateDocument(draft ConfigDraft, appliedAt string) StateDocument {
+func BuildStateDocument(draft ConfigDraft, appliedAt string, runtimeMaterialized bool) StateDocument {
 	ver := version.Version
 	if ver == "" {
 		ver = "0.1.0"
 	}
-	return StateDocument{
+	state := StateDocument{
 		SchemaVersion:       PersistSchemaVersion,
 		Initialized:         true,
-		RuntimeMaterialized: false,
+		RuntimeMaterialized: runtimeMaterialized,
 		AppliedAt:           appliedAt,
 		AtlasVersion:        ver,
 		ProjectName:         draft.ProjectName(),
 	}
+	if runtimeMaterialized {
+		state.RuntimeMaterializedAt = appliedAt
+	}
+	return state
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 // BuildAssetsLockDocument returns an empty installed-assets lock.
@@ -325,6 +360,7 @@ func ApplyProjectDocument(draft *ConfigDraft, doc ProjectDocument) {
 	setDraftValue(draft, "source_control.governance_storage", doc.SourceControl.GovernanceFiles)
 	setDraftValue(draft, "source_control.delivery_assist", boolText(doc.SourceControl.DeliveryAssist))
 	setDraftValue(draft, "memory.strategy", doc.Memory.Strategy)
+	setDraftValue(draft, "context.graph.enabled", boolText(doc.ContextGraphEnabled()))
 }
 
 func setDraftValue(draft *ConfigDraft, key, value string) {

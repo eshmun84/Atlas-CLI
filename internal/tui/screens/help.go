@@ -31,8 +31,8 @@ These are not Atlas CLI commands.
 ` + helpHead.Render("Init wizard") + `
   Step 1  Project Setup
   Step 2  Initial Configuration
-            Governance · Adapters · Source Control · Memory · MCP
-  Step 3  Review / Materialization Plan (Apply config writes .atlas/ only)
+            Governance · Adapters · Source Control · Memory · Context · MCP
+  Step 3  Review / Materialization Plan (Apply config writes .atlas/ + runtime entrypoints)
 
 ` + helpHead.Render("MCP") + `
   Built-ins: Jira · Context7 · Chrome DevTools (multi-select).

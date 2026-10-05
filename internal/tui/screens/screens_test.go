@@ -80,15 +80,19 @@ func TestRenderReview(t *testing.T) {
 		".atlas/config.yaml",
 		"AGENTS.md",
 		".cursor/rules/atlas.mdc",
-		"create this slice",
-		"planned for later",
+		"create/update this slice",
 		"No existing runtime artifacts detected.",
 		"No backups required.",
+		"materializes runtime entrypoints",
+		"Context Graph: Enabled",
 		"[content focus]",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, "planned for later") {
+		t.Fatalf("review must not say planned for later:\n%s", view)
 	}
 }
 
@@ -122,6 +126,7 @@ func TestConfigFormFinalSections(t *testing.T) {
 		"Adapters",
 		"Source Control",
 		"Memory",
+		"Context",
 		"MCP",
 		"Workflow",
 		"[x] SDD",
@@ -286,6 +291,7 @@ func TestConfigureViewFinalSections(t *testing.T) {
 		"Adapters",
 		"Source Control",
 		"Memory",
+		"Context",
 		"MCP",
 		"Close discards unsaved changes. Apply changes writes .atlas/config.yaml.",
 	} {

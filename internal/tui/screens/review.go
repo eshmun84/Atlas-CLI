@@ -38,7 +38,7 @@ func RenderReview(view ReviewView) string {
 			fmt.Fprintln(&b, "  "+initWarn.Render(view.ApplyMessage))
 		}
 	} else {
-		fmt.Fprintln(&b, "  "+initMuted.Render("Apply writes Atlas configuration under .atlas/. Runtime files are not materialized."))
+		fmt.Fprintln(&b, "  "+initMuted.Render("Apply writes Atlas configuration under .atlas/ and materializes runtime entrypoints."))
 		if view.ApplyMessage != "" {
 			fmt.Fprintln(&b, "  "+initWarn.Render(view.ApplyMessage))
 		}
@@ -57,6 +57,7 @@ func RenderReview(view ReviewView) string {
 	fmt.Fprintf(&b, "  - Branch strategy: %s\n", plan.BranchStrategy)
 	fmt.Fprintf(&b, "  - Atlas governance files: %s\n", plan.GovernanceStorage)
 	fmt.Fprintf(&b, "  - Memory strategy: %s\n", plan.MemoryStrategy)
+	fmt.Fprintf(&b, "  - Context Graph: %s\n", plan.ContextGraph)
 	fmt.Fprintf(&b, "  - MCP integrations: %d configured\n", plan.MCPCount)
 	fmt.Fprintln(&b)
 
@@ -78,7 +79,7 @@ func RenderReview(view ReviewView) string {
 		for _, path := range plan.ExistingArtifacts {
 			fmt.Fprintf(&b, "  - %s\n", path)
 		}
-		fmt.Fprintln(&b, "  "+initMuted.Render("Atlas would backup these files/directories before replacing Atlas-managed runtime entrypoints."))
+		fmt.Fprintln(&b, "  "+initMuted.Render("Atlas backs up Atlas-managed runtime targets before replacing them."))
 	}
 	fmt.Fprintln(&b)
 
@@ -90,7 +91,6 @@ func RenderReview(view ReviewView) string {
 		for _, backup := range plan.Backups {
 			fmt.Fprintf(&b, "  - %s\n", backup.Path)
 		}
-		fmt.Fprintln(&b, "  "+initMuted.Render("Runtime backups are not created in this slice."))
 	}
 	fmt.Fprintln(&b)
 
@@ -98,11 +98,10 @@ func RenderReview(view ReviewView) string {
 	if len(plan.Replacements) == 0 {
 		fmt.Fprintln(&b, "  "+initMuted.Render("No existing runtime files need replacement."))
 	} else {
-		fmt.Fprintln(&b, "  Atlas would replace runtime artifacts after backup.")
+		fmt.Fprintln(&b, "  Atlas will replace runtime targets after backup.")
 		for _, repl := range plan.Replacements {
 			fmt.Fprintf(&b, "  - %s\n", repl.Path)
 		}
-		fmt.Fprintln(&b, "  "+initMuted.Render("Runtime replacements are not performed in this slice."))
 	}
 	fmt.Fprintln(&b)
 
@@ -141,7 +140,7 @@ func RenderReview(view ReviewView) string {
 		if view.Applied {
 			fmt.Fprintln(&b, "  "+initMuted.Render("No blockers."))
 		} else {
-			fmt.Fprintln(&b, "  "+initMuted.Render("No blockers. Apply config writes .atlas/ files only."))
+			fmt.Fprintln(&b, "  "+initMuted.Render("No blockers. Apply config writes .atlas/ files and selected runtime entrypoints."))
 		}
 	} else {
 		for _, blocker := range plan.Blockers {
