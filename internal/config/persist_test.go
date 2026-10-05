@@ -147,6 +147,46 @@ func TestValidateProjectDocument_RejectsEmptyName(t *testing.T) {
 	}
 }
 
+func TestValidateProjectDocument_AdaptersStrictCanonical(t *testing.T) {
+	t.Parallel()
+
+	base := func() config.ProjectDocument {
+		return config.BuildProjectDocument(config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+			ProjectName: "demo",
+			ProjectMode: "new",
+		}), config.EmptyMCPDraft())
+	}
+
+	ok := base()
+	ok.Adapters.Selected = []string{"cursor", "opencode"}
+	if err := config.ValidateProjectDocument(ok); err != nil {
+		t.Fatalf("canonical adapters rejected: %v", err)
+	}
+
+	cases := []struct {
+		name     string
+		selected []string
+		want     string
+	}{
+		{name: "unknown", selected: []string{"claude"}, want: "invalid"},
+		{name: "non-canonical casing", selected: []string{"Cursor"}, want: "invalid"},
+		{name: "OpenCode casing", selected: []string{"OpenCode"}, want: "invalid"},
+		{name: "leading space", selected: []string{" cursor"}, want: "leading or trailing spaces"},
+		{name: "trailing space", selected: []string{"opencode "}, want: "leading or trailing spaces"},
+		{name: "duplicate", selected: []string{"cursor", "cursor"}, want: "duplicated"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := base()
+			doc.Adapters.Selected = tc.selected
+			err := config.ValidateProjectDocument(doc)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestPersistProjectMode(t *testing.T) {
 	t.Parallel()
 	if config.PersistProjectMode("new") != "new" || config.PersistProjectMode(config.ModeGreenfield) != "new" {

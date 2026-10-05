@@ -179,7 +179,10 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 	}
 
 	plan.Warnings = []PlanWarning{
-		{Message: "Apply writes Atlas configuration under .atlas/ and materializes runtime entrypoints."},
+		{Message: "Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files."},
+		{Message: "AGENTS.md is a gateway contract, not a local skills/agents catalog. Atlas Home remains canonical."},
+		{Message: "Context Graph is a preference/context aid only; no graph engine, database, embeddings, index, capsules, or packs."},
+		{Message: "Cursor/OpenCode files are adapter projections and must not bypass AGENTS.md."},
 		{Message: "Existing Atlas-managed runtime targets are backed up under .atlas/backups/<timestamp>/ before replacement."},
 		{Message: "CLAUDE.md, GEMINI.md, .agents/, .claude/, README.md, and .gitignore are not materialized."},
 		{Message: "No Git operations are performed."},

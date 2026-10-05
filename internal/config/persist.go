@@ -290,6 +290,7 @@ func ValidateProjectDocument(doc ProjectDocument) error {
 	if !oneOf(doc.Memory.Strategy, MemoryStrategySQLite, MemoryStrategyCapsule, MemoryStrategyBoth) {
 		errs = append(errs, fmt.Sprintf("memory.strategy %q is invalid", doc.Memory.Strategy))
 	}
+	errs = append(errs, validateAdaptersSelected(doc.Adapters.Selected)...)
 	for i, server := range doc.MCP.Custom {
 		if strings.TrimSpace(server.Name) == "" {
 			errs = append(errs, fmt.Sprintf("mcp.custom[%d].name is required", i))
@@ -299,6 +300,33 @@ func ValidateProjectDocument(doc ProjectDocument) error {
 		return nil
 	}
 	return fmt.Errorf("invalid config: %s", strings.Join(errs, "; "))
+}
+
+// Canonical persisted adapter IDs. Exact match only; no trim, no case folding.
+var canonicalAdapters = map[string]struct{}{
+	"cursor":   {},
+	"opencode": {},
+}
+
+func validateAdaptersSelected(selected []string) []string {
+	var errs []string
+	seen := make(map[string]struct{}, len(selected))
+	for i, adapter := range selected {
+		if adapter != strings.TrimSpace(adapter) {
+			errs = append(errs, fmt.Sprintf("adapters.selected[%d] %q has leading or trailing spaces", i, adapter))
+			continue
+		}
+		if _, ok := canonicalAdapters[adapter]; !ok {
+			errs = append(errs, fmt.Sprintf("adapters.selected[%d] %q is invalid; only exact \"cursor\" or \"opencode\" are allowed", i, adapter))
+			continue
+		}
+		if _, dup := seen[adapter]; dup {
+			errs = append(errs, fmt.Sprintf("adapters.selected[%d] %q is duplicated", i, adapter))
+			continue
+		}
+		seen[adapter] = struct{}{}
+	}
+	return errs
 }
 
 // ToMCPDraft maps persisted MCP settings onto an in-memory MCPDraft.

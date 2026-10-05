@@ -83,7 +83,7 @@ func TestRenderReview(t *testing.T) {
 		"create/update this slice",
 		"No existing runtime artifacts detected.",
 		"No backups required.",
-		"materializes runtime entrypoints",
+		"compact runtime gateway files",
 		"Context Graph: Enabled",
 		"[content focus]",
 	} {

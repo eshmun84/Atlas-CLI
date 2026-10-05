@@ -138,15 +138,19 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(cursor), "alwaysApply: true") || !strings.Contains(string(cursor), "AGENTS.md") {
-		t.Fatalf("cursor rule = %s", cursor)
+	if !strings.Contains(string(cursor), "alwaysApply: true") ||
+		!strings.Contains(string(cursor), "Atlas adapter projection") ||
+		!strings.Contains(string(cursor), "do not bypass") {
+		t.Fatalf("cursor projection = %s", cursor)
 	}
 
 	opencode, err := os.ReadFile(filepath.Join(root, ".opencode", "atlas.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(opencode), "OpenCode") || !strings.Contains(string(opencode), ".opencode/atlas.md") {
+	if !strings.Contains(string(opencode), "Atlas adapter projection (OpenCode)") ||
+		!strings.Contains(string(opencode), ".opencode/atlas.md") ||
+		!strings.Contains(string(opencode), "do not bypass") {
 		t.Fatalf("opencode = %s", opencode)
 	}
 
@@ -353,6 +357,9 @@ func TestPersistConfigure_WritesConfigOnly(t *testing.T) {
 	assertMissing(t, root, "AGENTS.md")
 	assertMissing(t, root, ".cursor")
 	assertMissing(t, root, ".opencode")
+	assertMissing(t, root, ".atlas/state.yaml")
+	assertMissing(t, root, "skills")
+	assertMissing(t, root, ".agents")
 }
 
 func assertMissing(t *testing.T, root, rel string) {

@@ -38,7 +38,7 @@ func RenderReview(view ReviewView) string {
 			fmt.Fprintln(&b, "  "+initWarn.Render(view.ApplyMessage))
 		}
 	} else {
-		fmt.Fprintln(&b, "  "+initMuted.Render("Apply writes Atlas configuration under .atlas/ and materializes runtime entrypoints."))
+		fmt.Fprintln(&b, "  "+initMuted.Render("Apply writes .atlas/ config and compact runtime gateway files."))
 		if view.ApplyMessage != "" {
 			fmt.Fprintln(&b, "  "+initWarn.Render(view.ApplyMessage))
 		}
@@ -140,7 +140,7 @@ func RenderReview(view ReviewView) string {
 		if view.Applied {
 			fmt.Fprintln(&b, "  "+initMuted.Render("No blockers."))
 		} else {
-			fmt.Fprintln(&b, "  "+initMuted.Render("No blockers. Apply config writes .atlas/ files and selected runtime entrypoints."))
+			fmt.Fprintln(&b, "  "+initMuted.Render("No blockers. Apply config writes .atlas/ files and selected runtime gateway projections."))
 		}
 	} else {
 		for _, blocker := range plan.Blockers {

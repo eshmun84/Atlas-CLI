@@ -1424,7 +1424,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	view = m.View()
 	for _, want := range []string{
 		"Review / Materialization Plan",
-		"Apply writes Atlas configuration under .atlas/ and materializes runtime entrypoints.",
+		"Apply writes .atlas/ config and compact runtime gateway files.",
 		"[ Back ]",
 		"[ Apply config ]",
 	} {
@@ -1579,7 +1579,7 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		"No branches are created.",
 		"No remote operations are performed.",
 		"Secrets and credentials are not stored.",
-		"Apply writes Atlas configuration under .atlas/ and materializes runtime entrypoints.",
+		"Apply writes .atlas/ config and compact runtime gateway files.",
 		"create/update this slice",
 		"[ Back ]",
 		"[ Apply config ]",

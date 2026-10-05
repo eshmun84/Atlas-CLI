@@ -17,7 +17,7 @@ const (
 func RuntimeTargets(doc ProjectDocument) []string {
 	targets := []string{FileAgentsMD}
 	for _, adapter := range doc.Adapters.Selected {
-		switch strings.ToLower(strings.TrimSpace(adapter)) {
+		switch adapter {
 		case "cursor":
 			targets = append(targets, FileCursorAtlasMDC)
 		case "opencode":
@@ -27,7 +27,7 @@ func RuntimeTargets(doc ProjectDocument) []string {
 	return targets
 }
 
-// RenderAgentsMD builds AGENTS.md with the compact Atlas gateway blueprint.
+// RenderAgentsMD builds AGENTS.md with the compact Atlas gateway contract.
 // When existing content has a USER section, that body is preserved.
 func RenderAgentsMD(projectName string, contextGraphEnabled bool, existing []byte) string {
 	name := strings.TrimSpace(projectName)
@@ -56,7 +56,12 @@ func RenderAgentsMD(projectName string, contextGraphEnabled bool, existing []byt
 	fmt.Fprintf(&managed, "- Follow Atlas governance and project configuration under `%s`.\n", FileConfig)
 	fmt.Fprintf(&managed, "- Prefer Atlas-owned state under `%s/` for Atlas configuration.\n", DirAtlas)
 	fmt.Fprintf(&managed, "- Do not store secrets, credentials, or tokens in this file.\n")
-	fmt.Fprintf(&managed, "- Do not invent missing Atlas Home assets or project context.\n\n")
+	fmt.Fprintf(&managed, "- Do not invent missing Atlas Home assets or project context.\n")
+	fmt.Fprintf(&managed, "- Do not perform Git operations unless a human explicitly requests them.\n")
+	fmt.Fprintf(&managed, "- When commit text is requested, use Conventional Commits.\n")
+	fmt.Fprintf(&managed, "- Do not add `Co-Authored-By` or any attribution to AI/tools.\n")
+	fmt.Fprintf(&managed, "- Tests, review, evidence, or delegation never equal delivery approval.\n")
+	fmt.Fprintf(&managed, "- Do not expand scope without a clear proposal and human agreement.\n\n")
 
 	fmt.Fprintf(&managed, "## 2. Professional Identity\n\n")
 	fmt.Fprintf(&managed, "- Act as a capable engineering agent operating through Atlas.\n")
@@ -83,23 +88,29 @@ func RenderAgentsMD(projectName string, contextGraphEnabled bool, existing []byt
 	fmt.Fprintf(&managed, "- Do not assume skills, agents, or templates are installed locally in this project.\n\n")
 
 	fmt.Fprintf(&managed, "## 8. Behavior\n\n")
-	fmt.Fprintf(&managed, "- Inspect AGENTS.md, `%s`, and adapter files before changing project behavior.\n", FileConfig)
-	fmt.Fprintf(&managed, "- Do not download, install, or resolve remote asset catalogs during normal work.\n")
+	fmt.Fprintf(&managed, "- Inspect AGENTS.md, `%s`, and adapter projections before changing project behavior.\n", FileConfig)
+	fmt.Fprintf(&managed, "- Do not download, install, generate, or copy skills during normal work.\n")
+	fmt.Fprintf(&managed, "- Do not resolve remote asset catalogs during normal work.\n")
 	fmt.Fprintf(&managed, "- Do not materialize CLAUDE.md, GEMINI.md, `.agents/`, or `.claude/` unless a future Atlas slice explicitly allows it.\n\n")
 
 	fmt.Fprintf(&managed, "## 9. Contextual Skill Loading\n\n")
-	fmt.Fprintf(&managed, "- Load skills contextually from Atlas Home when Atlas enables them.\n")
+	fmt.Fprintf(&managed, "- Load skills only from local paths provided by Atlas.\n")
 	fmt.Fprintf(&managed, "- Do not expect a complete skills catalog inside this repository.\n\n")
 
 	fmt.Fprintf(&managed, "## 10. Agent and Subagent Orchestration\n\n")
 	fmt.Fprintf(&managed, "- Prefer Atlas-provided agent and subagent contracts when available.\n")
+	fmt.Fprintf(&managed, "- Subagents are bounded workers/reviewers; the primary agent keeps responsibility.\n")
+	fmt.Fprintf(&managed, "- If safe runtime-native delegation is unavailable, fall back to inline work.\n")
 	fmt.Fprintf(&managed, "- Do not assume this project contains a full local agent catalog.\n\n")
 
 	fmt.Fprintf(&managed, "## Context Graph\n\n")
 	fmt.Fprintf(&managed, "- Project preference: Context Graph is **%s** (`context.graph.enabled`).\n", graphPref)
+	fmt.Fprintf(&managed, "- Context Graph is a preference/context aid only: no graph engine, database, embeddings, index, capsules, or context packs in this project.\n")
 	fmt.Fprintf(&managed, "- Use Context Graph only when Atlas enables or provides it.\n")
 	fmt.Fprintf(&managed, "- Do not assume the graph lives inside this project.\n")
-	fmt.Fprintf(&managed, "- Do not invent graph context when it is unavailable.")
+	fmt.Fprintf(&managed, "- Do not invent graph context when it is unavailable.\n")
+	fmt.Fprintf(&managed, "- Do not load the full repository by default.\n")
+	fmt.Fprintf(&managed, "- Load raw files only when Atlas context references are insufficient for correctness.")
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n%s\n%s\n\n", AgentsManagedBegin, managed.String(), AgentsManagedEnd)
@@ -107,7 +118,7 @@ func RenderAgentsMD(projectName string, contextGraphEnabled bool, existing []byt
 	return b.String()
 }
 
-// RenderCursorAtlasMDC builds the Cursor adapter rule file.
+// RenderCursorAtlasMDC builds the Cursor adapter projection.
 func RenderCursorAtlasMDC(projectName string) string {
 	name := strings.TrimSpace(projectName)
 	if name == "" {
@@ -115,34 +126,30 @@ func RenderCursorAtlasMDC(projectName string) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\n")
-	fmt.Fprintf(&b, "description: Atlas-managed project rules for %s\n", name)
+	fmt.Fprintf(&b, "description: Atlas adapter projection for %s\n", name)
 	fmt.Fprintf(&b, "alwaysApply: true\n")
 	fmt.Fprintf(&b, "---\n\n")
-	fmt.Fprintf(&b, "# Atlas\n\n")
-	fmt.Fprintf(&b, "This project is an Atlas gateway for **%s**.\n\n", name)
-	fmt.Fprintf(&b, "- Follow root `%s` (managed + user sections).\n", FileAgentsMD)
+	fmt.Fprintf(&b, "# Atlas adapter projection (Cursor)\n\n")
+	fmt.Fprintf(&b, "- Root `%s` is authoritative; do not bypass it.\n", FileAgentsMD)
+	fmt.Fprintf(&b, "- This file is an Atlas adapter projection, not a full contract or catalog.\n")
+	fmt.Fprintf(&b, "- Do not duplicate the full AGENTS.md contract here.\n")
 	fmt.Fprintf(&b, "- Project configuration lives under `%s`.\n", FileConfig)
-	fmt.Fprintf(&b, "- Atlas Home remains the canonical source of skills, agents, rules, and contracts.\n")
-	fmt.Fprintf(&b, "- Do not store secrets in adapter files.\n")
-	fmt.Fprintf(&b, "- Do not expect a full skills/agents catalog inside this repository.\n")
 	return b.String()
 }
 
-// RenderOpenCodeAtlas builds the project-local OpenCode adapter file.
+// RenderOpenCodeAtlas builds the OpenCode adapter projection.
 func RenderOpenCodeAtlas(projectName string) string {
 	name := strings.TrimSpace(projectName)
 	if name == "" {
 		name = "this project"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Atlas OpenCode adapter\n\n")
+	fmt.Fprintf(&b, "# Atlas adapter projection (OpenCode)\n\n")
 	fmt.Fprintf(&b, "Project: %s\n\n", name)
-	fmt.Fprintf(&b, "This file is the Atlas project-local OpenCode runtime adapter (`%s`).\n\n", FileOpenCodeAtlas)
-	fmt.Fprintf(&b, "- Follow root %s for gateway instructions.\n", FileAgentsMD)
-	fmt.Fprintf(&b, "- Read Atlas configuration from `%s`.\n", FileConfig)
-	fmt.Fprintf(&b, "- Atlas Home remains the canonical source of skills, agents, rules, and contracts.\n")
-	fmt.Fprintf(&b, "- Do not store secrets, credentials, or tokens here.\n")
-	fmt.Fprintf(&b, "- Do not expect a full skills/agents catalog inside this repository.\n")
+	fmt.Fprintf(&b, "- Root `%s` is authoritative; do not bypass it.\n", FileAgentsMD)
+	fmt.Fprintf(&b, "- This file (`%s`) is an Atlas adapter projection, not a full contract or catalog.\n", FileOpenCodeAtlas)
+	fmt.Fprintf(&b, "- Do not duplicate the full AGENTS.md contract here.\n")
+	fmt.Fprintf(&b, "- Project configuration lives under `%s`.\n", FileConfig)
 	return b.String()
 }
 
