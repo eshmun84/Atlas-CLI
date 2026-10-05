@@ -270,6 +270,29 @@ func safeJoinRuntime(root, rel string) (string, error) {
 	return safeJoinRoot(root, rel)
 }
 
+func assertAllowedConflictPath(rel string) error {
+	clean := filepath.ToSlash(filepath.Clean(rel))
+	if strings.HasPrefix(clean, "..") || filepath.IsAbs(rel) {
+		return fmt.Errorf("backup: refused path %q", rel)
+	}
+	allowed := []string{
+		FileAgentsMD,
+		"AGENT.md",
+		"CLAUDE.md",
+		"GEMINI.md",
+		".cursor",
+		".opencode",
+		".agents",
+		".claude",
+	}
+	for _, prefix := range allowed {
+		if clean == prefix || strings.HasPrefix(clean, prefix+"/") {
+			return nil
+		}
+	}
+	return fmt.Errorf("backup: refused conflict path %q", rel)
+}
+
 func safeJoinRoot(root, rel string) (string, error) {
 	full := filepath.Join(root, filepath.FromSlash(rel))
 	rootAbs, err := filepath.Abs(root)

@@ -128,13 +128,15 @@ type LocalSourceControl struct {
 
 // StateDocument is generated .atlas/state.yaml.
 type StateDocument struct {
-	SchemaVersion         int    `yaml:"schema_version"`
-	Initialized           bool   `yaml:"initialized"`
-	RuntimeMaterialized   bool   `yaml:"runtime_materialized"`
-	RuntimeMaterializedAt string `yaml:"runtime_materialized_at,omitempty"`
-	AppliedAt             string `yaml:"applied_at"`
-	AtlasVersion          string `yaml:"atlas_version"`
-	ProjectName           string `yaml:"project_name"`
+	SchemaVersion            int      `yaml:"schema_version"`
+	Initialized              bool     `yaml:"initialized"`
+	RuntimeMaterialized      bool     `yaml:"runtime_materialized"`
+	RuntimeMaterializedAt    string   `yaml:"runtime_materialized_at,omitempty"`
+	RuntimeRepairedAt        string   `yaml:"runtime_repaired_at,omitempty"`
+	LastRuntimeRepairActions []string `yaml:"last_runtime_repair_actions,omitempty"`
+	AppliedAt                string   `yaml:"applied_at"`
+	AtlasVersion             string   `yaml:"atlas_version"`
+	ProjectName              string   `yaml:"project_name"`
 }
 
 // AssetsLockDocument is .atlas/assets.lock.yaml. No assets are installed in this slice.

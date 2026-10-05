@@ -94,23 +94,30 @@ type Model struct {
 	mcpArgsInput      textinput.Model
 	mcpEnvInput       textinput.Model
 
-	unknownCommand string
-	plan           initplan.Plan
-	discovery      workspace.DiscoveryResult
-	report         doctor.Report
-	loadErr        error
-	ready          bool
-	quitting       bool
+	unknownCommand  string
+	plan            initplan.Plan
+	discovery       workspace.DiscoveryResult
+	report          doctor.Report
+	repairPlan      workspace.RuntimeRepairPlan
+	repairResult    workspace.RuntimeRepairResult
+	repairMessage   string
+	repairFooterIdx int
+	repairApplied   bool
+	repairSignature string
+	loadErr         error
+	ready           bool
+	quitting        bool
 
 	getwd    func() (string, error)
 	discover func(string) (workspace.DiscoveryResult, error)
 }
 
 type loadedMsg struct {
-	plan      initplan.Plan
-	discovery workspace.DiscoveryResult
-	report    doctor.Report
-	err       error
+	plan       initplan.Plan
+	discovery  workspace.DiscoveryResult
+	report     doctor.Report
+	repairPlan workspace.RuntimeRepairPlan
+	err        error
 }
 
 // NewModel builds a TUI model for the given options.
@@ -129,7 +136,7 @@ func NewModel(opts Options) Model {
 		route = DefaultRoute
 	}
 
-	items := SidebarItems(false)
+	items := SidebarItems(false, false)
 	return Model{
 		width:             MinWidth,
 		height:            MinHeight,
@@ -174,7 +181,7 @@ func newTextInput(placeholder string) textinput.Model {
 
 func validRoute(route Route) bool {
 	switch route {
-	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteHelp, RouteError:
+	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteHelp, RouteError:
 		return true
 	default:
 		return false
@@ -183,46 +190,49 @@ func validRoute(route Route) bool {
 
 func needsWorkspace(route Route) bool {
 	switch route {
-	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor:
+	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair:
 		return true
 	default:
 		return false
 	}
 }
 
-func (m Model) Route() Route                    { return m.route }
-func (m Model) Width() int                      { return m.width }
-func (m Model) Height() int                     { return m.height }
-func (m Model) SidebarIndex() int               { return m.sidebarIndex }
-func (m Model) ContentOffset() int              { return m.contentOffset }
-func (m Model) Focus() Focus                    { return m.focus }
-func (m Model) InitModeConfirmed() InitMode     { return m.initModeConfirmed }
-func (m Model) InitDecision() InitDecision      { return m.initDecision }
-func (m Model) DraftName() string               { return m.nameInput.Value() }
-func (m Model) InitField() int                  { return m.initField }
-func (m Model) InitWizardStep() int             { return m.initWizardStep }
-func (m Model) InitReviewMessage() string       { return m.initReviewMessage }
-func (m Model) ConfigureNotice() string         { return m.configureNotice }
-func (m Model) InitApplied() bool               { return m.initApplied }
-func (m Model) ConfigDraft() config.ConfigDraft { return m.configDraft }
-func (m Model) ConfigSectionIndex() int         { return m.configSectionIdx }
-func (m Model) ConfigFieldIndex() int           { return m.configFieldIdx }
-func (m Model) ConfigOptionIndex() int          { return m.configOptionIdx }
-func (m Model) ConfigPanel() string             { return m.configPanel }
-func (m Model) ConfigFooterIndex() int          { return m.configFooterIdx }
-func (m Model) MCPDraft() config.MCPDraft       { return m.mcpDraft }
-func (m Model) MCPMode() string                 { return m.mcpMode }
-func (m Model) MCPIndex() int                   { return m.mcpIndex }
-func (m Model) MCPListFocus() string            { return m.mcpListFocus }
-func (m Model) MCPAddError() string             { return m.mcpAddError }
-func (m Model) MCPNotice() string               { return m.mcpNotice }
-func (m Model) MCPAddFocus() string             { return m.mcpAddFocus }
-func (m Model) MCPAddName() string              { return m.mcpNameInput.Value() }
-func (m Model) MCPAddConn() string              { return m.mcpConnInput.Value() }
-func (m Model) MCPAddArgs() string              { return m.mcpArgsInput.Value() }
-func (m Model) MCPAddEnv() string               { return m.mcpEnvInput.Value() }
-func (m Model) NameCursor() int                 { return m.nameInput.Position() }
-func (m Model) Quitting() bool                  { return m.quitting }
+func (m Model) Route() Route                            { return m.route }
+func (m Model) Width() int                              { return m.width }
+func (m Model) Height() int                             { return m.height }
+func (m Model) SidebarIndex() int                       { return m.sidebarIndex }
+func (m Model) ContentOffset() int                      { return m.contentOffset }
+func (m Model) Focus() Focus                            { return m.focus }
+func (m Model) InitModeConfirmed() InitMode             { return m.initModeConfirmed }
+func (m Model) InitDecision() InitDecision              { return m.initDecision }
+func (m Model) DraftName() string                       { return m.nameInput.Value() }
+func (m Model) InitField() int                          { return m.initField }
+func (m Model) InitWizardStep() int                     { return m.initWizardStep }
+func (m Model) InitReviewMessage() string               { return m.initReviewMessage }
+func (m Model) ConfigureNotice() string                 { return m.configureNotice }
+func (m Model) InitApplied() bool                       { return m.initApplied }
+func (m Model) ConfigDraft() config.ConfigDraft         { return m.configDraft }
+func (m Model) ConfigSectionIndex() int                 { return m.configSectionIdx }
+func (m Model) ConfigFieldIndex() int                   { return m.configFieldIdx }
+func (m Model) ConfigOptionIndex() int                  { return m.configOptionIdx }
+func (m Model) ConfigPanel() string                     { return m.configPanel }
+func (m Model) ConfigFooterIndex() int                  { return m.configFooterIdx }
+func (m Model) MCPDraft() config.MCPDraft               { return m.mcpDraft }
+func (m Model) MCPMode() string                         { return m.mcpMode }
+func (m Model) MCPIndex() int                           { return m.mcpIndex }
+func (m Model) MCPListFocus() string                    { return m.mcpListFocus }
+func (m Model) MCPAddError() string                     { return m.mcpAddError }
+func (m Model) MCPNotice() string                       { return m.mcpNotice }
+func (m Model) MCPAddFocus() string                     { return m.mcpAddFocus }
+func (m Model) MCPAddName() string                      { return m.mcpNameInput.Value() }
+func (m Model) MCPAddConn() string                      { return m.mcpConnInput.Value() }
+func (m Model) MCPAddArgs() string                      { return m.mcpArgsInput.Value() }
+func (m Model) MCPAddEnv() string                       { return m.mcpEnvInput.Value() }
+func (m Model) RepairApplied() bool                     { return m.repairApplied }
+func (m Model) RepairMessage() string                   { return m.repairMessage }
+func (m Model) RepairPlan() workspace.RuntimeRepairPlan { return m.repairPlan }
+func (m Model) NameCursor() int                         { return m.nameInput.Position() }
+func (m Model) Quitting() bool                          { return m.quitting }
 
 func (m Model) editingTextInput() bool {
 	if m.focus != FocusContent {
@@ -238,7 +248,7 @@ func (m Model) editingTextInput() bool {
 func (m Model) Initialized() bool { return m.discovery.Atlas.Initialized() }
 
 func (m Model) Sidebar() []SidebarItem {
-	return SidebarItems(m.Initialized())
+	return SidebarItems(m.Initialized(), workspace.ShowRuntimeRepair(m.discovery))
 }
 
 func (m Model) ProjectName() string {

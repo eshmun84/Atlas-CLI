@@ -10,6 +10,7 @@ const (
 	RouteMCP
 	RouteStatus
 	RouteDoctor
+	RouteRuntimeRepair
 	RouteHelp
 	RouteError
 )
@@ -31,6 +32,8 @@ func (r Route) String() string {
 		return "Status"
 	case RouteDoctor:
 		return "Doctor"
+	case RouteRuntimeRepair:
+		return "Runtime Repair"
 	case RouteHelp:
 		return "Help"
 	case RouteError:

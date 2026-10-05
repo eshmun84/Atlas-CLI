@@ -203,6 +203,13 @@ func (m Model) rawContent() string {
 		return screens.Status(m.discovery)
 	case RouteDoctor:
 		return screens.Doctor(m.report)
+	case RouteRuntimeRepair:
+		return screens.RenderRuntimeRepair(screens.RepairView{
+			Plan:           m.repairPlan,
+			Applied:        m.repairApplied,
+			ApplyMessage:   m.repairMessage,
+			ContentFocused: m.focus == FocusContent,
+		})
 	default:
 		return screens.Dashboard(m.discovery)
 	}
@@ -315,6 +322,32 @@ func (m Model) renderActionRow() (string, bool) {
 			FooterIndex:    m.configFooterIdx,
 			Width:          width,
 		}), true
+	case m.route == RouteRuntimeRepair:
+		panel := ""
+		if m.focus == FocusContent {
+			panel = screens.ConfigPanelFooter
+		}
+		if m.repairApplied || m.repairPlan.Blocked || !m.repairPlan.NeedsApply() {
+			return screens.RenderActionFooter(screens.ActionFooterView{
+				ShowBack:       true,
+				ShowNext:       false,
+				BackLabel:      "Close",
+				ContentFocused: m.focus == FocusContent,
+				PanelFocus:     panel,
+				FooterIndex:    0,
+				Width:          width,
+			}), true
+		}
+		return screens.RenderActionFooter(screens.ActionFooterView{
+			ShowBack:       true,
+			ShowNext:       true,
+			BackLabel:      "Close",
+			NextLabel:      "Apply repair",
+			ContentFocused: m.focus == FocusContent,
+			PanelFocus:     panel,
+			FooterIndex:    m.repairFooterIdx,
+			Width:          width,
+		}), true
 	default:
 		return "", false
 	}
@@ -354,6 +387,12 @@ func (m Model) renderFooter() string {
 		}
 	case RouteHelp:
 		text = "↑/↓ menu  Enter select  PgUp/PgDn scroll  b dash  q quit"
+	case RouteRuntimeRepair:
+		if m.repairApplied || m.repairPlan.Blocked || !m.repairPlan.NeedsApply() {
+			text = "Tab focus  PgUp/PgDn scroll  Close  b dash  q quit"
+		} else {
+			text = "Tab focus  PgUp/PgDn scroll  Close  Apply repair  b dash  q quit"
+		}
 	}
 	return text
 }

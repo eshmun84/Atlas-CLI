@@ -80,7 +80,7 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	labels := sidebarLabels(uninit)
-	if !contains(labels, "Init / Setup") || contains(labels, "Configure") || contains(labels, "MCP") {
+	if !contains(labels, "Init / Setup") || contains(labels, "Configure") || contains(labels, "MCP") || contains(labels, "Runtime Repair") {
 		t.Fatalf("uninitialized sidebar = %v", labels)
 	}
 
@@ -91,6 +91,9 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 	labels = sidebarLabels(initd)
 	if !contains(labels, "Configure") || contains(labels, "Init / Setup") || contains(labels, "MCP") {
 		t.Fatalf("initialized sidebar = %v", labels)
+	}
+	if !contains(labels, "Runtime Repair") {
+		t.Fatalf("initialized sidebar missing Runtime Repair: %v", labels)
 	}
 
 	cfg := loadWorkspace(t, tui.Options{
@@ -733,6 +736,9 @@ func TestGlobalQAndCtrlCQuit(t *testing.T) {
 		{"doctor", func(t *testing.T) tui.Model {
 			return loadWorkspace(t, tui.Options{Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
 		}},
+		{"runtime-repair", func(t *testing.T) tui.Model {
+			return loadWorkspace(t, tui.Options{Route: tui.RouteRuntimeRepair, Getwd: func() (string, error) { return configured, nil }, Discover: workspace.Discover})
+		}},
 		{"help", func(t *testing.T) tui.Model {
 			return sized(tui.NewModel(tui.Options{Route: tui.RouteHelp}))
 		}},
@@ -1079,6 +1085,63 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 		t.Fatalf("doctor unexpected FAIL:\n%s", docView)
 	}
 	assertSnapshotUnchanged(t, root, before)
+}
+
+func TestRuntimeRepairTUIApplyAndNoAutoMutation(t *testing.T) {
+	root := t.TempDir()
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:    "demo",
+		ProjectMode:    "existing",
+		DefaultRemote:  "origin",
+		CursorDetected: true,
+	})
+	if _, err := config.ApplyConfig(config.ApplyInput{
+		Root:  root,
+		Draft: draft,
+		MCP:   config.EmptyMCPDraft(),
+		Now:   func() time.Time { return time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC) },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	statusBefore := snapshotDir(t, root)
+	status := loadWorkspace(t, tui.Options{
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	if !strings.Contains(status.View(), "Atlas Status") {
+		t.Fatal("status")
+	}
+	assertSnapshotUnchanged(t, root, statusBefore)
+
+	doc := loadWorkspace(t, tui.Options{
+		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	if !strings.Contains(doc.View(), "FAIL") {
+		t.Fatalf("doctor should fail missing AGENTS:\n%s", doc.View())
+	}
+	assertSnapshotUnchanged(t, root, statusBefore)
+
+	m := loadWorkspace(t, tui.Options{
+		Route: tui.RouteRuntimeRepair, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	})
+	view := m.View()
+	for _, want := range []string{"Runtime Repair", "AGENTS.md", "Apply repair"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("repair missing %q:\n%s", want, view)
+		}
+	}
+	m = mustModel(m.Update(key("tab")))
+	m = mustModel(m.Update(key("right")))
+	m = mustModel(m.Update(key("enter")))
+	if !m.RepairApplied() {
+		t.Fatalf("expected apply, message=%q plan=%#v", m.RepairMessage(), m.RepairPlan())
+	}
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestInitFocusNameModeDecision(t *testing.T) {

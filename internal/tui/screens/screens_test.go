@@ -23,6 +23,11 @@ func TestScreenTitles(t *testing.T) {
 	if !strings.Contains(screens.Doctor(doctor.Report{}), "Atlas Doctor") {
 		t.Fatal("doctor")
 	}
+	if !strings.Contains(screens.RenderRuntimeRepair(screens.RepairView{
+		Plan: workspace.RuntimeRepairPlan{Healthy: true},
+	}), "Runtime Repair") {
+		t.Fatal("repair")
+	}
 	if !strings.Contains(screens.Dashboard(workspace.DiscoveryResult{
 		RootPath: "/tmp/demo",
 		Atlas:    workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},

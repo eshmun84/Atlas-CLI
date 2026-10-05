@@ -28,7 +28,17 @@ type BackupManifestEntry struct {
 	BackupPath   string `json:"backup_path"`
 	Kind         string `json:"kind"`
 	Action       string `json:"action"`
+	Reason       string `json:"reason,omitempty"`
+	Timestamp    string `json:"timestamp,omitempty"`
+	Result       string `json:"result,omitempty"`
 	SHA256       string `json:"sha256,omitempty"`
+}
+
+// ConflictBackup is one path copied into quarantine before repair writes.
+type ConflictBackup struct {
+	Rel    string
+	Action string
+	Reason string
 }
 
 // BackupExistingTargets copies existing runtime targets into .atlas/backups/<timestamp>/.
@@ -99,6 +109,9 @@ func BackupExistingTargets(root string, targets []string, now time.Time) (backup
 			BackupPath:   destRel,
 			Kind:         "file",
 			Action:       "replaced",
+			Reason:       "existing runtime target",
+			Timestamp:    manifest.CreatedAt,
+			Result:       "ok",
 			SHA256:       sum,
 		})
 	}
@@ -113,6 +126,176 @@ func BackupExistingTargets(root string, targets []string, now time.Time) (backup
 		return "", BackupManifest{}, fmt.Errorf("backup: write manifest: %w", err)
 	}
 	return backupRelDir, manifest, nil
+}
+
+// BackupConflicts copies files or directories into .atlas/backups/<timestamp>/.
+// Directories are copied recursively. Missing paths are skipped.
+func BackupConflicts(root string, items []ConflictBackup, now time.Time) (backupRelDir string, manifest BackupManifest, err error) {
+	root = filepath.Clean(strings.TrimSpace(root))
+	if root == "" || root == "." {
+		return "", BackupManifest{}, fmt.Errorf("backup: workspace root is required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+
+	manifest = BackupManifest{
+		SchemaVersion: BackupManifestSchemaVersion,
+		CreatedAt:     now.Format(time.RFC3339),
+		Reason:        "runtime repair",
+		Entries:       []BackupManifestEntry{},
+	}
+
+	type pending struct {
+		item ConflictBackup
+		rel  string
+		full string
+		dir  bool
+	}
+	var toBackup []pending
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		rel := filepath.ToSlash(filepath.Clean(item.Rel))
+		if _, ok := seen[rel]; ok {
+			continue
+		}
+		if err := assertAllowedConflictPath(rel); err != nil {
+			return "", BackupManifest{}, err
+		}
+		full, joinErr := safeJoinRoot(root, rel)
+		if joinErr != nil {
+			return "", BackupManifest{}, joinErr
+		}
+		info, statErr := os.Lstat(full)
+		if os.IsNotExist(statErr) {
+			continue
+		}
+		if statErr != nil {
+			return "", BackupManifest{}, fmt.Errorf("backup: stat %s: %w", rel, statErr)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", BackupManifest{}, fmt.Errorf("backup: refused symlink %s", rel)
+		}
+		seen[rel] = struct{}{}
+		toBackup = append(toBackup, pending{item: item, rel: rel, full: full, dir: info.IsDir()})
+	}
+	if len(toBackup) == 0 {
+		return "", manifest, nil
+	}
+
+	stamp := now.Format("20060102T150405Z")
+	backupRelDir = filepath.ToSlash(filepath.Join(DirBackups, stamp))
+	backupAbs, err := safeJoinAtlas(root, backupRelDir)
+	if err != nil {
+		return "", BackupManifest{}, err
+	}
+	if err := os.MkdirAll(backupAbs, 0o755); err != nil {
+		return "", BackupManifest{}, fmt.Errorf("backup: create %s: %w", backupRelDir, err)
+	}
+
+	for _, item := range toBackup {
+		destRel := filepath.ToSlash(filepath.Join(backupRelDir, item.rel))
+		destAbs := filepath.Join(backupAbs, filepath.FromSlash(item.rel))
+		action := item.item.Action
+		if action == "" {
+			action = "replaced"
+		}
+		reason := item.item.Reason
+		if reason == "" {
+			reason = "runtime conflict"
+		}
+		kind := "file"
+		var sum string
+		if item.dir {
+			kind = "directory"
+			if err := os.MkdirAll(destAbs, 0o755); err != nil {
+				return "", BackupManifest{}, fmt.Errorf("backup: create %s: %w", destRel, err)
+			}
+			sum, err = copyDirWithSHA(item.full, destAbs)
+			if err != nil {
+				return "", BackupManifest{}, fmt.Errorf("backup: copy dir %s: %w", item.rel, err)
+			}
+		} else {
+			if err := os.MkdirAll(filepath.Dir(destAbs), 0o755); err != nil {
+				return "", BackupManifest{}, fmt.Errorf("backup: create parent for %s: %w", destRel, err)
+			}
+			sum, err = copyFileWithSHA(item.full, destAbs)
+			if err != nil {
+				return "", BackupManifest{}, fmt.Errorf("backup: copy %s: %w", item.rel, err)
+			}
+		}
+		manifest.Entries = append(manifest.Entries, BackupManifestEntry{
+			OriginalPath: item.rel,
+			BackupPath:   destRel,
+			Kind:         kind,
+			Action:       action,
+			Reason:       reason,
+			Timestamp:    manifest.CreatedAt,
+			Result:       "copied",
+			SHA256:       sum,
+		})
+	}
+
+	if err := writeBackupManifest(backupAbs, manifest); err != nil {
+		return "", BackupManifest{}, err
+	}
+	return backupRelDir, manifest, nil
+}
+
+func WriteBackupManifest(root, backupRelDir string, manifest BackupManifest) error {
+	backupAbs, err := safeJoinAtlas(root, backupRelDir)
+	if err != nil {
+		return err
+	}
+	return writeBackupManifest(backupAbs, manifest)
+}
+
+func writeBackupManifest(backupAbs string, manifest BackupManifest) error {
+	manifestPath := filepath.Join(backupAbs, "manifest.json")
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("backup: marshal manifest: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+		return fmt.Errorf("backup: write manifest: %w", err)
+	}
+	return nil
+}
+
+func copyDirWithSHA(src, dst string) (string, error) {
+	h := sha256.New()
+	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refused symlink %s", rel)
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		sum, err := copyFileWithSHA(path, target)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(h, "%s:%s\n", filepath.ToSlash(rel), sum)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func copyFileWithSHA(src, dst string) (string, error) {

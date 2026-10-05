@@ -34,6 +34,12 @@ These are not Atlas CLI commands.
             Governance · Adapters · Source Control · Memory · Context · MCP
   Step 3  Review / Materialization Plan (Apply writes .atlas/ + compact AGENTS/adapter projections)
 
+` + helpHead.Render("Runtime Repair") + `
+  Available after initialization. Review runtime drift, then Apply repair.
+  Status, Doctor, discovery, and Configure Apply never repair automatically.
+  Conflicts (including competing AGENTS/adapter/skill surfaces) are backed up/quarantined before Atlas writes replacements.
+  Backup is mandatory. No skip, merge, or silent delete.
+
 ` + helpHead.Render("MCP") + `
   Built-ins: Jira · Context7 · Chrome DevTools (multi-select).
   Configure MCP during Init Step 2, or later in Configure after initialization.

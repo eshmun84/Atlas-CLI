@@ -9,6 +9,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
+	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 // Init loads workspace-backed screens when needed.
@@ -47,6 +48,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadErr = nil
 		m.discovery = msg.discovery
 		m.report = msg.report
+		m.repairPlan = msg.repairPlan
 		m.sidebarIndex = indexForRoute(m.Sidebar(), m.route)
 		if m.route == RouteInitPlan {
 			m.applyInitDiscovery(msg.plan)
@@ -55,6 +57,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.route == RouteConfigure {
 			m.configureNotice = ""
 			m.rebuildConfigDraft(config.ConfigModeConfigure, true, true)
+		}
+		if m.route == RouteRuntimeRepair {
+			m.repairApplied = false
+			m.repairMessage = ""
+			m.repairFooterIdx = 0
+			m.repairResult = workspace.RuntimeRepairResult{}
+			if len(m.repairPlan.Targets) == 0 && !m.repairPlan.Blocked {
+				m.repairPlan = workspace.BuildRuntimeRepairPlan(m.discovery.RootPath, m.discovery.Runtime)
+			}
+			m.repairSignature = m.repairPlan.Signature()
 		}
 		m.ready = true
 		m.contentOffset = 0
@@ -112,7 +124,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.setRoute(DefaultRoute)
 	}
 
-	if (m.route == RouteInitPlan || m.route == RouteConfigure) && msg.String() == "tab" {
+	if (m.route == RouteInitPlan || m.route == RouteConfigure || m.route == RouteRuntimeRepair) && msg.String() == "tab" {
 		if m.focus == FocusSidebar {
 			m.focus = FocusContent
 			if m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepProject {
@@ -123,6 +135,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if m.route == RouteConfigure && m.configPanel == "" {
 				m.configPanel = screens.ConfigPanelSections
+			}
+			if m.route == RouteRuntimeRepair {
+				m.configPanel = screens.ConfigPanelFooter
 			}
 		} else {
 			m.focus = FocusSidebar
@@ -139,6 +154,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.handleMCPAddKey(msg)
 		}
 		return m.handleConfigFormKey(msg)
+	}
+	if m.focus == FocusContent && m.route == RouteRuntimeRepair {
+		return m.handleRuntimeRepairKey(msg)
 	}
 
 	items := m.Sidebar()
@@ -547,6 +565,70 @@ func (m Model) handleInitReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleRuntimeRepairKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	canApply := !m.repairApplied && m.repairPlan.NeedsApply()
+	switch msg.String() {
+	case "pgup", "pgdown", "home", "end":
+		return m.scroll(msg.String()), nil
+	}
+	if !canApply {
+		switch msg.String() {
+		case "enter", " ", "space":
+			return m.setRoute(DefaultRoute)
+		}
+		return m, nil
+	}
+	switch msg.String() {
+	case "left", "h", "up", "k":
+		m.repairFooterIdx = 0
+		return m, nil
+	case "right", "l", "down", "j":
+		m.repairFooterIdx = 1
+		return m, nil
+	case "enter", " ", "space":
+		if m.repairFooterIdx <= 0 {
+			return m.setRoute(DefaultRoute)
+		}
+		return m.applyRuntimeRepair()
+	}
+	return m, nil
+}
+
+func (m Model) applyRuntimeRepair() (tea.Model, tea.Cmd) {
+	root := m.discovery.RootPath
+	result, err := workspace.ApplyRuntimeRepair(root, m.repairSignature, nil)
+	if err != nil {
+		m.repairMessage = err.Error()
+		m.repairResult = result
+		if result.Blocked {
+			m.repairPlan = result.Plan
+			m.repairSignature = result.Plan.Signature()
+		}
+		return m, nil
+	}
+	if result.Stale {
+		m.repairApplied = false
+		m.repairResult = result
+		m.repairPlan = result.Plan
+		m.repairSignature = result.Plan.Signature()
+		m.repairMessage = workspace.RepairStaleMessage
+		m.repairFooterIdx = 0
+		return m, nil
+	}
+	m.repairApplied = true
+	m.repairResult = result
+	m.repairPlan = result.Plan
+	m.repairMessage = result.MessageTitle
+	m.repairFooterIdx = 0
+	if refreshed, discErr := m.discover(root); discErr == nil {
+		m.discovery = refreshed
+		m.repairPlan = workspace.BuildRuntimeRepairPlan(root, refreshed.Runtime)
+		m.repairSignature = m.repairPlan.Signature()
+		m.report = doctor.Evaluate(refreshed)
+	}
+	return m, nil
+}
+
 func (m Model) activateInitReviewFooter() (tea.Model, tea.Cmd) {
 	if m.initReviewFooterIdx <= 0 {
 		m.initWizardStep = screens.InitWizardStepConfig
@@ -635,6 +717,13 @@ func (m Model) setRoute(route Route) (Model, tea.Cmd) {
 		m.initReviewMessage = ""
 		m.initApplied = false
 	}
+	if route == RouteRuntimeRepair {
+		m.repairApplied = false
+		m.repairMessage = ""
+		m.repairFooterIdx = 0
+		m.repairResult = workspace.RuntimeRepairResult{}
+		m.repairSignature = ""
+	}
 	m.syncNameInputFocus()
 	m.loadErr = nil
 	m.contentOffset = 0
@@ -704,6 +793,8 @@ func (m Model) loadCmd() tea.Cmd {
 			msg.plan = plan
 		case RouteDoctor:
 			msg.report = doctor.Evaluate(result)
+		case RouteRuntimeRepair:
+			msg.repairPlan = workspace.BuildRuntimeRepairPlan(root, result.Runtime)
 		}
 		return msg
 	}

@@ -9,19 +9,24 @@ type SidebarItem struct {
 
 // SidebarItems returns sidebar entries for the current Atlas setup state.
 // Init / Setup and Configure are mutually exclusive.
-func SidebarItems(initialized bool) []SidebarItem {
+func SidebarItems(initialized, showRepair bool) []SidebarItem {
 	setup := SidebarItem{Label: "Init / Setup", Route: RouteInitPlan}
 	if initialized {
 		setup = SidebarItem{Label: "Configure", Route: RouteConfigure}
 	}
-	return []SidebarItem{
+	items := []SidebarItem{
 		{Label: "Dashboard", Route: RouteDashboard},
 		setup,
 		{Label: "Status", Route: RouteStatus},
 		{Label: "Doctor", Route: RouteDoctor},
-		{Label: "Help", Route: RouteHelp},
-		{Label: "Exit", Exit: true},
 	}
+	if showRepair {
+		items = append(items, SidebarItem{Label: "Runtime Repair", Route: RouteRuntimeRepair})
+	}
+	return append(items,
+		SidebarItem{Label: "Help", Route: RouteHelp},
+		SidebarItem{Label: "Exit", Exit: true},
+	)
 }
 
 func clampSidebar(index, length int) int {

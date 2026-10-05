@@ -84,6 +84,9 @@ func suggestedAction(result workspace.DiscoveryResult) string {
 	case workspace.AtlasStateInvalidConfig:
 		return "Run Doctor"
 	case workspace.AtlasStateInitialized:
+		if workspace.BuildRuntimeRepairPlan(result.RootPath, result.Runtime).NeedsApply() {
+			return "Review Runtime Repair"
+		}
 		if len(result.Warnings) > 0 {
 			return "Run Doctor"
 		}
