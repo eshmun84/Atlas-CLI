@@ -22,6 +22,8 @@ const (
 const (
 	RepairKindAgents   = "agents"
 	RepairKindAdapter  = "adapter"
+	RepairKindAgent    = "agent"
+	RepairKindAtlas    = "atlas"
 	RepairKindConflict = "conflict"
 )
 
@@ -197,7 +199,8 @@ func BuildRuntimeRepairPlan(root string, health RuntimeHealth) RuntimeRepairPlan
 
 	for _, proj := range health.ExpectedProjections {
 		rootDir := adapterRoot(proj.Adapter)
-		extras := extraAdapterFiles(root, rootDir, proj.Path)
+		keep := atlasOwnedAdapterKeepSet(proj.Adapter)
+		extras := extraAdapterFiles(root, rootDir, keep)
 		expected := expectedAdapterContent(proj.Adapter, health.Document.Project.Name)
 		switch {
 		case !proj.Present:
@@ -232,6 +235,34 @@ func BuildRuntimeRepairPlan(root string, health RuntimeHealth) RuntimeRepairPlan
 			plan.Drift = append(plan.Drift, "competing adapter file: "+extra)
 		}
 	}
+
+	for _, agent := range health.ExpectedAgents {
+		switch {
+		case !agent.Present:
+			addRepairTarget(&plan, RuntimeRepairTarget{
+				Path:    agent.Path,
+				Action:  RepairActionCreate,
+				Kind:    RepairKindAgent,
+				Reason:  "Atlas agent missing",
+				Adapter: agent.Adapter,
+			})
+			plan.Drift = append(plan.Drift, "missing Atlas agent: "+agent.Path)
+		case !agent.Matches:
+			addRepairTarget(&plan, RuntimeRepairTarget{
+				Path:    agent.Path,
+				Action:  RepairActionReplace,
+				Kind:    RepairKindAgent,
+				Reason:  "Atlas agent content drifted from embedded contract",
+				Adapter: agent.Adapter,
+				Backup:  true,
+			})
+			plan.Drift = append(plan.Drift, "drifted Atlas agent: "+agent.Path)
+		}
+	}
+
+	addAtlasSurfaceRepair(&plan, health.AgentRegistryPresent, health.AgentRegistryMatches, config.FileAgentRegistry, "agent registry")
+	addAtlasSurfaceRepair(&plan, health.RuntimeManifestPresent, health.RuntimeManifestMatches, config.FileRuntimeManifest, "runtime manifest")
+	addAtlasSurfaceRepair(&plan, health.AssetsLockPresent, health.AssetsLockMatches, config.FileAssetsLock, "assets lock")
 
 	if !selected["cursor"] && exists(root, ".cursor") {
 		addRepairTarget(&plan, RuntimeRepairTarget{
@@ -339,7 +370,21 @@ func adapterRoot(adapter string) string {
 	}
 }
 
-func extraAdapterFiles(root, dir, keep string) []string {
+func atlasOwnedAdapterKeepSet(adapter string) map[string]bool {
+	keep := map[string]bool{}
+	switch adapter {
+	case "cursor":
+		keep[config.FileCursorAtlasMDC] = true
+	case "opencode":
+		keep[config.FileOpenCodeAtlas] = true
+	}
+	for _, path := range config.AtlasAgentRuntimePaths([]string{adapter}) {
+		keep[path] = true
+	}
+	return keep
+}
+
+func extraAdapterFiles(root, dir string, keep map[string]bool) []string {
 	if dir == "" || !exists(root, dir) {
 		return nil
 	}
@@ -354,7 +399,11 @@ func extraAdapterFiles(root, dir, keep string) []string {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
-		if rel == keep {
+		if keep[rel] {
+			return nil
+		}
+		// Developer-owned non-Atlas agents are never quarantined or rewritten.
+		if config.IsDeveloperAgentRuntimePath(rel) {
 			return nil
 		}
 		extras = append(extras, rel)
@@ -362,4 +411,26 @@ func extraAdapterFiles(root, dir, keep string) []string {
 	})
 	sort.Strings(extras)
 	return extras
+}
+
+func addAtlasSurfaceRepair(plan *RuntimeRepairPlan, present, matches bool, path, label string) {
+	switch {
+	case !present:
+		addRepairTarget(plan, RuntimeRepairTarget{
+			Path:   path,
+			Action: RepairActionCreate,
+			Kind:   RepairKindAtlas,
+			Reason: label + " missing",
+		})
+		plan.Drift = append(plan.Drift, "missing "+label+": "+path)
+	case !matches:
+		addRepairTarget(plan, RuntimeRepairTarget{
+			Path:   path,
+			Action: RepairActionReplace,
+			Kind:   RepairKindAtlas,
+			Reason: label + " content drifted",
+			Backup: true,
+		})
+		plan.Drift = append(plan.Drift, "drifted "+label+": "+path)
+	}
 }

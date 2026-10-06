@@ -139,7 +139,7 @@ type StateDocument struct {
 	ProjectName              string   `yaml:"project_name"`
 }
 
-// AssetsLockDocument is .atlas/assets.lock.yaml. No assets are installed in this slice.
+// AssetsLockDocument is .atlas/assets.lock.yaml for Atlas-owned runtime assets.
 type AssetsLockDocument struct {
 	SchemaVersion int      `yaml:"schema_version"`
 	Assets        []string `yaml:"assets"`
@@ -256,11 +256,15 @@ func boolPtr(v bool) *bool {
 	return &v
 }
 
-// BuildAssetsLockDocument returns an empty installed-assets lock.
-func BuildAssetsLockDocument() AssetsLockDocument {
+// BuildAssetsLockDocument returns the lock of Atlas-owned materialized assets.
+func BuildAssetsLockDocument(selected []string) AssetsLockDocument {
+	assets := AtlasOwnedAssetPaths(selected)
+	if assets == nil {
+		assets = []string{}
+	}
 	return AssetsLockDocument{
 		SchemaVersion: PersistSchemaVersion,
-		Assets:        []string{},
+		Assets:        assets,
 	}
 }
 

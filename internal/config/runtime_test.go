@@ -18,8 +18,9 @@ func TestRuntimeTargets(t *testing.T) {
 
 	doc.Adapters.Selected = []string{"cursor", "opencode"}
 	got = config.RuntimeTargets(doc)
-	if len(got) != 3 {
-		t.Fatalf("with adapters = %#v", got)
+	wantCount := 1 + 2 + len(config.AtlasAgentRuntimePaths([]string{"cursor", "opencode"}))
+	if len(got) != wantCount {
+		t.Fatalf("with adapters len=%d want=%d got=%#v", len(got), wantCount, got)
 	}
 
 	// Non-canonical casing must not materialize adapter projections.
@@ -169,6 +170,8 @@ func TestRenderAdapterProjections(t *testing.T) {
 		"alwaysApply: true",
 		"Atlas Cursor Entrypoint",
 		"Root `AGENTS.md` is the project authority; do not bypass it.",
+		".cursor/agents/atlas-orchestrator.md",
+		".atlas/agent-registry.md",
 		"Cursor-native entrypoint only",
 		"Demo",
 	)
@@ -183,6 +186,8 @@ func TestRenderAdapterProjections(t *testing.T) {
 		"Atlas OpenCode Entrypoint",
 		".opencode/atlas.md",
 		"Root `AGENTS.md` is the project authority; do not bypass it.",
+		".opencode/agents/atlas-orchestrator.md",
+		".atlas/agent-registry.md",
 		"execution surfaces, not independent authorities",
 		"Demo",
 	)

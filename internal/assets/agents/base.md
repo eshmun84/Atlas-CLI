@@ -45,13 +45,13 @@ Local investigation is not remote delivery. Network access for ordinary dependen
 
 Skills, personas, templates, and adapter contracts are Atlas-managed surfaces. Load them only from local paths that Atlas provides. Do not download, install, generate, invent, or copy skill catalogs during normal work. Do not resolve remote asset registries as part of ordinary coding.
 
-This project is a compact gateway. Do not expect a full skills or agents catalog to be vendored into the repository. Atlas Home (when present outside this project) remains the canonical source for shared expertise assets. Absence of a local catalog is not permission to invent one.
+Skills are registry-first. Consult `.atlas/skill-registry.md` when present. Do not materialize skills into `.cursor/skills` or `.opencode/skills` unless a future Atlas slice explicitly does so. Absence of a local skill registry entry is not permission to invent one. Atlas Home (when present outside this project) remains the canonical source for shared expertise assets.
 
 ## 8. Agent and Subagent Orchestration
 
-Prefer Atlas-provided agent and subagent contracts when available. Subagents, workers, reviewers, and delegated helpers are bounded execution surfaces. The primary agent retains responsibility for scope control, authorization checks, and final verification claims.
+Prefer Atlas-provided agent contracts when adapters are selected. Cursor agents live under `.cursor/agents/`; OpenCode agents live under `.opencode/agents/`. The local catalog is recorded in `.atlas/agent-registry.md` and `.atlas/runtime-manifest.yaml`. Prefer `atlas-orchestrator` for routing, asking, proposing, and stopping.
 
-Delegated output is evidence, not approval. If safe runtime-native delegation is unavailable, fall back to inline work. Do not assume this repository contains a complete local agent catalog.
+Subagents, workers, reviewers, and delegated helpers are bounded execution surfaces. The primary agent retains responsibility for scope control, authorization checks, and final verification claims. Delegated output is evidence, not approval. If safe runtime-native delegation is unavailable, fall back to inline work. Do not invent agents outside the Atlas registry.
 
 ## 9. Review and Verification
 

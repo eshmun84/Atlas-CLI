@@ -62,11 +62,12 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	if len(result.Files) != 4 {
+	if len(result.Files) != 6 {
 		t.Fatalf("files = %#v", result.Files)
 	}
-	if len(result.RuntimeFiles) != 3 {
-		t.Fatalf("runtime = %#v", result.RuntimeFiles)
+	wantRuntime := 1 + 2 + len(config.AtlasAgentRuntimePaths([]string{"cursor", "opencode"}))
+	if len(result.RuntimeFiles) != wantRuntime {
+		t.Fatalf("runtime len=%d want=%d files=%#v", len(result.RuntimeFiles), wantRuntime, result.RuntimeFiles)
 	}
 
 	cfgPath := filepath.Join(root, ".atlas", "config.yaml")
@@ -121,10 +122,22 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 		"## 1. Purpose and Authority",
 		"## 10. Context Economy",
 		"context.graph.enabled",
-		"Do not expect a full skills or agents catalog",
+		"Skills are registry-first",
+		".atlas/agent-registry.md",
+		"atlas-orchestrator",
 	} {
 		if !strings.Contains(agentsText, want) {
 			t.Fatalf("AGENTS.md missing %q:\n%s", want, agentsText)
+		}
+	}
+	for _, rel := range []string{
+		config.FileAgentRegistry,
+		config.FileRuntimeManifest,
+		".cursor/agents/atlas-orchestrator.md",
+		".opencode/agents/atlas-orchestrator.md",
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Fatalf("missing %s: %v", rel, err)
 		}
 	}
 	if !strings.Contains(text, "context:") || !strings.Contains(text, "graph:") || !strings.Contains(text, "enabled: true") {

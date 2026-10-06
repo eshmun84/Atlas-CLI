@@ -281,6 +281,15 @@ func TestEvaluateDiscoveryError(t *testing.T) {
 }
 
 func healthyRuntime() workspace.RuntimeHealth {
+	agents := make([]workspace.AgentFileStatus, 0, len(config.AtlasAgentRuntimePaths([]string{"cursor"})))
+	for _, path := range config.AtlasAgentRuntimePaths([]string{"cursor"}) {
+		agents = append(agents, workspace.AgentFileStatus{
+			Adapter: "cursor",
+			Path:    path,
+			Present: true,
+			Matches: true,
+		})
+	}
 	return workspace.RuntimeHealth{
 		Initialized:         true,
 		ConfigExists:        true,
@@ -300,11 +309,18 @@ func healthyRuntime() workspace.RuntimeHealth {
 			},
 			FoundAdapters: []string{"cursor"},
 		},
-		SelectedAdapters:     []string{"cursor"},
-		ExpectedProjections:  []workspace.ProjectionStatus{{Adapter: "cursor", Path: config.FileCursorAtlasMDC, Present: true}},
-		ContextGraphEnabled:  true,
-		ContextGraphReadable: true,
-		BackupsDirExists:     true,
+		SelectedAdapters:       []string{"cursor"},
+		ExpectedProjections:    []workspace.ProjectionStatus{{Adapter: "cursor", Path: config.FileCursorAtlasMDC, Present: true}},
+		ExpectedAgents:         agents,
+		AgentRegistryPresent:   true,
+		AgentRegistryMatches:   true,
+		RuntimeManifestPresent: true,
+		RuntimeManifestMatches: true,
+		AssetsLockPresent:      true,
+		AssetsLockMatches:      true,
+		ContextGraphEnabled:    true,
+		ContextGraphReadable:   true,
+		BackupsDirExists:       true,
 		ForbiddenArtifacts: []workspace.ForbiddenArtifactStatus{
 			{Path: "CLAUDE.md", Present: false},
 			{Path: "GEMINI.md", Present: false},

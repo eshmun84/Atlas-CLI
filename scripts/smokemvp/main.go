@@ -40,6 +40,7 @@ func run() error {
 		{"runtime repair healthy no-op", checkRepairHealthyNoop},
 		{"runtime repair missing AGENTS.md", checkRepairMissingAgents},
 		{"runtime repair missing adapter projection", checkRepairMissingProjection},
+		{"runtime repair Atlas agents + preserve external", checkRepairAtlasAgents},
 		{"runtime repair stale plan rejection", checkRepairStalePlan},
 	}
 	for _, step := range steps {
@@ -113,9 +114,19 @@ func checkInitHappyPath() error {
 		config.FileAgentsMD,
 		config.FileCursorAtlasMDC,
 		config.FileOpenCodeAtlas,
+		config.FileAgentRegistry,
+		config.FileRuntimeManifest,
+		config.FileAssetsLock,
+		".cursor/agents/atlas-orchestrator.md",
+		".opencode/agents/atlas-orchestrator.md",
 	} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 			return fmt.Errorf("missing %s: %w", rel, err)
+		}
+	}
+	for _, path := range config.AtlasAgentRuntimePaths([]string{"cursor", "opencode"}) {
+		if _, err := os.Stat(filepath.Join(root, path)); err != nil {
+			return fmt.Errorf("missing atlas agent %s: %w", path, err)
 		}
 	}
 	result, err := workspace.Discover(root)
@@ -127,6 +138,9 @@ func checkInitHappyPath() error {
 	}
 	if !result.Runtime.AgentsMarkers.Complete() {
 		return fmt.Errorf("AGENTS.md markers incomplete")
+	}
+	if !result.Runtime.AgentRegistryMatches || !result.Runtime.RuntimeManifestMatches {
+		return fmt.Errorf("registry/manifest unhealthy: %#v", result.Runtime)
 	}
 	return nil
 }
@@ -277,6 +291,61 @@ func checkRepairMissingProjection() error {
 	}
 	if _, err := os.Stat(filepath.Join(root, config.FileCursorAtlasMDC)); err != nil {
 		return err
+	}
+	return assertRuntimeReady(root)
+}
+
+func checkRepairAtlasAgents() error {
+	root, err := materialize([]string{"cursor", "opencode"}, true)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+
+	external := filepath.Join(root, ".cursor", "agents", "external-helper.md")
+	if err := os.WriteFile(external, []byte("keep me\n"), 0o644); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(root, ".cursor", "agents", "atlas-orchestrator.md")); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(root, ".opencode", "agents", "atlas-worker.md"), []byte("drift\n"), 0o644); err != nil {
+		return err
+	}
+
+	result, err := workspace.Discover(root)
+	if err != nil {
+		return err
+	}
+	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	if !plan.NeedsApply() {
+		return fmt.Errorf("expected apply for atlas agent drift: %#v", plan)
+	}
+	for _, path := range plan.Quarantines {
+		if path == ".cursor/agents/external-helper.md" {
+			return fmt.Errorf("external agent quarantined")
+		}
+	}
+	if _, err := workspace.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 17, 2, 0)); err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(root, ".cursor", "agents", "atlas-orchestrator.md")); err != nil {
+		return err
+	}
+	want, err := config.RenderAtlasAgent("atlas-worker.md")
+	if err != nil {
+		return err
+	}
+	got, err := os.ReadFile(filepath.Join(root, ".opencode", "agents", "atlas-worker.md"))
+	if err != nil {
+		return err
+	}
+	if string(got) != want {
+		return fmt.Errorf("opencode worker not restored")
+	}
+	ext, err := os.ReadFile(external)
+	if err != nil || string(ext) != "keep me\n" {
+		return fmt.Errorf("external agent touched: %q err=%v", ext, err)
 	}
 	return assertRuntimeReady(root)
 }

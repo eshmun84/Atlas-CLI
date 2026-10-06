@@ -87,24 +87,41 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	}
 	result.BackupDir = backupDir
 
-	atlasFiles := []struct {
+	registry := RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected)
+	manifest, err := RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("apply config: render %s: %w", FileRuntimeManifest, err)
+	}
+
+	type atlasWrite struct {
+		rel  string
+		data []byte
+	}
+	var atlasFiles []atlasWrite
+	for _, item := range []struct {
 		rel  string
 		data any
 	}{
 		{rel: FileConfig, data: doc},
 		{rel: FileLocal, data: BuildLocalDocument(in.Draft)},
-		{rel: FileAssetsLock, data: BuildAssetsLockDocument()},
+		{rel: FileAssetsLock, data: BuildAssetsLockDocument(doc.Adapters.Selected)},
+	} {
+		payload, marshalErr := marshalYAML(item.data)
+		if marshalErr != nil {
+			return ApplyResult{}, fmt.Errorf("apply config: marshal %s: %w", item.rel, marshalErr)
+		}
+		atlasFiles = append(atlasFiles, atlasWrite{rel: item.rel, data: payload})
 	}
+	atlasFiles = append(atlasFiles,
+		atlasWrite{rel: FileAgentRegistry, data: []byte(registry)},
+		atlasWrite{rel: FileRuntimeManifest, data: []byte(manifest)},
+	)
 	for _, file := range atlasFiles {
-		path, err := safeJoinAtlas(root, file.rel)
-		if err != nil {
-			return ApplyResult{}, err
+		path, joinErr := safeJoinAtlas(root, file.rel)
+		if joinErr != nil {
+			return ApplyResult{}, joinErr
 		}
-		data, err := marshalYAML(file.data)
-		if err != nil {
-			return ApplyResult{}, fmt.Errorf("apply config: marshal %s: %w", file.rel, err)
-		}
-		if err := os.WriteFile(path, data, 0o644); err != nil {
+		if err := os.WriteFile(path, file.data, 0o644); err != nil {
 			return ApplyResult{}, fmt.Errorf("apply config: write %s: %w", file.rel, err)
 		}
 		result.Files = append(result.Files, file.rel)
@@ -220,7 +237,7 @@ func isAllowedRuntimePath(rel string) bool {
 	case FileAgentsMD, FileCursorAtlasMDC, FileOpenCodeAtlas:
 		return true
 	default:
-		return false
+		return IsAtlasAgentRuntimePath(clean)
 	}
 }
 
@@ -277,6 +294,9 @@ func assertAllowedConflictPath(rel string) error {
 	}
 	allowed := []string{
 		FileAgentsMD,
+		FileAgentRegistry,
+		FileRuntimeManifest,
+		FileAssetsLock,
 		"AGENT.md",
 		"CLAUDE.md",
 		"GEMINI.md",

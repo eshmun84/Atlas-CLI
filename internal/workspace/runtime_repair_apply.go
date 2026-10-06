@@ -180,7 +180,16 @@ func renderRepairFile(rel string, doc config.ProjectDocument, existing []byte) (
 		return config.RenderCursorAtlasMDC(doc.Project.Name), nil
 	case config.FileOpenCodeAtlas:
 		return config.RenderOpenCodeAtlas(doc.Project.Name), nil
+	case config.FileAgentRegistry:
+		return config.RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected), nil
+	case config.FileRuntimeManifest:
+		return config.RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
+	case config.FileAssetsLock:
+		return config.RenderAssetsLockYAML(doc.Adapters.Selected)
 	default:
+		if config.IsAtlasAgentRuntimePath(rel) {
+			return config.RenderAtlasAgent(filepath.Base(rel))
+		}
 		return "", fmt.Errorf("runtime repair: unsupported write path %q", rel)
 	}
 }
@@ -188,9 +197,13 @@ func renderRepairFile(rel string, doc config.ProjectDocument, existing []byte) (
 func configValidateWrite(rel string) error {
 	clean := filepath.ToSlash(filepath.Clean(rel))
 	switch clean {
-	case config.FileAgentsMD, config.FileCursorAtlasMDC, config.FileOpenCodeAtlas:
+	case config.FileAgentsMD, config.FileCursorAtlasMDC, config.FileOpenCodeAtlas,
+		config.FileAgentRegistry, config.FileRuntimeManifest, config.FileAssetsLock:
 		return nil
 	default:
+		if config.IsAtlasAgentRuntimePath(clean) {
+			return nil
+		}
 		return fmt.Errorf("runtime repair: refused write path %q", rel)
 	}
 }

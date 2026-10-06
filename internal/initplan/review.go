@@ -122,6 +122,8 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Path: config.FileLocal, Kind: "atlas", Status: status},
 		{Path: config.FileState, Kind: "atlas", Status: status},
 		{Path: config.FileAssetsLock, Kind: "atlas", Status: status},
+		{Path: config.FileAgentRegistry, Kind: "atlas", Status: status},
+		{Path: config.FileRuntimeManifest, Kind: "atlas", Status: status},
 		{Path: config.DirBackups + "/", Kind: "atlas", Status: "create if needed"},
 		{Path: config.FileAgentsMD, Kind: "runtime", Status: status},
 	}
@@ -131,6 +133,13 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 			Kind:   "adapter",
 			Status: status,
 		})
+		for _, path := range config.AtlasAgentRuntimePaths([]string{"cursor"}) {
+			plan.Creates = append(plan.Creates, PlannedFile{
+				Path:   path,
+				Kind:   "agent",
+				Status: status,
+			})
+		}
 	}
 	if config.ChipSelected(adaptersValue, "opencode") {
 		plan.Creates = append(plan.Creates, PlannedFile{
@@ -138,6 +147,13 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 			Kind:   "adapter",
 			Status: status,
 		})
+		for _, path := range config.AtlasAgentRuntimePaths([]string{"opencode"}) {
+			plan.Creates = append(plan.Creates, PlannedFile{
+				Path:   path,
+				Kind:   "agent",
+				Status: status,
+			})
+		}
 	}
 
 	replaceTargets := plannedReplaceTargets(in.Root, adaptersValue, in.Artifacts)
@@ -169,7 +185,8 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Statement: "No branches are created."},
 		{Statement: "No remote operations are performed."},
 		{Statement: "Secrets and credentials are not stored."},
-		{Statement: "Unrelated files under .cursor/ and .opencode/ are left untouched."},
+		{Statement: "Developer-owned non-Atlas agents under .cursor/agents/ and .opencode/agents/ are left untouched."},
+		{Statement: "Skills are registry-first and are not copied into .cursor/skills or .opencode/skills."},
 	}
 
 	if storage == "versioned" {
@@ -180,9 +197,10 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 
 	plan.Warnings = []PlanWarning{
 		{Message: "Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files."},
-		{Message: "AGENTS.md is a gateway contract, not a local skills/agents catalog. Atlas Home remains canonical."},
+		{Message: "AGENTS.md is the project authority; Atlas agents are cataloged in .atlas/agent-registry.md."},
+		{Message: "Skills remain registry-first; this slice does not vendor skills into adapter skill folders."},
 		{Message: "Context Graph is a preference/context aid only; no graph engine, database, embeddings, index, capsules, or packs."},
-		{Message: "Cursor/OpenCode files are adapter projections and must not bypass AGENTS.md."},
+		{Message: "Cursor/OpenCode entrypoints point at AGENTS.md and atlas-orchestrator; they must not bypass AGENTS.md."},
 		{Message: "Existing Atlas-managed runtime targets are backed up under .atlas/backups/<timestamp>/ before replacement."},
 		{Message: "CLAUDE.md, GEMINI.md, .agents/, .claude/, README.md, and .gitignore are not materialized."},
 		{Message: "No Git operations are performed."},
@@ -206,10 +224,20 @@ func plannedReplaceTargets(root, adaptersValue string, artifacts []string) []str
 		if fileExists(root, config.FileCursorAtlasMDC) {
 			targets = append(targets, config.FileCursorAtlasMDC)
 		}
+		for _, path := range config.AtlasAgentRuntimePaths([]string{"cursor"}) {
+			if fileExists(root, path) {
+				targets = append(targets, path)
+			}
+		}
 	}
 	if config.ChipSelected(adaptersValue, "opencode") {
 		if fileExists(root, config.FileOpenCodeAtlas) {
 			targets = append(targets, config.FileOpenCodeAtlas)
+		}
+		for _, path := range config.AtlasAgentRuntimePaths([]string{"opencode"}) {
+			if fileExists(root, path) {
+				targets = append(targets, path)
+			}
 		}
 	}
 	return targets

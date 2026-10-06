@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -129,7 +130,8 @@ func AdapterBlockEnd(adapter string) string {
 }
 
 // RuntimeTargets returns allowlisted runtime files for the selected adapters.
-// AGENTS.md is always included. Cursor/OpenCode files are conditional.
+// AGENTS.md is always included. Cursor/OpenCode projections and Atlas agents
+// are conditional on adapter selection.
 func RuntimeTargets(doc ProjectDocument) []string {
 	targets := []string{FileAgentsMD}
 	for _, adapter := range normalizeSelectedAdapters(doc.Adapters.Selected) {
@@ -140,6 +142,7 @@ func RuntimeTargets(doc ProjectDocument) []string {
 			targets = append(targets, FileOpenCodeAtlas)
 		}
 	}
+	targets = append(targets, AtlasAgentRuntimePaths(doc.Adapters.Selected)...)
 	return targets
 }
 
@@ -286,6 +289,9 @@ func renderRuntimeFile(rel string, doc ProjectDocument, existing []byte) (string
 	case FileOpenCodeAtlas:
 		return RenderOpenCodeAtlas(doc.Project.Name), nil
 	default:
+		if IsAtlasAgentRuntimePath(rel) {
+			return RenderAtlasAgent(filepath.Base(rel))
+		}
 		return "", fmt.Errorf("unsupported runtime target %q", rel)
 	}
 }

@@ -28,6 +28,14 @@ type ForbiddenArtifactStatus struct {
 	Present bool
 }
 
+// AgentFileStatus is one expected Atlas-owned runtime agent file.
+type AgentFileStatus struct {
+	Adapter string
+	Path    string
+	Present bool
+	Matches bool
+}
+
 // RuntimeHealth is a read-only snapshot of Atlas runtime materialization.
 // Safe for Status, Doctor, tests, and future Repair; never mutates the workspace.
 type RuntimeHealth struct {
@@ -50,6 +58,14 @@ type RuntimeHealth struct {
 
 	SelectedAdapters    []string
 	ExpectedProjections []ProjectionStatus
+	ExpectedAgents      []AgentFileStatus
+
+	AgentRegistryPresent   bool
+	AgentRegistryMatches   bool
+	RuntimeManifestPresent bool
+	RuntimeManifestMatches bool
+	AssetsLockPresent      bool
+	AssetsLockMatches      bool
 
 	ContextGraphEnabled  bool
 	ContextGraphReadable bool
@@ -69,6 +85,7 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 		ConfigExists:        files.HasAtlasConfig || atlas.HasConfig,
 		SelectedAdapters:    []string{},
 		ExpectedProjections: []ProjectionStatus{},
+		ExpectedAgents:      []AgentFileStatus{},
 		ForbiddenArtifacts:  make([]ForbiddenArtifactStatus, 0, len(forbiddenRuntimeArtifacts)),
 		Warnings:            []string{},
 	}
@@ -111,6 +128,39 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 						Present: exists(root, path),
 					})
 				}
+			}
+			for _, path := range config.AtlasAgentRuntimePaths(doc.Adapters.Selected) {
+				adapter := agentAdapterFromPath(path)
+				present := exists(root, path)
+				matches := false
+				if present {
+					expected, err := config.RenderAtlasAgent(filepath.Base(path))
+					if err == nil {
+						matches = fileMatches(root, path, expected)
+					}
+				}
+				health.ExpectedAgents = append(health.ExpectedAgents, AgentFileStatus{
+					Adapter: adapter,
+					Path:    path,
+					Present: present,
+					Matches: matches,
+				})
+			}
+
+			expectedRegistry := config.RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected)
+			health.AgentRegistryPresent = exists(root, config.FileAgentRegistry)
+			health.AgentRegistryMatches = health.AgentRegistryPresent && fileMatches(root, config.FileAgentRegistry, expectedRegistry)
+
+			expectedManifest, err := config.RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
+			health.RuntimeManifestPresent = exists(root, config.FileRuntimeManifest)
+			if err == nil && health.RuntimeManifestPresent {
+				health.RuntimeManifestMatches = fileMatches(root, config.FileRuntimeManifest, expectedManifest)
+			}
+
+			expectedLock, err := config.RenderAssetsLockYAML(doc.Adapters.Selected)
+			health.AssetsLockPresent = exists(root, config.FileAssetsLock)
+			if err == nil && health.AssetsLockPresent {
+				health.AssetsLockMatches = fileMatches(root, config.FileAssetsLock, expectedLock)
 			}
 		}
 	}
@@ -187,6 +237,29 @@ func collectRuntimeWarnings(h RuntimeHealth) []string {
 			warnings = append(warnings, "expected adapter projection missing: "+proj.Path)
 		}
 	}
+	for _, agent := range h.ExpectedAgents {
+		switch {
+		case !agent.Present:
+			warnings = append(warnings, "expected Atlas agent missing: "+agent.Path)
+		case !agent.Matches:
+			warnings = append(warnings, "Atlas agent content drifted: "+agent.Path)
+		}
+	}
+	if h.ConfigLoads && !h.AgentRegistryPresent {
+		warnings = append(warnings, "expected agent registry missing: "+config.FileAgentRegistry)
+	} else if h.ConfigLoads && h.AgentRegistryPresent && !h.AgentRegistryMatches {
+		warnings = append(warnings, "agent registry content drifted")
+	}
+	if h.ConfigLoads && !h.RuntimeManifestPresent {
+		warnings = append(warnings, "expected runtime manifest missing: "+config.FileRuntimeManifest)
+	} else if h.ConfigLoads && h.RuntimeManifestPresent && !h.RuntimeManifestMatches {
+		warnings = append(warnings, "runtime manifest content drifted")
+	}
+	if h.ConfigLoads && !h.AssetsLockPresent {
+		warnings = append(warnings, "expected assets lock missing: "+config.FileAssetsLock)
+	} else if h.ConfigLoads && h.AssetsLockPresent && !h.AssetsLockMatches {
+		warnings = append(warnings, "assets lock content drifted")
+	}
 	for _, art := range h.ForbiddenArtifacts {
 		if art.Present {
 			warnings = append(warnings, "unexpected generated artifact present: "+art.Path)
@@ -202,4 +275,23 @@ func collectRuntimeWarnings(h RuntimeHealth) []string {
 		warnings = append(warnings, "atlas state failed to load")
 	}
 	return warnings
+}
+
+func fileMatches(root, rel, expected string) bool {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		return false
+	}
+	return string(data) == expected
+}
+
+func agentAdapterFromPath(rel string) string {
+	switch {
+	case filepath.ToSlash(filepath.Dir(rel)) == config.DirCursorAgents:
+		return "cursor"
+	case filepath.ToSlash(filepath.Dir(rel)) == config.DirOpenCodeAgents:
+		return "opencode"
+	default:
+		return ""
+	}
 }

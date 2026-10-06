@@ -56,6 +56,17 @@ func TestEvaluateRuntimeHealth_InitializedCursor(t *testing.T) {
 	if len(h.ExpectedProjections) != 1 || !h.ExpectedProjections[0].Present {
 		t.Fatalf("projections = %#v", h.ExpectedProjections)
 	}
+	if len(h.ExpectedAgents) != len(config.AtlasAgentRuntimePaths([]string{"cursor"})) {
+		t.Fatalf("agents = %#v", h.ExpectedAgents)
+	}
+	for _, agent := range h.ExpectedAgents {
+		if !agent.Present || !agent.Matches {
+			t.Fatalf("agent not healthy: %#v", agent)
+		}
+	}
+	if !h.AgentRegistryPresent || !h.AgentRegistryMatches || !h.RuntimeManifestPresent || !h.RuntimeManifestMatches {
+		t.Fatalf("registry/manifest health = %#v", h)
+	}
 	if !h.ContextGraphReadable || !h.ContextGraphEnabled {
 		t.Fatalf("context graph = readable=%v enabled=%v", h.ContextGraphReadable, h.ContextGraphEnabled)
 	}

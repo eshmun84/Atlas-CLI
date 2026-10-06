@@ -464,6 +464,72 @@ func TestApplyRuntimeRepair_RemovesUnselectedAdapterBlock(t *testing.T) {
 	assertDoctorRuntimeReady(t, root)
 }
 
+func TestApplyRuntimeRepair_RestoresMissingAndDriftedAtlasAgents(t *testing.T) {
+	t.Parallel()
+	root := materializeProject(t, []string{"cursor"}, true)
+	missing := filepath.Join(root, ".cursor", "agents", "atlas-orchestrator.md")
+	if err := os.Remove(missing); err != nil {
+		t.Fatal(err)
+	}
+	drifted := filepath.Join(root, ".cursor", "agents", "atlas-worker.md")
+	if err := os.WriteFile(drifted, []byte("not atlas\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	if !containsPath(plan.Creates, ".cursor/agents/atlas-orchestrator.md") {
+		t.Fatalf("creates = %#v", plan.Creates)
+	}
+	if !containsPath(plan.Replaces, ".cursor/agents/atlas-worker.md") {
+		t.Fatalf("replaces = %#v", plan.Replaces)
+	}
+	result := applyRepair(t, root, plan.Signature(), nil)
+	if !containsPath(result.Created, ".cursor/agents/atlas-orchestrator.md") {
+		t.Fatalf("created = %#v", result.Created)
+	}
+	if !containsPath(result.Replaced, ".cursor/agents/atlas-worker.md") {
+		t.Fatalf("replaced = %#v", result.Replaced)
+	}
+	want, err := config.RenderAtlasAgent("atlas-orchestrator.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(missing)
+	if err != nil || string(got) != want {
+		t.Fatalf("orchestrator restored incorrectly: %q err=%v", got, err)
+	}
+	assertDoctorRuntimeReady(t, root)
+}
+
+func TestApplyRuntimeRepair_DoesNotTouchDeveloperAgents(t *testing.T) {
+	t.Parallel()
+	root := materializeProject(t, []string{"cursor"}, true)
+	external := filepath.Join(root, ".cursor", "agents", "my-helper.md")
+	if err := os.WriteFile(external, []byte("developer owned\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, ".cursor", "agents", "atlas-orchestrator.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	if containsPath(plan.Quarantines, ".cursor/agents/my-helper.md") {
+		t.Fatalf("developer agent must not be quarantined: %#v", plan.Quarantines)
+	}
+	if containsPath(plan.Replaces, ".cursor/agents/my-helper.md") || containsPath(plan.Creates, ".cursor/agents/my-helper.md") {
+		t.Fatalf("developer agent must not be rewritten: %#v", plan)
+	}
+	_ = applyRepair(t, root, plan.Signature(), nil)
+	got, err := os.ReadFile(external)
+	if err != nil || string(got) != "developer owned\n" {
+		t.Fatalf("developer agent mutated: %q err=%v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".cursor", "agents", "atlas-orchestrator.md")); err != nil {
+		t.Fatal("atlas orchestrator not restored")
+	}
+	assertDoctorRuntimeReady(t, root)
+}
+
 func applyRepair(t *testing.T, root, signature string, nowFn func() time.Time) workspace.RuntimeRepairResult {
 	t.Helper()
 	result, err := workspace.ApplyRuntimeRepair(root, signature, nowFn)

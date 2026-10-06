@@ -114,9 +114,13 @@ func TestBuildLocalStateAndLockDocuments(t *testing.T) {
 		t.Fatalf("runtime state = %#v", stateRuntime)
 	}
 
-	lock := config.BuildAssetsLockDocument()
-	if lock.SchemaVersion != 1 || lock.Assets == nil || len(lock.Assets) != 0 {
+	lock := config.BuildAssetsLockDocument(nil)
+	if lock.SchemaVersion != 1 || lock.Assets == nil || len(lock.Assets) != 3 {
 		t.Fatalf("lock = %#v", lock)
+	}
+	lockCursor := config.BuildAssetsLockDocument([]string{"cursor"})
+	if len(lockCursor.Assets) < 3+1+len(config.AtlasAgentRuntimePaths([]string{"cursor"})) {
+		t.Fatalf("cursor lock = %#v", lockCursor)
 	}
 }
 

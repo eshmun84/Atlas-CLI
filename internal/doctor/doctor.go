@@ -1,8 +1,10 @@
 package doctor
 
 import (
+	"fmt"
 	"strings"
 
+	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
@@ -239,6 +241,76 @@ func evaluateRuntime(h workspace.RuntimeHealth) []Check {
 				Severity: SeverityFail,
 				Name:     "adapter projection " + proj.Adapter,
 				Message:  proj.Path + " missing",
+			})
+		}
+		missingAgents := 0
+		driftedAgents := 0
+		for _, agent := range h.ExpectedAgents {
+			switch {
+			case !agent.Present:
+				missingAgents++
+			case !agent.Matches:
+				driftedAgents++
+			}
+		}
+		switch {
+		case missingAgents > 0:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "atlas agents",
+				Message:  fmt.Sprintf("%d Atlas agent file(s) missing", missingAgents),
+			})
+		case driftedAgents > 0:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "atlas agents",
+				Message:  fmt.Sprintf("%d Atlas agent file(s) drifted", driftedAgents),
+			})
+		case len(h.ExpectedAgents) > 0:
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "atlas agents",
+				Message:  fmt.Sprintf("%d Atlas agent file(s) present", len(h.ExpectedAgents)),
+			})
+		}
+		switch {
+		case !h.AgentRegistryPresent:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "agent registry",
+				Message:  config.FileAgentRegistry + " missing",
+			})
+		case !h.AgentRegistryMatches:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "agent registry",
+				Message:  "content drifted",
+			})
+		default:
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "agent registry",
+				Message:  config.FileAgentRegistry + " present",
+			})
+		}
+		switch {
+		case !h.RuntimeManifestPresent:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "runtime manifest",
+				Message:  config.FileRuntimeManifest + " missing",
+			})
+		case !h.RuntimeManifestMatches:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "runtime manifest",
+				Message:  "content drifted",
+			})
+		default:
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "runtime manifest",
+				Message:  config.FileRuntimeManifest + " present",
 			})
 		}
 		if len(h.SelectedAdapters) == 0 {
