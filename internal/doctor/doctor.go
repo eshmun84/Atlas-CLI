@@ -315,6 +315,28 @@ func evaluateRuntime(h workspace.RuntimeHealth) []Check {
 				Message:  config.FileRuntimeManifest + " present",
 			})
 		}
+		if h.DependsOnSDDContract {
+			switch {
+			case !h.SDDContractPresent:
+				checks = append(checks, Check{
+					Severity: SeverityFail,
+					Name:     "sdd openspec contract",
+					Message:  config.FileSDDOpenSpecContract + " missing",
+				})
+			case !h.SDDContractMatches:
+				checks = append(checks, Check{
+					Severity: SeverityFail,
+					Name:     "sdd openspec contract",
+					Message:  "content drifted",
+				})
+			default:
+				checks = append(checks, Check{
+					Severity: SeverityPass,
+					Name:     "sdd openspec contract",
+					Message:  config.FileSDDOpenSpecContract + " present",
+				})
+			}
+		}
 		if len(h.SelectedAdapters) == 0 {
 			checks = append(checks, Check{
 				Severity: SeverityPass,

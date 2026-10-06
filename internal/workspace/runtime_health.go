@@ -68,6 +68,10 @@ type RuntimeHealth struct {
 	AssetsLockPresent      bool
 	AssetsLockMatches      bool
 
+	DependsOnSDDContract bool
+	SDDContractPresent   bool
+	SDDContractMatches   bool
+
 	Home home.Status
 
 	ContextGraphEnabled  bool
@@ -167,6 +171,17 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 			if err == nil && health.AssetsLockPresent {
 				health.AssetsLockMatches = fileMatches(root, config.FileAssetsLock, expectedLock)
 			}
+
+			health.DependsOnSDDContract = config.DependsOnSDDOpenSpecContract(doc)
+			if health.DependsOnSDDContract {
+				health.SDDContractPresent = exists(root, config.FileSDDOpenSpecContract)
+				if health.SDDContractPresent {
+					expectedContract, contractErr := config.RenderSDDOpenSpecContract()
+					if contractErr == nil {
+						health.SDDContractMatches = fileMatches(root, config.FileSDDOpenSpecContract, expectedContract)
+					}
+				}
+			}
 		}
 	}
 
@@ -264,6 +279,14 @@ func collectRuntimeWarnings(h RuntimeHealth) []string {
 		warnings = append(warnings, "expected assets lock missing: "+config.FileAssetsLock)
 	} else if h.ConfigLoads && h.AssetsLockPresent && !h.AssetsLockMatches {
 		warnings = append(warnings, "assets lock content drifted")
+	}
+	if h.ConfigLoads && h.DependsOnSDDContract {
+		switch {
+		case !h.SDDContractPresent:
+			warnings = append(warnings, "expected SDD/OpenSpec contract missing: "+config.FileSDDOpenSpecContract)
+		case !h.SDDContractMatches:
+			warnings = append(warnings, "SDD/OpenSpec contract content drifted")
+		}
 	}
 	if h.Initialized || h.RuntimeMaterialized {
 		if !h.Home.Exists {

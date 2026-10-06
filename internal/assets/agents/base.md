@@ -51,7 +51,9 @@ Skills are registry-first. Consult `.atlas/skill-registry.md` when present. Do n
 
 Prefer Atlas-provided agent contracts when adapters are selected. Cursor agents live under `.cursor/agents/`; OpenCode agents live under `.opencode/agents/`. The local catalog is recorded in `.atlas/agent-registry.md` and `.atlas/runtime-manifest.yaml`. Prefer `atlas-orchestrator` for routing, asking, proposing, and stopping.
 
-Subagents, workers, reviewers, and delegated helpers are bounded execution surfaces. The primary agent retains responsibility for scope control, authorization checks, and final verification claims. Delegated output is evidence, not approval. If safe runtime-native delegation is unavailable, fall back to inline work. Do not invent agents outside the Atlas registry.
+For Spec-Driven Development / OpenSpec-style work, follow the operational contract at `.atlas/contracts/sdd-openspec.md`. It defines phases (Init → Explore → Research → Propose → Update → Implement → Verify → Archive), ask/stop/approval gates, evidence rules, and no-silent-Git constraints. It does not execute real OpenSpec CLI commands in this slice.
+
+Subagents, workers, reviewers, and delegated helpers are bounded execution surfaces. Reviewers are adversarial/evidence-only and never final authority. The primary agent retains responsibility for scope control, authorization checks, and final verification claims. Delegated output is evidence, not approval. If safe runtime-native delegation is unavailable, fall back to inline work. Do not invent agents outside the Atlas registry.
 
 ## 9. Review and Verification
 

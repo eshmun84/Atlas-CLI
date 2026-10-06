@@ -198,6 +198,8 @@ func renderRepairFile(rel string, doc config.ProjectDocument, existing []byte) (
 	case config.FileAssetsLock:
 		homePath, _ := home.Resolve()
 		return config.RenderAssetsLockYAMLFor(homePath, doc)
+	case config.FileSDDOpenSpecContract:
+		return config.RenderSDDOpenSpecContract()
 	default:
 		if config.IsAtlasAgentRuntimePath(rel) {
 			return config.RenderAtlasAgent(filepath.Base(rel))
@@ -211,7 +213,7 @@ func configValidateWrite(rel string) error {
 	switch clean {
 	case config.FileAgentsMD, config.FileCursorAtlasMDC, config.FileOpenCodeAtlas,
 		config.FileAgentRegistry, config.FileRuntimeManifest, config.FileAssetsLock,
-		RepairHomePath:
+		config.FileSDDOpenSpecContract, RepairHomePath:
 		return nil
 	default:
 		if config.IsAtlasAgentRuntimePath(clean) {

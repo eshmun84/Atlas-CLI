@@ -19,6 +19,7 @@ type RuntimeManifestDocument struct {
 	Entrypoints   []string               `yaml:"entrypoints"`
 	Registry      string                 `yaml:"registry"`
 	SkillsPolicy  string                 `yaml:"skills_policy"`
+	SDDContract   string                 `yaml:"sdd_contract,omitempty"`
 	Agents        []RuntimeManifestAgent `yaml:"agents"`
 }
 
@@ -80,6 +81,27 @@ func IsDeveloperAgentRuntimePath(rel string) bool {
 	return !assets.IsAtlasAgentFilename(base)
 }
 
+// DependsOnSDDOpenSpecContract reports whether the project expects the
+// SDD/OpenSpec operational contract to be present and resolvable.
+func DependsOnSDDOpenSpecContract(doc ProjectDocument) bool {
+	workflow := strings.TrimSpace(doc.Governance.Workflow)
+	engine := strings.TrimSpace(doc.Governance.SpecEngine)
+	return workflow == WorkflowSDD || engine == SpecProviderOpenSpec
+}
+
+// RenderSDDOpenSpecContract returns the operational contract content.
+// Prefers Atlas Home canonical copy, then embedded bundled fallback.
+func RenderSDDOpenSpecContract() (string, error) {
+	data, err := home.ReadCanonical(EmbedPathSDDOpenSpecContract)
+	if err != nil {
+		data, err = assets.Content.ReadFile(EmbedPathSDDOpenSpecContract)
+		if err != nil {
+			return "", fmt.Errorf("sdd openspec contract: %w", err)
+		}
+	}
+	return strings.TrimSuffix(string(data), "\n") + "\n", nil
+}
+
 // RenderAtlasAgent returns agent content for materialization.
 // Prefers Atlas Home canonical copy, then embedded bundled fallback.
 func RenderAtlasAgent(filename string) (string, error) {
@@ -115,6 +137,17 @@ func RenderAgentRegistry(projectName string, selected []string, homePath string)
 	}
 	fmt.Fprintf(&b, "This registry lists Atlas-owned runtime agents. Skills remain registry-first via `%s` when present and are not copied into adapter skill folders in this slice.\n\n", FileSkillRegistry)
 	fmt.Fprintf(&b, "`AGENTS.md` remains the project authority. Adapter agent files are execution surfaces only.\n\n")
+	fmt.Fprintf(&b, "## SDD / OpenSpec operational contract\n\n")
+	fmt.Fprintf(&b, "- Project path: `%s`\n", FileSDDOpenSpecContract)
+	if homePath != "" {
+		homeAsset := home.Asset{
+			Family:    "contracts",
+			ID:        EmbedPathSDDOpenSpecContract,
+			EmbedPath: EmbedPathSDDOpenSpecContract,
+		}
+		fmt.Fprintf(&b, "- Atlas Home: `%s`\n", filepath.ToSlash(home.AssetHomePath(homePath, homeAsset)))
+	}
+	fmt.Fprintf(&b, "- SDD phase agents must follow this contract. Do not execute real OpenSpec CLI commands in this slice unless explicitly requested and supported.\n\n")
 
 	if len(adapters) == 0 {
 		fmt.Fprintf(&b, "## Status\n\n")
@@ -150,9 +183,10 @@ func RenderAgentRegistry(projectName string, selected []string, homePath string)
 
 	fmt.Fprintf(&b, "## Governance notes\n\n")
 	fmt.Fprintf(&b, "- Prefer `atlas-orchestrator` for routing and stop/ask decisions.\n")
+	fmt.Fprintf(&b, "- SDD agents follow `%s` for phase inputs/outputs, transitions, and stop/ask rules.\n", FileSDDOpenSpecContract)
 	fmt.Fprintf(&b, "- SDD agents frame and execute bounded phases; they do not invent OpenSpec command results.\n")
 	fmt.Fprintf(&b, "- Review agents produce evidence only; they never authorize delivery.\n")
-	fmt.Fprintf(&b, "- Runtime Repair may restore Atlas-owned agents from Atlas Home or bundled fallback.\n")
+	fmt.Fprintf(&b, "- Runtime Repair may restore Atlas-owned agents and the SDD contract from Atlas Home or bundled fallback.\n")
 	fmt.Fprintf(&b, "- Developer-owned non-Atlas agents under adapter `agents/` directories are left untouched.\n")
 	return b.String()
 }
@@ -190,7 +224,7 @@ func BuildRuntimeManifestDocument(projectName string, selected []string) Runtime
 		})
 	}
 
-	return RuntimeManifestDocument{
+	doc := RuntimeManifestDocument{
 		SchemaVersion: PersistSchemaVersion,
 		GeneratedBy:   "atlas",
 		ProjectName:   name,
@@ -200,6 +234,10 @@ func BuildRuntimeManifestDocument(projectName string, selected []string) Runtime
 		SkillsPolicy:  "registry-first",
 		Agents:        agents,
 	}
+	// Callers that only know selected adapters still get the contract path when
+	// governance defaults imply SDD/OpenSpec dependency (workflow sdd).
+	doc.SDDContract = FileSDDOpenSpecContract
+	return doc
 }
 
 // RenderRuntimeManifestYAML marshals the runtime manifest.
@@ -225,6 +263,7 @@ func AtlasOwnedAssetPaths(selected []string) []string {
 		FileAgentsMD,
 		FileAgentRegistry,
 		FileRuntimeManifest,
+		FileSDDOpenSpecContract,
 	}
 	for _, adapter := range adapters {
 		switch adapter {

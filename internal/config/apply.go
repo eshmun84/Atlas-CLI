@@ -129,10 +129,20 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		atlasWrite{rel: FileAgentRegistry, data: []byte(registry)},
 		atlasWrite{rel: FileRuntimeManifest, data: []byte(manifest)},
 	)
+	if DependsOnSDDOpenSpecContract(doc) {
+		contract, renderErr := RenderSDDOpenSpecContract()
+		if renderErr != nil {
+			return ApplyResult{}, fmt.Errorf("apply config: render %s: %w", FileSDDOpenSpecContract, renderErr)
+		}
+		atlasFiles = append(atlasFiles, atlasWrite{rel: FileSDDOpenSpecContract, data: []byte(contract)})
+	}
 	for _, file := range atlasFiles {
 		path, joinErr := safeJoinAtlas(root, file.rel)
 		if joinErr != nil {
 			return ApplyResult{}, joinErr
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return ApplyResult{}, fmt.Errorf("apply config: create parent for %s: %w", file.rel, err)
 		}
 		if err := os.WriteFile(path, file.data, 0o644); err != nil {
 			return ApplyResult{}, fmt.Errorf("apply config: write %s: %w", file.rel, err)
@@ -310,6 +320,7 @@ func assertAllowedConflictPath(rel string) error {
 		FileAgentRegistry,
 		FileRuntimeManifest,
 		FileAssetsLock,
+		FileSDDOpenSpecContract,
 		"AGENT.md",
 		"CLAUDE.md",
 		"GEMINI.md",

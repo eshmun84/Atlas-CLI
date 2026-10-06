@@ -512,6 +512,52 @@ func TestApplyRuntimeRepair_DoesNotTouchDeveloperAgents(t *testing.T) {
 	assertDoctorRuntimeReady(t, root)
 }
 
+func TestApplyRuntimeRepair_RestoresSDDOpenSpecContract(t *testing.T) {
+	root := materializeProject(t, []string{"cursor"}, true)
+	external := filepath.Join(root, ".cursor", "agents", "external-helper.md")
+	if err := os.WriteFile(external, []byte("keep external\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	contractPath := filepath.Join(root, filepath.FromSlash(config.FileSDDOpenSpecContract))
+	if err := os.Remove(contractPath); err != nil {
+		t.Fatal(err)
+	}
+	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	if !containsPath(plan.Creates, config.FileSDDOpenSpecContract) {
+		t.Fatalf("creates = %#v", plan.Creates)
+	}
+	result := applyRepair(t, root, plan.Signature(), nil)
+	if !containsPath(result.Created, config.FileSDDOpenSpecContract) {
+		t.Fatalf("created = %#v", result.Created)
+	}
+	want, err := config.RenderSDDOpenSpecContract()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(contractPath)
+	if err != nil || string(got) != want {
+		t.Fatalf("contract restored incorrectly: %q err=%v", got, err)
+	}
+
+	if err := os.WriteFile(contractPath, []byte("drifted contract\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan = workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	if !containsPath(plan.Replaces, config.FileSDDOpenSpecContract) {
+		t.Fatalf("replaces = %#v", plan.Replaces)
+	}
+	_ = applyRepair(t, root, plan.Signature(), nil)
+	got, err = os.ReadFile(contractPath)
+	if err != nil || string(got) != want {
+		t.Fatalf("contract drift not repaired: %q err=%v", got, err)
+	}
+	ext, err := os.ReadFile(external)
+	if err != nil || string(ext) != "keep external\n" {
+		t.Fatalf("developer agent touched: %q err=%v", ext, err)
+	}
+	assertDoctorRuntimeReady(t, root)
+}
+
 func applyRepair(t *testing.T, root, signature string, nowFn func() time.Time) workspace.RuntimeRepairResult {
 	t.Helper()
 	result, err := workspace.ApplyRuntimeRepair(root, signature, nowFn)

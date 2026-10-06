@@ -52,6 +52,7 @@ func run() error {
 		{"runtime repair missing AGENTS.md", checkRepairMissingAgents},
 		{"runtime repair missing adapter projection", checkRepairMissingProjection},
 		{"runtime repair Atlas agents + preserve external", checkRepairAtlasAgents},
+		{"runtime repair SDD/OpenSpec contract", checkRepairSDDContract},
 		{"runtime repair stale plan rejection", checkRepairStalePlan},
 	}
 	for _, step := range steps {
@@ -128,6 +129,7 @@ func checkInitHappyPath() error {
 		config.FileAgentRegistry,
 		config.FileRuntimeManifest,
 		config.FileAssetsLock,
+		config.FileSDDOpenSpecContract,
 		".cursor/agents/atlas-orchestrator.md",
 		".opencode/agents/atlas-orchestrator.md",
 	} {
@@ -153,6 +155,9 @@ func checkInitHappyPath() error {
 	if !result.Runtime.AgentRegistryMatches || !result.Runtime.RuntimeManifestMatches {
 		return fmt.Errorf("registry/manifest unhealthy: %#v", result.Runtime)
 	}
+	if !result.Runtime.DependsOnSDDContract || !result.Runtime.SDDContractPresent || !result.Runtime.SDDContractMatches {
+		return fmt.Errorf("sdd contract unhealthy: %#v", result.Runtime)
+	}
 	agentsText, err := os.ReadFile(filepath.Join(root, config.FileAgentRegistry))
 	if err != nil {
 		return err
@@ -160,12 +165,25 @@ func checkInitHappyPath() error {
 	if !strings.Contains(string(agentsText), "Atlas Home:") {
 		return fmt.Errorf("agent registry missing Atlas Home reference")
 	}
+	if !strings.Contains(string(agentsText), config.FileSDDOpenSpecContract) {
+		return fmt.Errorf("agent registry missing SDD contract reference")
+	}
 	lockText, err := os.ReadFile(filepath.Join(root, config.FileAssetsLock))
 	if err != nil {
 		return err
 	}
 	if !strings.Contains(string(lockText), "home_path:") || !strings.Contains(string(lockText), "checksum:") {
 		return fmt.Errorf("assets.lock missing home/checksum metadata")
+	}
+	if !strings.Contains(string(lockText), "contracts/sdd-openspec.md") {
+		return fmt.Errorf("assets.lock missing SDD contract entry")
+	}
+	orch, err := os.ReadFile(filepath.Join(root, ".cursor", "agents", "atlas-orchestrator.md"))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(orch), config.FileSDDOpenSpecContract) {
+		return fmt.Errorf("orchestrator missing SDD contract reference")
 	}
 	return nil
 }
@@ -181,7 +199,7 @@ func checkAtlasHome() error {
 	}
 	defer os.RemoveAll(root)
 
-	for _, dir := range []string{"assets", "agents", "skills", "rules", "templates", "adapters", "state"} {
+	for _, dir := range []string{"assets", "agents", "skills", "rules", "templates", "adapters", "contracts", "state"} {
 		if info, err := os.Stat(filepath.Join(homeDir, dir)); err != nil || !info.IsDir() {
 			return fmt.Errorf("home layout missing %s: %v", dir, err)
 		}
@@ -191,8 +209,10 @@ func checkAtlasHome() error {
 		"assets/agents/adapters/cursor.md",
 		"assets/agents/runtime/atlas-orchestrator.md",
 		"assets/adapter-files/cursor/atlas.mdc",
+		"assets/contracts/sdd-openspec.md",
 		"agents/atlas-orchestrator.md",
 		"adapters/cursor/atlas.mdc",
+		"contracts/sdd-openspec.md",
 		"state/home.yaml",
 	} {
 		if _, err := os.Stat(filepath.Join(homeDir, rel)); err != nil {
@@ -272,13 +292,30 @@ func checkStatusDoctor() error {
 		return err
 	}
 	status := screens.Status(result)
-	if !strings.Contains(status, "Atlas Status") || !strings.Contains(status, "AGENTS.md") {
+	if !strings.Contains(status, "Atlas Status") || !strings.Contains(status, "AGENTS.md") ||
+		!strings.Contains(status, "SDD/OpenSpec contract") {
 		return fmt.Errorf("status render missing expected headings")
+	}
+	beforeTree, err := snapshotPaths(root)
+	if err != nil {
+		return err
 	}
 	report := doctor.Evaluate(result)
 	doctorView := screens.Doctor(report)
 	if !strings.Contains(doctorView, "Atlas Doctor") {
 		return fmt.Errorf("doctor render missing heading")
+	}
+	afterTree, err := snapshotPaths(root)
+	if err != nil {
+		return err
+	}
+	if len(beforeTree) != len(afterTree) {
+		return fmt.Errorf("status/doctor mutated project tree size")
+	}
+	for path, content := range beforeTree {
+		if afterTree[path] != content {
+			return fmt.Errorf("status/doctor mutated %s", path)
+		}
 	}
 	for _, check := range report.Checks {
 		if strings.HasPrefix(check.Name, "tool ") || check.Name == "git" || check.Name == "branch" || check.Name == "remotes" || check.Name == "workspace" {
@@ -433,6 +470,47 @@ func checkRepairAtlasAgents() error {
 	return assertRuntimeReady(root)
 }
 
+func checkRepairSDDContract() error {
+	root, err := materialize([]string{"cursor"}, true)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+
+	external := filepath.Join(root, ".cursor", "agents", "external-helper.md")
+	if err := os.WriteFile(external, []byte("keep me\n"), 0o644); err != nil {
+		return err
+	}
+	contractPath := filepath.Join(root, filepath.FromSlash(config.FileSDDOpenSpecContract))
+	if err := os.Remove(contractPath); err != nil {
+		return err
+	}
+	result, err := workspace.Discover(root)
+	if err != nil {
+		return err
+	}
+	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	if !plan.NeedsApply() {
+		return fmt.Errorf("expected apply for missing SDD contract: %#v", plan)
+	}
+	if _, err := workspace.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 17, 3, 0)); err != nil {
+		return err
+	}
+	want, err := config.RenderSDDOpenSpecContract()
+	if err != nil {
+		return err
+	}
+	got, err := os.ReadFile(contractPath)
+	if err != nil || string(got) != want {
+		return fmt.Errorf("contract not restored: %q err=%v", got, err)
+	}
+	ext, err := os.ReadFile(external)
+	if err != nil || string(ext) != "keep me\n" {
+		return fmt.Errorf("external agent touched: %q err=%v", ext, err)
+	}
+	return assertRuntimeReady(root)
+}
+
 func checkRepairStalePlan() error {
 	root, err := materialize([]string{"cursor"}, true)
 	if err != nil {
@@ -521,7 +599,34 @@ func assertRuntimeReady(root string) error {
 	if !result.Runtime.AgentsExists || !result.Runtime.AgentsMarkers.Complete() {
 		return fmt.Errorf("agents not healthy")
 	}
+	if !result.Runtime.DependsOnSDDContract || !result.Runtime.SDDContractPresent || !result.Runtime.SDDContractMatches {
+		return fmt.Errorf("sdd contract not healthy")
+	}
 	return nil
+}
+
+func snapshotPaths(root string) (map[string]string, error) {
+	out := map[string]string{}
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			out[filepath.ToSlash(rel)+"/"] = "dir"
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		out[filepath.ToSlash(rel)] = string(data)
+		return nil
+	})
+	return out, err
 }
 
 func smokeTempBase() string {

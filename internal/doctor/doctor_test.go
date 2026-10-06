@@ -320,6 +320,9 @@ func healthyRuntime() workspace.RuntimeHealth {
 		RuntimeManifestMatches: true,
 		AssetsLockPresent:      true,
 		AssetsLockMatches:      true,
+		DependsOnSDDContract:   true,
+		SDDContractPresent:     true,
+		SDDContractMatches:     true,
 		Home: home.Status{
 			Path:           "/tmp/atlas-home-test",
 			Exists:         true,

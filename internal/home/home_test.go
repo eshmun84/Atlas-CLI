@@ -77,6 +77,12 @@ func TestEnsureAndMirror_CreatesLayoutAndAssets(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "adapters", "cursor", "atlas.mdc")); err != nil {
 		t.Fatal("convenience adapter missing")
 	}
+	if _, err := os.Stat(filepath.Join(dir, "assets", "contracts", "sdd-openspec.md")); err != nil {
+		t.Fatal("mirrored SDD contract missing")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "contracts", "sdd-openspec.md")); err != nil {
+		t.Fatal("convenience SDD contract missing")
+	}
 	status := home.Inspect()
 	if !status.Exists || !status.LayoutComplete || len(status.MissingAssets) != 0 || len(status.DriftedAssets) != 0 {
 		t.Fatalf("status = %#v", status)

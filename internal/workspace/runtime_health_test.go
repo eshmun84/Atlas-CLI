@@ -65,6 +65,9 @@ func TestEvaluateRuntimeHealth_InitializedCursor(t *testing.T) {
 	if !h.AgentRegistryPresent || !h.AgentRegistryMatches || !h.RuntimeManifestPresent || !h.RuntimeManifestMatches {
 		t.Fatalf("registry/manifest health = %#v", h)
 	}
+	if !h.DependsOnSDDContract || !h.SDDContractPresent || !h.SDDContractMatches {
+		t.Fatalf("sdd contract health = %#v", h)
+	}
 	if !h.Home.Exists || !h.Home.LayoutComplete || len(h.Home.MissingAssets) != 0 {
 		t.Fatalf("home health = %#v", h.Home)
 	}

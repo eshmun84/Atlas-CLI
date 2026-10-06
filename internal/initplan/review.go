@@ -124,6 +124,7 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Path: config.FileAssetsLock, Kind: "atlas", Status: status},
 		{Path: config.FileAgentRegistry, Kind: "atlas", Status: status},
 		{Path: config.FileRuntimeManifest, Kind: "atlas", Status: status},
+		{Path: config.FileSDDOpenSpecContract, Kind: "atlas", Status: status},
 		{Path: config.DirBackups + "/", Kind: "atlas", Status: "create if needed"},
 		{Path: config.FileAgentsMD, Kind: "runtime", Status: status},
 	}

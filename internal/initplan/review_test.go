@@ -102,6 +102,7 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 		".atlas/assets.lock.yaml",
 		".atlas/agent-registry.md",
 		".atlas/runtime-manifest.yaml",
+		".atlas/contracts/sdd-openspec.md",
 		".atlas/backups/",
 		"AGENTS.md",
 		".cursor/rules/atlas.mdc",

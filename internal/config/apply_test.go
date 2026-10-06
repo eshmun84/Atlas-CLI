@@ -67,7 +67,7 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	if len(result.Files) != 6 {
+	if len(result.Files) != 7 {
 		t.Fatalf("files = %#v", result.Files)
 	}
 	wantRuntime := 1 + 2 + len(config.AtlasAgentRuntimePaths([]string{"cursor", "opencode"}))
@@ -135,6 +135,7 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 		"context.graph.enabled",
 		"Skills are registry-first",
 		".atlas/agent-registry.md",
+		".atlas/contracts/sdd-openspec.md",
 		"atlas-orchestrator",
 	} {
 		if !strings.Contains(agentsText, want) {
@@ -144,12 +145,51 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	for _, rel := range []string{
 		config.FileAgentRegistry,
 		config.FileRuntimeManifest,
+		config.FileSDDOpenSpecContract,
 		".cursor/agents/atlas-orchestrator.md",
 		".opencode/agents/atlas-orchestrator.md",
 	} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 			t.Fatalf("missing %s: %v", rel, err)
 		}
+	}
+	contractText, err := os.ReadFile(filepath.Join(root, config.FileSDDOpenSpecContract))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contractText), "Operational Contract") ||
+		!strings.Contains(string(contractText), "## 4. Phase contracts") {
+		t.Fatalf("contract content unexpected:\n%s", contractText)
+	}
+	orch, err := os.ReadFile(filepath.Join(root, ".cursor", "agents", "atlas-orchestrator.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(orch), config.FileSDDOpenSpecContract) {
+		t.Fatalf("orchestrator missing contract reference:\n%s", orch)
+	}
+	registryText, err := os.ReadFile(filepath.Join(root, config.FileAgentRegistry))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(registryText), config.FileSDDOpenSpecContract) {
+		t.Fatalf("registry missing contract reference:\n%s", registryText)
+	}
+	manifestText, err := os.ReadFile(filepath.Join(root, config.FileRuntimeManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(manifestText), "sdd_contract:") ||
+		!strings.Contains(string(manifestText), config.FileSDDOpenSpecContract) {
+		t.Fatalf("manifest missing sdd_contract:\n%s", manifestText)
+	}
+	lockText, err := os.ReadFile(filepath.Join(root, config.FileAssetsLock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(lockText), "contracts/sdd-openspec.md") ||
+		!strings.Contains(string(lockText), "checksum:") {
+		t.Fatalf("lock missing contract entry:\n%s", lockText)
 	}
 	if !strings.Contains(text, "context:") || !strings.Contains(text, "graph:") || !strings.Contains(text, "enabled: true") {
 		t.Fatalf("config.yaml missing context.graph.enabled:\n%s", text)
@@ -164,7 +204,8 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	}
 	if !strings.Contains(string(cursor), "alwaysApply: true") ||
 		!strings.Contains(string(cursor), "Atlas Cursor Entrypoint") ||
-		!strings.Contains(string(cursor), "do not bypass") {
+		!strings.Contains(string(cursor), "do not bypass") ||
+		!strings.Contains(string(cursor), config.FileSDDOpenSpecContract) {
 		t.Fatalf("cursor projection = %s", cursor)
 	}
 
@@ -174,7 +215,8 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	}
 	if !strings.Contains(string(opencode), "Atlas OpenCode Entrypoint") ||
 		!strings.Contains(string(opencode), ".opencode/atlas.md") ||
-		!strings.Contains(string(opencode), "do not bypass") {
+		!strings.Contains(string(opencode), "do not bypass") ||
+		!strings.Contains(string(opencode), config.FileSDDOpenSpecContract) {
 		t.Fatalf("opencode = %s", opencode)
 	}
 

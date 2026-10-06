@@ -8,6 +8,7 @@ alwaysApply: true
 - Root `AGENTS.md` is the project authority; do not bypass it.
 - Prefer the Atlas orchestrator at `.cursor/agents/atlas-orchestrator.md` for routing and governed work.
 - Atlas agents are listed in `.atlas/agent-registry.md` and materialized under `.cursor/agents/`.
+- For SDD/OpenSpec phase work, follow `.atlas/contracts/sdd-openspec.md`.
 - This file is a Cursor-native entrypoint only, not a full Atlas contract.
 - Follow Atlas scope, Git authorization, verification, human authority, and skill-loading rules from `AGENTS.md`.
 - Project configuration lives under `.atlas/config.yaml`.

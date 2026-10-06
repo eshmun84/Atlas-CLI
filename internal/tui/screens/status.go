@@ -41,6 +41,7 @@ func Status(result workspace.DiscoveryResult) string {
 	fmt.Fprintf(&b, "  runtime_materialized: %s\n", boolBadge(rt.RuntimeMaterialized))
 	fmt.Fprintf(&b, "  AGENTS.md: %s\n", agentsStatus(rt))
 	fmt.Fprintf(&b, "  AGENTS markers: %s\n", markersStatus(rt))
+	fmt.Fprintf(&b, "  SDD/OpenSpec contract: %s\n", sddContractStatus(rt))
 	fmt.Fprintf(&b, "  Adapters: %s\n", adaptersLabel(rt.SelectedAdapters))
 	fmt.Fprintln(&b, "  Adapter projections:")
 	if len(rt.ExpectedProjections) == 0 {
@@ -230,6 +231,20 @@ func agentsStatus(rt workspace.RuntimeHealth) string {
 		return statusFail.Render("missing")
 	}
 	return statusNo.Render("missing")
+}
+
+func sddContractStatus(rt workspace.RuntimeHealth) string {
+	if !rt.ConfigLoads || !rt.DependsOnSDDContract {
+		return statusNo.Render("n/a")
+	}
+	switch {
+	case !rt.SDDContractPresent:
+		return statusFail.Render("missing")
+	case !rt.SDDContractMatches:
+		return statusFail.Render("drifted")
+	default:
+		return statusYes.Render("present")
+	}
 }
 
 func markersStatus(rt workspace.RuntimeHealth) string {

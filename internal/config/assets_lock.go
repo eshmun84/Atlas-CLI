@@ -42,7 +42,7 @@ func BuildAssetsLockDocumentFor(homePath string, doc ProjectDocument, atlasVersi
 		if homePath != "" {
 			entry.HomePath = filepath.ToSlash(home.AssetHomePath(homePath, asset))
 		}
-		entry.ProjectPaths = projectPathsForHomeAsset(asset, selected)
+		entry.ProjectPaths = projectPathsForHomeAsset(asset, selected, DependsOnSDDOpenSpecContract(doc))
 		entries = append(entries, entry)
 	}
 
@@ -91,7 +91,7 @@ func RenderAssetsLockYAMLFor(homePath string, doc ProjectDocument) (string, erro
 	return string(data), nil
 }
 
-func projectPathsForHomeAsset(asset home.Asset, selected []string) []string {
+func projectPathsForHomeAsset(asset home.Asset, selected []string, dependsOnSDDContract bool) []string {
 	adapters := normalizeSelectedAdapters(selected)
 	switch asset.EmbedPath {
 	case "adapter-files/cursor/atlas.mdc":
@@ -124,6 +124,9 @@ func projectPathsForHomeAsset(asset home.Asset, selected []string) []string {
 		asset.EmbedPath == "agents/adapters/cursor.md" ||
 		asset.EmbedPath == "agents/adapters/opencode.md" {
 		return []string{FileAgentsMD}
+	}
+	if asset.EmbedPath == EmbedPathSDDOpenSpecContract && dependsOnSDDContract {
+		return []string{FileSDDOpenSpecContract}
 	}
 	return nil
 }

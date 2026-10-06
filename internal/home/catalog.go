@@ -9,7 +9,7 @@ import (
 
 // Asset describes one bundled Atlas Home asset.
 type Asset struct {
-	Family    string // agents | adapters
+	Family    string // agents | adapters | contracts
 	ID        string // stable id, usually embed-relative path
 	EmbedPath string // path inside assets.Content
 }
@@ -22,6 +22,7 @@ func BundledAssets() []Asset {
 		{Family: "agents", ID: "agents/adapters/opencode.md", EmbedPath: "agents/adapters/opencode.md"},
 		{Family: "adapters", ID: "adapter-files/cursor/atlas.mdc", EmbedPath: "adapter-files/cursor/atlas.mdc"},
 		{Family: "adapters", ID: "adapter-files/opencode/atlas.md", EmbedPath: "adapter-files/opencode/atlas.md"},
+		{Family: "contracts", ID: "contracts/sdd-openspec.md", EmbedPath: "contracts/sdd-openspec.md"},
 	}
 	for _, name := range assets.AtlasAgentFilenames {
 		embed := "agents/runtime/" + name
@@ -42,6 +43,7 @@ func AssetHomePath(homePath string, asset Asset) string {
 // ConvenienceHomePath returns an additional discoverable path for selected assets.
 // Runtime agents also live under $ATLAS_HOME/agents/<file>.
 // Adapter entrypoints also live under $ATLAS_HOME/adapters/<runtime>/<file>.
+// SDD/OpenSpec contract also lives under $ATLAS_HOME/contracts/<file>.
 func ConvenienceHomePath(homePath string, asset Asset) string {
 	switch {
 	case strings.HasPrefix(asset.EmbedPath, "agents/runtime/"):
@@ -50,6 +52,8 @@ func ConvenienceHomePath(homePath string, asset Asset) string {
 		return filepath.Join(homePath, "adapters", "cursor", "atlas.mdc")
 	case asset.EmbedPath == "adapter-files/opencode/atlas.md":
 		return filepath.Join(homePath, "adapters", "opencode", "atlas.md")
+	case asset.EmbedPath == "contracts/sdd-openspec.md":
+		return filepath.Join(homePath, "contracts", "sdd-openspec.md")
 	default:
 		return ""
 	}

@@ -143,6 +143,34 @@ func TestBuildLocalStateAndLockDocuments(t *testing.T) {
 	if !sawCursorAgent {
 		t.Fatalf("cursor orchestrator missing from lock: %#v", lockCursor.Assets)
 	}
+
+	if !draft.ToggleMulti("adapters.selected", "cursor") {
+		t.Fatal("toggle cursor")
+	}
+	doc := config.BuildProjectDocument(draft, config.EmptyMCPDraft())
+	lockSDD := config.BuildAssetsLockDocumentFor("/tmp/atlas-home", doc, "0.1.0")
+	var sawContract bool
+	for _, entry := range lockSDD.Assets {
+		if entry.ID == config.EmbedPathSDDOpenSpecContract {
+			sawContract = true
+			if entry.Family != "contracts" || entry.Checksum == "" || entry.HomePath == "" {
+				t.Fatalf("contract lock entry incomplete: %#v", entry)
+			}
+			if len(entry.ProjectPaths) != 1 || entry.ProjectPaths[0] != config.FileSDDOpenSpecContract {
+				t.Fatalf("contract project paths = %#v", entry.ProjectPaths)
+			}
+		}
+	}
+	if !sawContract {
+		t.Fatalf("contract missing from lock: %#v", lockSDD.Assets)
+	}
+	if !config.DependsOnSDDOpenSpecContract(doc) {
+		t.Fatal("expected SDD/OpenSpec dependency")
+	}
+	body, err := config.RenderSDDOpenSpecContract()
+	if err != nil || !strings.Contains(body, "Operational Contract") {
+		t.Fatalf("RenderSDDOpenSpecContract = %q err=%v", body, err)
+	}
 }
 
 func TestContextGraphEnabled_DefaultsTrueWhenMissing(t *testing.T) {

@@ -16,7 +16,12 @@ const (
 	FileAgentRegistry   = ".atlas/agent-registry.md"
 	FileRuntimeManifest = ".atlas/runtime-manifest.yaml"
 	FileSkillRegistry   = ".atlas/skill-registry.md"
-	DirBackups          = ".atlas/backups"
+	// FileSDDOpenSpecContract is the project-local SDD/OpenSpec operational contract.
+	FileSDDOpenSpecContract = ".atlas/contracts/sdd-openspec.md"
+	DirBackups              = ".atlas/backups"
+
+	// EmbedPathSDDOpenSpecContract is the bundled/Home embed-relative path.
+	EmbedPathSDDOpenSpecContract = "contracts/sdd-openspec.md"
 
 	// Runtime entrypoints materialized by Init Apply.
 	FileAgentsMD       = "AGENTS.md"

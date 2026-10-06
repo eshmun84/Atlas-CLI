@@ -267,6 +267,9 @@ func BuildRuntimeRepairPlan(root string, health RuntimeHealth) RuntimeRepairPlan
 	addAtlasSurfaceRepair(&plan, health.AgentRegistryPresent, health.AgentRegistryMatches, config.FileAgentRegistry, "agent registry")
 	addAtlasSurfaceRepair(&plan, health.RuntimeManifestPresent, health.RuntimeManifestMatches, config.FileRuntimeManifest, "runtime manifest")
 	addAtlasSurfaceRepair(&plan, health.AssetsLockPresent, health.AssetsLockMatches, config.FileAssetsLock, "assets lock")
+	if health.DependsOnSDDContract {
+		addAtlasSurfaceRepair(&plan, health.SDDContractPresent, health.SDDContractMatches, config.FileSDDOpenSpecContract, "SDD/OpenSpec contract")
+	}
 
 	if health.Initialized || health.RuntimeMaterialized {
 		switch {
