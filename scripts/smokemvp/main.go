@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +47,7 @@ func run() error {
 		fn   func() error
 	}{
 		{"cli routes (no console reports)", checkCLIRoutes},
+		{"unsupported commands exit non-zero", checkUnsupportedExitNonZero},
 		{"fresh non-Atlas project", checkFreshProject},
 		{"init fresh project (mode=new)", checkInitFreshNew},
 		{"init existing project (mode=existing)", checkInitExisting},
@@ -98,6 +100,37 @@ func checkCLIRoutes() error {
 		if tc.mode == cli.ModeTUI && action.Route != tc.route {
 			return fmt.Errorf("args %v: route=%v want %v", tc.args, action.Route, tc.route)
 		}
+	}
+	return nil
+}
+
+func checkUnsupportedExitNonZero() error {
+	prev := cli.RunTUI
+	cli.RunTUI = func(opts tui.Options) error {
+		if opts.Route != tui.RouteError {
+			return fmt.Errorf("expected RouteError, got %v", opts.Route)
+		}
+		return nil
+	}
+	defer func() { cli.RunTUI = prev }()
+
+	for _, args := range [][]string{{"start"}, {"change"}, {"mcp"}} {
+		if err := cli.Execute(io.Discard, io.Discard, args); err == nil {
+			return fmt.Errorf("%v: expected non-nil error after TUI error dialog", args)
+		} else if !strings.Contains(err.Error(), "unsupported command") {
+			return fmt.Errorf("%v: error %v missing unsupported command", args, err)
+		}
+	}
+
+	// Supported routes and --version must still succeed with mocked TUI.
+	cli.RunTUI = func(tui.Options) error { return nil }
+	for _, args := range [][]string{nil, {"init"}, {"status"}, {"doctor"}, {"help"}} {
+		if err := cli.Execute(io.Discard, io.Discard, args); err != nil {
+			return fmt.Errorf("%v: unexpected error %v", args, err)
+		}
+	}
+	if err := cli.Execute(io.Discard, io.Discard, []string{"--version"}); err != nil {
+		return fmt.Errorf("--version: unexpected error %v", err)
 	}
 	return nil
 }

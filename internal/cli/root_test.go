@@ -75,19 +75,20 @@ func TestExecute_LaunchesTUIRoutes(t *testing.T) {
 		args    []string
 		route   tui.Route
 		unknown string
+		wantErr bool
 	}{
-		{nil, tui.DefaultRoute, ""},
-		{[]string{"help"}, tui.RouteHelp, ""},
-		{[]string{"--help"}, tui.RouteHelp, ""},
-		{[]string{"-h"}, tui.RouteHelp, ""},
-		{[]string{"init"}, tui.RouteInitPlan, ""},
-		{[]string{"init", "--dry-run"}, tui.RouteInitPlan, ""},
-		{[]string{"status"}, tui.RouteStatus, ""},
-		{[]string{"doctor"}, tui.RouteDoctor, ""},
-		{[]string{"mcp"}, tui.RouteError, "mcp"},
-		{[]string{"start"}, tui.RouteError, "start"},
-		{[]string{"change"}, tui.RouteError, "change"},
-		{[]string{"change", "new"}, tui.RouteError, "change new"},
+		{nil, tui.DefaultRoute, "", false},
+		{[]string{"help"}, tui.RouteHelp, "", false},
+		{[]string{"--help"}, tui.RouteHelp, "", false},
+		{[]string{"-h"}, tui.RouteHelp, "", false},
+		{[]string{"init"}, tui.RouteInitPlan, "", false},
+		{[]string{"init", "--dry-run"}, tui.RouteInitPlan, "", false},
+		{[]string{"status"}, tui.RouteStatus, "", false},
+		{[]string{"doctor"}, tui.RouteDoctor, "", false},
+		{[]string{"mcp"}, tui.RouteError, "mcp", true},
+		{[]string{"start"}, tui.RouteError, "start", true},
+		{[]string{"change"}, tui.RouteError, "change", true},
+		{[]string{"change", "new"}, tui.RouteError, "change new", true},
 	}
 
 	for _, tc := range cases {
@@ -102,7 +103,14 @@ func TestExecute_LaunchesTUIRoutes(t *testing.T) {
 		err := cli.Execute(&stdout, nil, tc.args)
 		cli.RunTUI = prev
 
-		if err != nil {
+		if tc.wantErr {
+			if err == nil {
+				t.Fatalf("%v: expected unsupported-command error", tc.args)
+			}
+			if !strings.Contains(err.Error(), "unsupported command") {
+				t.Fatalf("%v: error = %v, want unsupported command", tc.args, err)
+			}
+		} else if err != nil {
 			t.Fatalf("%v: unexpected error: %v", tc.args, err)
 		}
 		if stdout.Len() != 0 {
@@ -114,6 +122,62 @@ func TestExecute_LaunchesTUIRoutes(t *testing.T) {
 		if launched.UnknownCommand != tc.unknown {
 			t.Fatalf("%v: unknown = %q, want %q", tc.args, launched.UnknownCommand, tc.unknown)
 		}
+	}
+}
+
+func TestExecute_UnsupportedCommandsNonZero(t *testing.T) {
+	prev := cli.RunTUI
+	cli.RunTUI = func(opts tui.Options) error {
+		if opts.Route != tui.RouteError {
+			t.Fatalf("route = %v, want RouteError", opts.Route)
+		}
+		return nil
+	}
+	defer func() { cli.RunTUI = prev }()
+
+	for _, args := range [][]string{
+		{"start"},
+		{"change"},
+		{"mcp"},
+		{"change", "new"},
+		{"totally-unknown"},
+	} {
+		var stdout bytes.Buffer
+		err := cli.Execute(&stdout, nil, args)
+		if err == nil {
+			t.Fatalf("%v: expected non-nil error for unsupported command", args)
+		}
+		if stdout.Len() != 0 {
+			t.Fatalf("%v: expected no stdout report, got %q", args, stdout.String())
+		}
+		want := cli.UnsupportedCommandError(strings.Join(args, " "))
+		if err.Error() != want.Error() {
+			t.Fatalf("%v: error = %q, want %q", args, err.Error(), want.Error())
+		}
+	}
+}
+
+func TestExecute_SupportedCommandsStillZero(t *testing.T) {
+	prev := cli.RunTUI
+	cli.RunTUI = func(tui.Options) error { return nil }
+	defer func() { cli.RunTUI = prev }()
+
+	for _, args := range [][]string{
+		nil,
+		{"help"},
+		{"init"},
+		{"status"},
+		{"doctor"},
+	} {
+		var stdout bytes.Buffer
+		if err := cli.Execute(&stdout, nil, args); err != nil {
+			t.Fatalf("%v: unexpected error: %v", args, err)
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := cli.Execute(&stdout, &stderr, []string{"--version"}); err != nil {
+		t.Fatalf("--version: unexpected error: %v", err)
 	}
 }
 

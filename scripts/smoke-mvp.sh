@@ -110,10 +110,10 @@ fi
 
 log
 log "-- CLI routing unit checks (TUI does not dump reports to console) --"
-if go test ./internal/cli/ -count=1 -run 'TestResolve_Routes|TestExecute_VersionOnlyConsoleOutput|TestExecute_LaunchesTUIRoutes|TestExecute_NoLongConsoleReports'; then
-  ok "cli routing / console-discipline tests"
+if go test ./internal/cli/ -count=1 -run 'TestResolve_Routes|TestExecute_VersionOnlyConsoleOutput|TestExecute_LaunchesTUIRoutes|TestExecute_UnsupportedCommandsNonZero|TestExecute_SupportedCommandsStillZero|TestExecute_NoLongConsoleReports'; then
+  ok "cli routing / console-discipline / unsupported-exit tests"
 else
-  bad "cli routing / console-discipline tests"
+  bad "cli routing / console-discipline / unsupported-exit tests"
 fi
 
 log
@@ -186,7 +186,8 @@ Manual TUI / Alpha smoke (not fully automated — requires an interactive termin
   8. Drift an Atlas agent or delete the SDD contract → Repair restores;
      developer-owned files (README, external agents) stay preserved;
      Context Economy payloads under Atlas Home stay intact.
-  9. `atlas start` / `atlas change` / `atlas mcp` → Error dialog (unsupported).
+  9. `atlas start` / `atlas change` / `atlas mcp` → Error dialog (unsupported)
+     and process exit code != 0 after the dialog closes.
  10. Confirm ~/.atlas was not written while ATLAS_HOME was set.
  11. Confirm Atlas repo root still has no generated runtime artifacts.
 
