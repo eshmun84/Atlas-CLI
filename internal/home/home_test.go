@@ -1,0 +1,88 @@
+package home_test
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/eshmun84/Atlas-CLI/internal/home"
+)
+
+func TestResolve_UsesATLAS_HOME(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(home.EnvAtlasHome, dir)
+	got, err := home.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.Abs(dir)
+	if got != want {
+		t.Fatalf("Resolve() = %q want %q", got, want)
+	}
+}
+
+func TestInspect_DoesNotCreateHome(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing-home")
+	t.Setenv(home.EnvAtlasHome, dir)
+	before, err := os.ReadDir(filepath.Dir(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := home.Inspect()
+	if status.Exists {
+		t.Fatal("home should not exist")
+	}
+	if status.Path == "" {
+		t.Fatal("path should resolve")
+	}
+	after, err := os.ReadDir(filepath.Dir(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("Inspect mutated parent dir: before=%d after=%d", len(before), len(after))
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatal("Inspect created Atlas Home")
+	}
+}
+
+func TestEnsureAndMirror_CreatesLayoutAndAssets(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "atlas-home")
+	t.Setenv(home.EnvAtlasHome, dir)
+	fixed := time.Date(2026, 10, 6, 15, 0, 0, 0, time.UTC)
+	result, err := home.EnsureAndMirror(fixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Created || result.HomePath == "" {
+		t.Fatalf("result = %#v", result)
+	}
+	for _, name := range home.LayoutDirectories {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil || !info.IsDir() {
+			t.Fatalf("layout missing %s: %v", name, err)
+		}
+	}
+	for _, asset := range home.BundledAssets() {
+		path := home.AssetHomePath(dir, asset)
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("missing asset %s: %v", asset.ID, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "agents", "atlas-orchestrator.md")); err != nil {
+		t.Fatal("convenience agent missing")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "adapters", "cursor", "atlas.mdc")); err != nil {
+		t.Fatal("convenience adapter missing")
+	}
+	status := home.Inspect()
+	if !status.Exists || !status.LayoutComplete || len(status.MissingAssets) != 0 || len(status.DriftedAssets) != 0 {
+		t.Fatalf("status = %#v", status)
+	}
+	doc, present, err := home.LoadState(dir)
+	if err != nil || !present || doc.HomePath == "" || len(doc.Assets) == 0 {
+		t.Fatalf("state = %#v present=%v err=%v", doc, present, err)
+	}
+}

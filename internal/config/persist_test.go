@@ -115,12 +115,33 @@ func TestBuildLocalStateAndLockDocuments(t *testing.T) {
 	}
 
 	lock := config.BuildAssetsLockDocument(nil)
-	if lock.SchemaVersion != 1 || lock.Assets == nil || len(lock.Assets) != 3 {
+	if lock.SchemaVersion != 1 || lock.Assets == nil || len(lock.Assets) == 0 {
 		t.Fatalf("lock = %#v", lock)
 	}
+	var sawRegistry bool
+	for _, entry := range lock.Assets {
+		if entry.ID == "project/agent-registry.md" {
+			sawRegistry = true
+		}
+		if entry.Source == "" || entry.Checksum == "" {
+			t.Fatalf("incomplete lock entry %#v", entry)
+		}
+	}
+	if !sawRegistry {
+		t.Fatalf("registry entry missing: %#v", lock.Assets)
+	}
 	lockCursor := config.BuildAssetsLockDocument([]string{"cursor"})
-	if len(lockCursor.Assets) < 3+1+len(config.AtlasAgentRuntimePaths([]string{"cursor"})) {
-		t.Fatalf("cursor lock = %#v", lockCursor)
+	var sawCursorAgent bool
+	for _, entry := range lockCursor.Assets {
+		if entry.ID == "agents/runtime/atlas-orchestrator.md" {
+			sawCursorAgent = true
+			if len(entry.ProjectPaths) != 1 || entry.ProjectPaths[0] != ".cursor/agents/atlas-orchestrator.md" {
+				t.Fatalf("cursor orchestrator paths = %#v", entry.ProjectPaths)
+			}
+		}
+	}
+	if !sawCursorAgent {
+		t.Fatalf("cursor orchestrator missing from lock: %#v", lockCursor.Assets)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/assets"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"gopkg.in/yaml.v3"
 )
 
@@ -79,17 +80,27 @@ func IsDeveloperAgentRuntimePath(rel string) bool {
 	return !assets.IsAtlasAgentFilename(base)
 }
 
-// RenderAtlasAgent returns embedded agent content for materialization.
+// RenderAtlasAgent returns agent content for materialization.
+// Prefers Atlas Home canonical copy, then embedded bundled fallback.
 func RenderAtlasAgent(filename string) (string, error) {
-	body, err := assets.ReadRuntimeAgent(filename)
-	if err != nil {
-		return "", err
+	name := strings.TrimSpace(filename)
+	if !assets.IsAtlasAgentFilename(name) {
+		return "", fmt.Errorf("unknown atlas agent %q", filename)
 	}
-	return strings.TrimSuffix(body, "\n") + "\n", nil
+	data, err := home.ReadCanonical("agents/runtime/" + name)
+	if err != nil {
+		body, readErr := assets.ReadRuntimeAgent(name)
+		if readErr != nil {
+			return "", err
+		}
+		return strings.TrimSuffix(body, "\n") + "\n", nil
+	}
+	return strings.TrimSuffix(string(data), "\n") + "\n", nil
 }
 
 // RenderAgentRegistry builds .atlas/agent-registry.md for selected adapters.
-func RenderAgentRegistry(projectName string, selected []string) string {
+// When homePath is set, entries include Atlas Home source paths.
+func RenderAgentRegistry(projectName string, selected []string, homePath string) string {
 	name := strings.TrimSpace(projectName)
 	if name == "" {
 		name = "this project"
@@ -99,6 +110,9 @@ func RenderAgentRegistry(projectName string, selected []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Atlas Agent Registry\n\n")
 	fmt.Fprintf(&b, "Project: **%s**\n\n", name)
+	if homePath != "" {
+		fmt.Fprintf(&b, "Atlas Home: `%s`\n\n", homePath)
+	}
 	fmt.Fprintf(&b, "This registry lists Atlas-owned runtime agents. Skills remain registry-first via `%s` when present and are not copied into adapter skill folders in this slice.\n\n", FileSkillRegistry)
 	fmt.Fprintf(&b, "`AGENTS.md` remains the project authority. Adapter agent files are execution surfaces only.\n\n")
 
@@ -119,8 +133,17 @@ func RenderAgentRegistry(projectName string, selected []string) string {
 		fmt.Fprintf(&b, "### `%s`\n\n", id)
 		fmt.Fprintf(&b, "- Kind: `%s`\n", kind)
 		fmt.Fprintf(&b, "- Primary conductor: `%v`\n", id == "atlas-orchestrator")
+		fmt.Fprintf(&b, "- Source: `bundled`\n")
+		if homePath != "" {
+			homeAsset := home.Asset{
+				Family:    "agents",
+				ID:        "agents/runtime/" + filename,
+				EmbedPath: "agents/runtime/" + filename,
+			}
+			fmt.Fprintf(&b, "- Atlas Home: `%s`\n", filepath.ToSlash(home.AssetHomePath(homePath, homeAsset)))
+		}
 		for _, adapter := range adapters {
-			fmt.Fprintf(&b, "- Path (`%s`): `%s`\n", adapter, AtlasAgentRuntimePath(adapter, filename))
+			fmt.Fprintf(&b, "- Project path (`%s`): `%s`\n", adapter, AtlasAgentRuntimePath(adapter, filename))
 		}
 		fmt.Fprintf(&b, "\n")
 	}
@@ -129,7 +152,7 @@ func RenderAgentRegistry(projectName string, selected []string) string {
 	fmt.Fprintf(&b, "- Prefer `atlas-orchestrator` for routing and stop/ask decisions.\n")
 	fmt.Fprintf(&b, "- SDD agents frame and execute bounded phases; they do not invent OpenSpec command results.\n")
 	fmt.Fprintf(&b, "- Review agents produce evidence only; they never authorize delivery.\n")
-	fmt.Fprintf(&b, "- Runtime Repair may restore Atlas-owned agents that are missing or drifted.\n")
+	fmt.Fprintf(&b, "- Runtime Repair may restore Atlas-owned agents from Atlas Home or bundled fallback.\n")
 	fmt.Fprintf(&b, "- Developer-owned non-Atlas agents under adapter `agents/` directories are left untouched.\n")
 	return b.String()
 }
@@ -189,16 +212,13 @@ func RenderRuntimeManifestYAML(projectName string, selected []string) (string, e
 	return string(data), nil
 }
 
-// RenderAssetsLockYAML marshals the Atlas-owned assets lock with canonical formatting.
+// RenderAssetsLockYAML marshals a lock for selected adapters without a Home path.
+// Prefer RenderAssetsLockYAMLFor when Atlas Home is known.
 func RenderAssetsLockYAML(selected []string) (string, error) {
-	data, err := marshalYAML(BuildAssetsLockDocument(selected))
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
+	return RenderAssetsLockYAMLFor("", ProjectDocument{Adapters: AdaptersPersist{Selected: selected}})
 }
 
-// AtlasOwnedAssetPaths returns sorted Atlas-owned asset paths for assets.lock.yaml.
+// AtlasOwnedAssetPaths returns project-relative Atlas-owned paths for diagnostics.
 func AtlasOwnedAssetPaths(selected []string) []string {
 	adapters := normalizeSelectedAdapters(selected)
 	out := []string{

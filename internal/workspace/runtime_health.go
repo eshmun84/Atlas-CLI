@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 )
 
 // Forbidden runtime artifact paths that Atlas must not require or expect.
@@ -67,6 +68,8 @@ type RuntimeHealth struct {
 	AssetsLockPresent      bool
 	AssetsLockMatches      bool
 
+	Home home.Status
+
 	ContextGraphEnabled  bool
 	ContextGraphReadable bool
 
@@ -86,6 +89,7 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 		SelectedAdapters:    []string{},
 		ExpectedProjections: []ProjectionStatus{},
 		ExpectedAgents:      []AgentFileStatus{},
+		Home:                home.Inspect(), // read-only; never creates Atlas Home
 		ForbiddenArtifacts:  make([]ForbiddenArtifactStatus, 0, len(forbiddenRuntimeArtifacts)),
 		Warnings:            []string{},
 	}
@@ -147,7 +151,8 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 				})
 			}
 
-			expectedRegistry := config.RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected)
+			homePath := health.Home.Path
+			expectedRegistry := config.RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected, homePath)
 			health.AgentRegistryPresent = exists(root, config.FileAgentRegistry)
 			health.AgentRegistryMatches = health.AgentRegistryPresent && fileMatches(root, config.FileAgentRegistry, expectedRegistry)
 
@@ -157,7 +162,7 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 				health.RuntimeManifestMatches = fileMatches(root, config.FileRuntimeManifest, expectedManifest)
 			}
 
-			expectedLock, err := config.RenderAssetsLockYAML(doc.Adapters.Selected)
+			expectedLock, err := config.RenderAssetsLockYAMLFor(homePath, doc)
 			health.AssetsLockPresent = exists(root, config.FileAssetsLock)
 			if err == nil && health.AssetsLockPresent {
 				health.AssetsLockMatches = fileMatches(root, config.FileAssetsLock, expectedLock)
@@ -259,6 +264,24 @@ func collectRuntimeWarnings(h RuntimeHealth) []string {
 		warnings = append(warnings, "expected assets lock missing: "+config.FileAssetsLock)
 	} else if h.ConfigLoads && h.AssetsLockPresent && !h.AssetsLockMatches {
 		warnings = append(warnings, "assets lock content drifted")
+	}
+	if h.Initialized || h.RuntimeMaterialized {
+		if !h.Home.Exists {
+			warnings = append(warnings, "Atlas Home missing: "+h.Home.Path)
+		} else {
+			if !h.Home.Writable {
+				warnings = append(warnings, "Atlas Home not writable: "+h.Home.Path)
+			}
+			if !h.Home.LayoutComplete {
+				warnings = append(warnings, "Atlas Home layout incomplete")
+			}
+			if len(h.Home.MissingAssets) > 0 {
+				warnings = append(warnings, "Atlas Home assets missing")
+			}
+			if len(h.Home.DriftedAssets) > 0 {
+				warnings = append(warnings, "Atlas Home assets drifted")
+			}
+		}
 	}
 	for _, art := range h.ForbiddenArtifacts {
 		if art.Present {

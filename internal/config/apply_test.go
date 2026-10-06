@@ -12,8 +12,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func withTempAtlasHome(t *testing.T) {
+	t.Helper()
+	t.Setenv("ATLAS_HOME", t.TempDir())
+}
+
 func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
-	t.Parallel()
+	withTempAtlasHome(t)
 
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("keep me"), 0o644); err != nil {
@@ -68,6 +73,12 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	wantRuntime := 1 + 2 + len(config.AtlasAgentRuntimePaths([]string{"cursor", "opencode"}))
 	if len(result.RuntimeFiles) != wantRuntime {
 		t.Fatalf("runtime len=%d want=%d files=%#v", len(result.RuntimeFiles), wantRuntime, result.RuntimeFiles)
+	}
+	if result.HomePath == "" {
+		t.Fatal("expected Atlas Home path on apply")
+	}
+	if _, err := os.Stat(filepath.Join(result.HomePath, "state", "home.yaml")); err != nil {
+		t.Fatalf("atlas home state missing: %v", err)
 	}
 
 	cfgPath := filepath.Join(root, ".atlas", "config.yaml")
@@ -189,7 +200,7 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 }
 
 func TestApplyConfig_AgentsOnlyWithoutAdapters(t *testing.T) {
-	t.Parallel()
+	withTempAtlasHome(t)
 
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
@@ -212,7 +223,7 @@ func TestApplyConfig_AgentsOnlyWithoutAdapters(t *testing.T) {
 }
 
 func TestApplyConfig_BacksUpExistingTargets(t *testing.T) {
-	t.Parallel()
+	withTempAtlasHome(t)
 
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# old agents\n"), 0o644); err != nil {
@@ -287,7 +298,7 @@ func TestApplyConfig_BacksUpExistingTargets(t *testing.T) {
 }
 
 func TestApplyConfig_PreservesUserSection(t *testing.T) {
-	t.Parallel()
+	withTempAtlasHome(t)
 
 	root := t.TempDir()
 	existing := "<!-- ATLAS:BASE:BEGIN -->\nold\n<!-- ATLAS:BASE:END -->\n\n" +
@@ -312,7 +323,7 @@ func TestApplyConfig_PreservesUserSection(t *testing.T) {
 }
 
 func TestApplyConfig_BlocksDirectoryTarget(t *testing.T) {
-	t.Parallel()
+	withTempAtlasHome(t)
 
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "AGENTS.md"), 0o755); err != nil {
@@ -330,7 +341,6 @@ func TestApplyConfig_BlocksDirectoryTarget(t *testing.T) {
 }
 
 func TestApplyConfig_RequiresRoot(t *testing.T) {
-	t.Parallel()
 	if _, err := config.ApplyConfig(config.ApplyInput{
 		Draft: config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{ProjectName: "x", ProjectMode: "new"}),
 		MCP:   config.EmptyMCPDraft(),
@@ -340,7 +350,6 @@ func TestApplyConfig_RequiresRoot(t *testing.T) {
 }
 
 func TestPersistConfigure_WritesConfigOnly(t *testing.T) {
-	t.Parallel()
 
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{

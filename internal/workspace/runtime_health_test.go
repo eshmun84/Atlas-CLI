@@ -12,7 +12,6 @@ import (
 )
 
 func TestEvaluateRuntimeHealth_NotInitialized(t *testing.T) {
-	t.Parallel()
 
 	root := t.TempDir()
 	files, err := workspace.DiscoverFiles(root)
@@ -37,7 +36,6 @@ func TestEvaluateRuntimeHealth_NotInitialized(t *testing.T) {
 }
 
 func TestEvaluateRuntimeHealth_InitializedCursor(t *testing.T) {
-	t.Parallel()
 
 	root := materializeProject(t, []string{"cursor"}, true)
 	before := snapshotTree(t, root)
@@ -67,6 +65,9 @@ func TestEvaluateRuntimeHealth_InitializedCursor(t *testing.T) {
 	if !h.AgentRegistryPresent || !h.AgentRegistryMatches || !h.RuntimeManifestPresent || !h.RuntimeManifestMatches {
 		t.Fatalf("registry/manifest health = %#v", h)
 	}
+	if !h.Home.Exists || !h.Home.LayoutComplete || len(h.Home.MissingAssets) != 0 {
+		t.Fatalf("home health = %#v", h.Home)
+	}
 	if !h.ContextGraphReadable || !h.ContextGraphEnabled {
 		t.Fatalf("context graph = readable=%v enabled=%v", h.ContextGraphReadable, h.ContextGraphEnabled)
 	}
@@ -77,7 +78,6 @@ func TestEvaluateRuntimeHealth_InitializedCursor(t *testing.T) {
 }
 
 func TestEvaluateRuntimeHealth_InitializedOpenCode(t *testing.T) {
-	t.Parallel()
 
 	root := materializeProject(t, []string{"opencode"}, true)
 	before := snapshotTree(t, root)
@@ -89,7 +89,6 @@ func TestEvaluateRuntimeHealth_InitializedOpenCode(t *testing.T) {
 }
 
 func TestEvaluateRuntimeHealth_InvalidConfigPartial(t *testing.T) {
-	t.Parallel()
 
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".atlas"), 0o755); err != nil {
@@ -110,7 +109,6 @@ func TestEvaluateRuntimeHealth_InvalidConfigPartial(t *testing.T) {
 }
 
 func TestEvaluateRuntimeHealth_MissingAgentsAndProjection(t *testing.T) {
-	t.Parallel()
 
 	root := materializeProject(t, []string{"cursor"}, true)
 	if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
@@ -137,7 +135,6 @@ func TestEvaluateRuntimeHealth_MissingAgentsAndProjection(t *testing.T) {
 }
 
 func TestEvaluateRuntimeHealth_BrokenMarkers(t *testing.T) {
-	t.Parallel()
 
 	root := materializeProject(t, nil, true)
 	writeFile(t, filepath.Join(root, "AGENTS.md"), "# broken\n<!-- ATLAS:BASE:BEGIN -->\n")
@@ -152,6 +149,8 @@ func TestEvaluateRuntimeHealth_BrokenMarkers(t *testing.T) {
 
 func materializeProject(t *testing.T, adapters []string, contextGraph bool) string {
 	t.Helper()
+	// Unique Atlas Home per test; callers must not use t.Parallel with Setenv.
+	t.Setenv("ATLAS_HOME", t.TempDir())
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName:   "demo",

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/assets"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 )
 
 const (
@@ -216,6 +217,9 @@ func renderAdapterFile(rel, projectName string) string {
 }
 
 func loadAgentsAsset(rel string) (string, error) {
+	if data, err := home.ReadCanonical(rel); err == nil {
+		return string(data), nil
+	}
 	data, err := assets.Content.ReadFile(rel)
 	if err != nil {
 		return "", err

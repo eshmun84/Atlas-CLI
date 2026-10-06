@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/version"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,6 +46,8 @@ type ApplyResult struct {
 	Files        []string
 	RuntimeFiles []string
 	BackupDir    string
+	HomePath     string
+	HomeCreated  bool
 }
 
 // ApplyConfig persists Atlas-owned configuration under .atlas/ and materializes
@@ -69,7 +73,15 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		return ApplyResult{}, err
 	}
 
-	result := ApplyResult{}
+	homeResult, err := home.EnsureAndMirror(now)
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("apply config: %w", err)
+	}
+
+	result := ApplyResult{
+		HomePath:    homeResult.HomePath,
+		HomeCreated: homeResult.Created,
+	}
 	for _, rel := range []string{DirAtlas, DirBackups} {
 		path, err := safeJoinAtlas(root, rel)
 		if err != nil {
@@ -87,11 +99,12 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	}
 	result.BackupDir = backupDir
 
-	registry := RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected)
+	registry := RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected, homeResult.HomePath)
 	manifest, err := RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("apply config: render %s: %w", FileRuntimeManifest, err)
 	}
+	lockDoc := BuildAssetsLockDocumentFor(homeResult.HomePath, doc, version.Version)
 
 	type atlasWrite struct {
 		rel  string
@@ -104,7 +117,7 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	}{
 		{rel: FileConfig, data: doc},
 		{rel: FileLocal, data: BuildLocalDocument(in.Draft)},
-		{rel: FileAssetsLock, data: BuildAssetsLockDocument(doc.Adapters.Selected)},
+		{rel: FileAssetsLock, data: lockDoc},
 	} {
 		payload, marshalErr := marshalYAML(item.data)
 		if marshalErr != nil {

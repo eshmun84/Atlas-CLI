@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 	"gopkg.in/yaml.v3"
 )
@@ -80,9 +81,14 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		return result, nil
 	}
 
+	// Refresh Atlas Home first so project restores use canonical Home content.
+	if _, err := home.EnsureAndMirror(now); err != nil {
+		return result, fmt.Errorf("runtime repair: %w", err)
+	}
+
 	var backupItems []config.ConflictBackup
 	for _, target := range plan.Targets {
-		if target.Backup {
+		if target.Backup && target.Kind != RepairKindHome {
 			backupItems = append(backupItems, config.ConflictBackup{
 				Rel:    target.Path,
 				Action: target.Action,
@@ -119,8 +125,12 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 	for _, target := range plan.Targets {
 		switch target.Action {
 		case RepairActionCreate, RepairActionReplace:
-			if err := writeAtlasRuntimeFile(root, target, doc); err != nil {
-				return result, err
+			if target.Kind == RepairKindHome {
+				// Already refreshed above; record the planned Home action.
+			} else {
+				if err := writeAtlasRuntimeFile(root, target, doc); err != nil {
+					return result, err
+				}
 			}
 			if target.Action == RepairActionCreate {
 				result.Created = append(result.Created, target.Path)
@@ -181,11 +191,13 @@ func renderRepairFile(rel string, doc config.ProjectDocument, existing []byte) (
 	case config.FileOpenCodeAtlas:
 		return config.RenderOpenCodeAtlas(doc.Project.Name), nil
 	case config.FileAgentRegistry:
-		return config.RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected), nil
+		homePath, _ := home.Resolve()
+		return config.RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected, homePath), nil
 	case config.FileRuntimeManifest:
 		return config.RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
 	case config.FileAssetsLock:
-		return config.RenderAssetsLockYAML(doc.Adapters.Selected)
+		homePath, _ := home.Resolve()
+		return config.RenderAssetsLockYAMLFor(homePath, doc)
 	default:
 		if config.IsAtlasAgentRuntimePath(rel) {
 			return config.RenderAtlasAgent(filepath.Base(rel))
@@ -198,7 +210,8 @@ func configValidateWrite(rel string) error {
 	clean := filepath.ToSlash(filepath.Clean(rel))
 	switch clean {
 	case config.FileAgentsMD, config.FileCursorAtlasMDC, config.FileOpenCodeAtlas,
-		config.FileAgentRegistry, config.FileRuntimeManifest, config.FileAssetsLock:
+		config.FileAgentRegistry, config.FileRuntimeManifest, config.FileAssetsLock,
+		RepairHomePath:
 		return nil
 	default:
 		if config.IsAtlasAgentRuntimePath(clean) {

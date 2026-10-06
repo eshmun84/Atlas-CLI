@@ -14,7 +14,6 @@ import (
 )
 
 func TestBuildRuntimeRepairPlan_HealthyNoop(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	result := mustDiscover(t, root)
 	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
@@ -24,7 +23,6 @@ func TestBuildRuntimeRepairPlan_HealthyNoop(t *testing.T) {
 }
 
 func TestBuildRuntimeRepairPlan_BlockedWhenNotInitialized(t *testing.T) {
-	t.Parallel()
 	root := t.TempDir()
 	result := mustDiscover(t, root)
 	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
@@ -34,7 +32,6 @@ func TestBuildRuntimeRepairPlan_BlockedWhenNotInitialized(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_MissingAgents(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
 		t.Fatal(err)
@@ -64,7 +61,6 @@ func TestApplyRuntimeRepair_MissingAgents(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_BrokenMarkersBackupReplace(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	old := "# unmarked local agents\n"
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(old), 0o644); err != nil {
@@ -95,7 +91,6 @@ func TestApplyRuntimeRepair_BrokenMarkersBackupReplace(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_PreservesUserWhenMarkersValid(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("old claude\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -121,7 +116,6 @@ func TestApplyRuntimeRepair_PreservesUserWhenMarkersValid(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_MissingAdapterProjections(t *testing.T) {
-	t.Parallel()
 	cursorRoot := materializeProject(t, []string{"cursor"}, true)
 	if err := os.Remove(filepath.Join(cursorRoot, ".cursor", "rules", "atlas.mdc")); err != nil {
 		t.Fatal(err)
@@ -152,7 +146,6 @@ func TestApplyRuntimeRepair_MissingAdapterProjections(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_NonAtlasProjectionContentReplace(t *testing.T) {
-	t.Parallel()
 
 	cursorRoot := materializeProject(t, []string{"cursor"}, true)
 	oldCursor := "not an atlas cursor projection\n"
@@ -212,7 +205,6 @@ func TestApplyRuntimeRepair_NonAtlasProjectionContentReplace(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_MatchingProjectionIsNoop(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	if !plan.Healthy {
@@ -221,7 +213,6 @@ func TestApplyRuntimeRepair_MatchingProjectionIsNoop(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_RejectsStalePlan(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
 		t.Fatal(err)
@@ -255,7 +246,6 @@ func TestApplyRuntimeRepair_RejectsStalePlan(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_QuarantinesCompetingArtifacts(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("claude\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -320,7 +310,6 @@ func TestApplyRuntimeRepair_QuarantinesCompetingArtifacts(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_HealthyNoopDoesNotMutate(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	before := snapshotTree(t, root)
 	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
@@ -334,7 +323,6 @@ func TestApplyRuntimeRepair_HealthyNoopDoesNotMutate(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_DoesNotCreateUnselectedAdapters(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	applyRepair(t, root, plan.Signature(), nil)
@@ -344,7 +332,6 @@ func TestApplyRuntimeRepair_DoesNotCreateUnselectedAdapters(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_MissingBaseBlock(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	broken := "<!-- ATLAS:USER:BEGIN -->\nkeep me\n<!-- ATLAS:USER:END -->\n"
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(broken), 0o644); err != nil {
@@ -375,7 +362,6 @@ func TestApplyRuntimeRepair_MissingBaseBlock(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_MissingSelectedAdapterBlock(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	baseOnly := config.RenderAgentsMD("demo", true, nil, []byte(
 		config.AgentsUserBegin+"\nuser note\n"+config.AgentsUserEnd,
@@ -402,7 +388,6 @@ func TestApplyRuntimeRepair_MissingSelectedAdapterBlock(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_DriftedSelectedAdapterBlock(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
 	if err != nil {
@@ -435,7 +420,6 @@ func TestApplyRuntimeRepair_DriftedSelectedAdapterBlock(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_RemovesUnselectedAdapterBlock(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	both := config.RenderAgentsMD("demo", true, []string{"cursor", "opencode"}, []byte(
 		config.AgentsUserBegin+"\nstay\n"+config.AgentsUserEnd,
@@ -465,7 +449,6 @@ func TestApplyRuntimeRepair_RemovesUnselectedAdapterBlock(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_RestoresMissingAndDriftedAtlasAgents(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	missing := filepath.Join(root, ".cursor", "agents", "atlas-orchestrator.md")
 	if err := os.Remove(missing); err != nil {
@@ -502,7 +485,6 @@ func TestApplyRuntimeRepair_RestoresMissingAndDriftedAtlasAgents(t *testing.T) {
 }
 
 func TestApplyRuntimeRepair_DoesNotTouchDeveloperAgents(t *testing.T) {
-	t.Parallel()
 	root := materializeProject(t, []string{"cursor"}, true)
 	external := filepath.Join(root, ".cursor", "agents", "my-helper.md")
 	if err := os.WriteFile(external, []byte("developer owned\n"), 0o644); err != nil {

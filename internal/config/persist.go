@@ -141,8 +141,20 @@ type StateDocument struct {
 
 // AssetsLockDocument is .atlas/assets.lock.yaml for Atlas-owned runtime assets.
 type AssetsLockDocument struct {
-	SchemaVersion int      `yaml:"schema_version"`
-	Assets        []string `yaml:"assets"`
+	SchemaVersion int               `yaml:"schema_version"`
+	HomePath      string            `yaml:"home_path,omitempty"`
+	Assets        []AssetsLockEntry `yaml:"assets"`
+}
+
+// AssetsLockEntry records one Atlas-owned asset with optional Home and project paths.
+type AssetsLockEntry struct {
+	ID           string   `yaml:"id"`
+	Family       string   `yaml:"family"`
+	Source       string   `yaml:"source"`
+	Version      string   `yaml:"version,omitempty"`
+	Checksum     string   `yaml:"checksum,omitempty"`
+	HomePath     string   `yaml:"home_path,omitempty"`
+	ProjectPaths []string `yaml:"project_paths,omitempty"`
 }
 
 // IsProjectDocument reports whether the YAML looks like persisted init config.
@@ -256,16 +268,10 @@ func boolPtr(v bool) *bool {
 	return &v
 }
 
-// BuildAssetsLockDocument returns the lock of Atlas-owned materialized assets.
+// BuildAssetsLockDocument is kept for callers that only know selected adapters.
+// Prefer BuildAssetsLockDocumentFor which includes Home metadata and checksums.
 func BuildAssetsLockDocument(selected []string) AssetsLockDocument {
-	assets := AtlasOwnedAssetPaths(selected)
-	if assets == nil {
-		assets = []string{}
-	}
-	return AssetsLockDocument{
-		SchemaVersion: PersistSchemaVersion,
-		Assets:        assets,
-	}
+	return BuildAssetsLockDocumentFor("", ProjectDocument{Adapters: AdaptersPersist{Selected: selected}}, "")
 }
 
 // ValidateProjectDocument checks persisted config.yaml before write/load.

@@ -24,8 +24,12 @@ const (
 	RepairKindAdapter  = "adapter"
 	RepairKindAgent    = "agent"
 	RepairKindAtlas    = "atlas"
+	RepairKindHome     = "home"
 	RepairKindConflict = "conflict"
 )
+
+// RepairHomePath is the plan path marker for Atlas Home refresh actions.
+const RepairHomePath = "ATLAS_HOME"
 
 var competingRuntimeRoots = []string{
 	"AGENT.md",
@@ -263,6 +267,27 @@ func BuildRuntimeRepairPlan(root string, health RuntimeHealth) RuntimeRepairPlan
 	addAtlasSurfaceRepair(&plan, health.AgentRegistryPresent, health.AgentRegistryMatches, config.FileAgentRegistry, "agent registry")
 	addAtlasSurfaceRepair(&plan, health.RuntimeManifestPresent, health.RuntimeManifestMatches, config.FileRuntimeManifest, "runtime manifest")
 	addAtlasSurfaceRepair(&plan, health.AssetsLockPresent, health.AssetsLockMatches, config.FileAssetsLock, "assets lock")
+
+	if health.Initialized || health.RuntimeMaterialized {
+		switch {
+		case !health.Home.Exists:
+			addRepairTarget(&plan, RuntimeRepairTarget{
+				Path:   RepairHomePath,
+				Action: RepairActionCreate,
+				Kind:   RepairKindHome,
+				Reason: "Atlas Home missing",
+			})
+			plan.Drift = append(plan.Drift, "Atlas Home missing: "+health.Home.Path)
+		case !health.Home.LayoutComplete || len(health.Home.MissingAssets) > 0 || len(health.Home.DriftedAssets) > 0:
+			addRepairTarget(&plan, RuntimeRepairTarget{
+				Path:   RepairHomePath,
+				Action: RepairActionReplace,
+				Kind:   RepairKindHome,
+				Reason: "Atlas Home assets missing or drifted",
+			})
+			plan.Drift = append(plan.Drift, "Atlas Home needs refresh: "+health.Home.Path)
+		}
+	}
 
 	if !selected["cursor"] && exists(root, ".cursor") {
 		addRepairTarget(&plan, RuntimeRepairTarget{

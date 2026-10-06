@@ -27,6 +27,15 @@ func main() {
 }
 
 func run() error {
+	homeDir, err := os.MkdirTemp(smokeTempBase(), "atlas-home-smoke-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(homeDir)
+	if err := os.Setenv("ATLAS_HOME", homeDir); err != nil {
+		return err
+	}
+
 	steps := []struct {
 		name string
 		fn   func() error
@@ -34,9 +43,11 @@ func run() error {
 		{"cli routes (no console reports)", checkCLIRoutes},
 		{"fresh non-Atlas project", checkFreshProject},
 		{"init materialization happy path", checkInitHappyPath},
+		{"atlas home mirrored on init", checkAtlasHome},
 		{"initialized Cursor project", checkCursorProject},
 		{"initialized OpenCode project", checkOpenCodeProject},
 		{"status + doctor surfaces", checkStatusDoctor},
+		{"status/doctor do not create atlas home", checkStatusDoctorNoHomeCreate},
 		{"runtime repair healthy no-op", checkRepairHealthyNoop},
 		{"runtime repair missing AGENTS.md", checkRepairMissingAgents},
 		{"runtime repair missing adapter projection", checkRepairMissingProjection},
@@ -141,6 +152,78 @@ func checkInitHappyPath() error {
 	}
 	if !result.Runtime.AgentRegistryMatches || !result.Runtime.RuntimeManifestMatches {
 		return fmt.Errorf("registry/manifest unhealthy: %#v", result.Runtime)
+	}
+	agentsText, err := os.ReadFile(filepath.Join(root, config.FileAgentRegistry))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(agentsText), "Atlas Home:") {
+		return fmt.Errorf("agent registry missing Atlas Home reference")
+	}
+	lockText, err := os.ReadFile(filepath.Join(root, config.FileAssetsLock))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(lockText), "home_path:") || !strings.Contains(string(lockText), "checksum:") {
+		return fmt.Errorf("assets.lock missing home/checksum metadata")
+	}
+	return nil
+}
+
+func checkAtlasHome() error {
+	homeDir := os.Getenv("ATLAS_HOME")
+	if homeDir == "" {
+		return fmt.Errorf("ATLAS_HOME unset")
+	}
+	root, err := materialize([]string{"cursor"}, true)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+
+	for _, dir := range []string{"assets", "agents", "skills", "rules", "templates", "adapters", "state"} {
+		if info, err := os.Stat(filepath.Join(homeDir, dir)); err != nil || !info.IsDir() {
+			return fmt.Errorf("home layout missing %s: %v", dir, err)
+		}
+	}
+	for _, rel := range []string{
+		"assets/agents/base.md",
+		"assets/agents/adapters/cursor.md",
+		"assets/agents/runtime/atlas-orchestrator.md",
+		"assets/adapter-files/cursor/atlas.mdc",
+		"agents/atlas-orchestrator.md",
+		"adapters/cursor/atlas.mdc",
+		"state/home.yaml",
+	} {
+		if _, err := os.Stat(filepath.Join(homeDir, rel)); err != nil {
+			return fmt.Errorf("home asset missing %s: %w", rel, err)
+		}
+	}
+	return nil
+}
+
+func checkStatusDoctorNoHomeCreate() error {
+	prev := os.Getenv("ATLAS_HOME")
+	missing := filepath.Join(smokeTempBase(), "atlas-home-should-stay-missing")
+	_ = os.RemoveAll(missing)
+	if err := os.Setenv("ATLAS_HOME", missing); err != nil {
+		return err
+	}
+	defer func() { _ = os.Setenv("ATLAS_HOME", prev) }()
+
+	root, err := os.MkdirTemp(smokeTempBase(), "atlas-smoke-readonly-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+	result, err := workspace.Discover(root)
+	if err != nil {
+		return err
+	}
+	_ = doctor.Evaluate(result)
+	_ = screens.Status(result)
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		return fmt.Errorf("status/doctor created Atlas Home at %s", missing)
 	}
 	return nil
 }

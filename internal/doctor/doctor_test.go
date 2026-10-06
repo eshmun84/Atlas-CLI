@@ -2,10 +2,12 @@ package doctor_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
@@ -318,9 +320,18 @@ func healthyRuntime() workspace.RuntimeHealth {
 		RuntimeManifestMatches: true,
 		AssetsLockPresent:      true,
 		AssetsLockMatches:      true,
-		ContextGraphEnabled:    true,
-		ContextGraphReadable:   true,
-		BackupsDirExists:       true,
+		Home: home.Status{
+			Path:           "/tmp/atlas-home-test",
+			Exists:         true,
+			Writable:       true,
+			LayoutComplete: true,
+			StatePresent:   true,
+			StateLoads:     true,
+			AssetCount:     len(home.BundledAssets()),
+		},
+		ContextGraphEnabled:  true,
+		ContextGraphReadable: true,
+		BackupsDirExists:     true,
 		ForbiddenArtifacts: []workspace.ForbiddenArtifactStatus{
 			{Path: "CLAUDE.md", Present: false},
 			{Path: "GEMINI.md", Present: false},
@@ -328,6 +339,14 @@ func healthyRuntime() workspace.RuntimeHealth {
 			{Path: ".claude", Present: false},
 		},
 	}
+}
+
+func TestEvaluate_HomePathReported(t *testing.T) {
+	t.Parallel()
+	rt := healthyRuntime()
+	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	assertHas(t, report, doctor.SeverityPass, "atlas home path", rt.Home.Path)
+	assertHas(t, report, doctor.SeverityPass, "atlas home assets", fmt.Sprintf("%d mirrored", len(home.BundledAssets())))
 }
 
 func assertHas(t *testing.T, report doctor.Report, severity doctor.Severity, name, message string) {

@@ -27,6 +27,13 @@ func Status(result workspace.DiscoveryResult) string {
 	fmt.Fprintf(&b, "  Root: %s\n", result.RootPath)
 	fmt.Fprintf(&b, "  Atlas state: %s\n\n", result.Atlas.State)
 
+	fmt.Fprintln(&b, statusHead.Render("Atlas Home"))
+	fmt.Fprintf(&b, "  Path: %s\n", displayOrUnknown(rt.Home.Path))
+	fmt.Fprintf(&b, "  Present: %s\n", yesNo(rt.Home.Exists))
+	fmt.Fprintf(&b, "  Writable: %s\n", yesNo(rt.Home.Writable))
+	fmt.Fprintf(&b, "  Layout: %s\n", homeLayoutStatus(rt))
+	fmt.Fprintf(&b, "  Assets: %s\n\n", homeAssetsStatus(rt))
+
 	fmt.Fprintln(&b, statusHead.Render("Atlas Runtime"))
 	fmt.Fprintf(&b, "  Initialized: %s\n", yesNo(rt.Initialized))
 	fmt.Fprintf(&b, "  .atlas/config.yaml: %s\n", configStatus(rt))
@@ -164,6 +171,30 @@ func availability(available bool) string {
 		return statusYes.Render("available")
 	}
 	return statusNo.Render("unavailable")
+}
+
+func homeLayoutStatus(rt workspace.RuntimeHealth) string {
+	if !rt.Home.Exists {
+		return statusNo.Render("n/a")
+	}
+	if rt.Home.LayoutComplete {
+		return statusYes.Render("complete")
+	}
+	return statusFail.Render("incomplete")
+}
+
+func homeAssetsStatus(rt workspace.RuntimeHealth) string {
+	if !rt.Home.Exists {
+		return statusNo.Render("missing home")
+	}
+	switch {
+	case len(rt.Home.MissingAssets) > 0:
+		return statusFail.Render(fmt.Sprintf("%d missing", len(rt.Home.MissingAssets)))
+	case len(rt.Home.DriftedAssets) > 0:
+		return statusFail.Render(fmt.Sprintf("%d drifted", len(rt.Home.DriftedAssets)))
+	default:
+		return statusYes.Render("ok")
+	}
 }
 
 func configStatus(rt workspace.RuntimeHealth) string {

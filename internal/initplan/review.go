@@ -197,7 +197,8 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 
 	plan.Warnings = []PlanWarning{
 		{Message: "Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files."},
-		{Message: "AGENTS.md is the project authority; Atlas agents are cataloged in .atlas/agent-registry.md."},
+		{Message: "Apply creates/updates Atlas Home (ATLAS_HOME or ~/.atlas) and mirrors bundled Atlas-owned assets."},
+		{Message: "AGENTS.md is the project authority; Atlas agents are cataloged in .atlas/agent-registry.md with Home source paths."},
 		{Message: "Skills remain registry-first; this slice does not vendor skills into adapter skill folders."},
 		{Message: "Context Graph is a preference/context aid only; no graph engine, database, embeddings, index, capsules, or packs."},
 		{Message: "Cursor/OpenCode entrypoints point at AGENTS.md and atlas-orchestrator; they must not bypass AGENTS.md."},

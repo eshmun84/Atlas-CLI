@@ -1036,6 +1036,7 @@ func TestShellViews(t *testing.T) {
 }
 
 func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
+	t.Setenv("ATLAS_HOME", t.TempDir())
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName:    "demo",
@@ -1059,6 +1060,7 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 	})
 	view := status.View()
 	for _, want := range []string{
+		"Atlas Home",
 		"Atlas Runtime",
 		"Initialized",
 		"runtime_materialized",
@@ -1076,7 +1078,7 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	docView := doc.View()
-	for _, want := range []string{"PASS", "atlas config", "agents markers", "adapter projection cursor"} {
+	for _, want := range []string{"PASS", "atlas config", "agents markers", "adapter projection cursor", "atlas home"} {
 		if !strings.Contains(docView, want) {
 			t.Fatalf("doctor missing %q:\n%s", want, docView)
 		}
@@ -1088,6 +1090,7 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 }
 
 func TestRuntimeRepairTUIApplyAndNoAutoMutation(t *testing.T) {
+	t.Setenv("ATLAS_HOME", t.TempDir())
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName:    "demo",
@@ -2251,8 +2254,9 @@ func assertShell(t *testing.T, view, contentTitle string) {
 			t.Fatalf("missing %q in view:\n%s", want, view)
 		}
 	}
-	// Reject old placeholder sidebar entries only (not "Initial Configuration" copy).
-	if strings.Contains(view, "› Configuration") || strings.Contains(view, "  Configuration ") || strings.Contains(view, "Assets") {
+	// Reject old placeholder sidebar entries only (not status "Assets:" copy).
+	if strings.Contains(view, "› Configuration") || strings.Contains(view, "  Configuration ") ||
+		strings.Contains(view, "› Assets") || strings.Contains(view, "  Assets ") {
 		t.Fatalf("ghost entries in view:\n%s", view)
 	}
 }

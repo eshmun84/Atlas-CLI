@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
@@ -62,6 +63,7 @@ func Evaluate(result workspace.DiscoveryResult) Report {
 	}
 
 	checks = append(checks, evaluateRuntime(result.Runtime)...)
+	checks = append(checks, evaluateHome(result.Runtime)...)
 
 	for _, tool := range result.Tools {
 		if tool.Available {
@@ -380,6 +382,125 @@ func evaluateRuntime(h workspace.RuntimeHealth) []Check {
 			Name:     "forbidden artifacts",
 			Message:  "CLAUDE.md, GEMINI.md, .agents/, .claude/ absent",
 		})
+	}
+
+	return checks
+}
+
+func evaluateHome(h workspace.RuntimeHealth) []Check {
+	var checks []Check
+	homePath := strings.TrimSpace(h.Home.Path)
+	if homePath == "" {
+		checks = append(checks, Check{
+			Severity: SeverityWarn,
+			Name:     "atlas home path",
+			Message:  "unresolved",
+		})
+		return checks
+	}
+	checks = append(checks, Check{
+		Severity: SeverityPass,
+		Name:     "atlas home path",
+		Message:  homePath,
+	})
+
+	depends := h.Initialized || h.RuntimeMaterialized
+	switch {
+	case !h.Home.Exists && depends:
+		checks = append(checks, Check{
+			Severity: SeverityFail,
+			Name:     "atlas home",
+			Message:  "missing",
+		})
+	case !h.Home.Exists:
+		checks = append(checks, Check{
+			Severity: SeverityWarn,
+			Name:     "atlas home",
+			Message:  "not created yet",
+		})
+	default:
+		checks = append(checks, Check{
+			Severity: SeverityPass,
+			Name:     "atlas home",
+			Message:  "present",
+		})
+	}
+
+	switch {
+	case !h.Home.Exists:
+		// writability of a missing home is advisory via ancestor bits
+		if !h.Home.Writable && depends {
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "atlas home writable",
+				Message:  "parent path not writable",
+			})
+		} else if h.Home.Writable {
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "atlas home writable",
+				Message:  "parent path writable",
+			})
+		}
+	case !h.Home.Writable:
+		sev := SeverityWarn
+		if depends {
+			sev = SeverityFail
+		}
+		checks = append(checks, Check{
+			Severity: sev,
+			Name:     "atlas home writable",
+			Message:  "not writable",
+		})
+	default:
+		checks = append(checks, Check{
+			Severity: SeverityPass,
+			Name:     "atlas home writable",
+			Message:  "writable",
+		})
+	}
+
+	if h.Home.Exists {
+		if h.Home.LayoutComplete {
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "atlas home layout",
+				Message:  "complete",
+			})
+		} else {
+			sev := SeverityWarn
+			if depends {
+				sev = SeverityFail
+			}
+			checks = append(checks, Check{
+				Severity: sev,
+				Name:     "atlas home layout",
+				Message:  "incomplete",
+			})
+		}
+	}
+
+	if depends && h.Home.Exists {
+		switch {
+		case len(h.Home.MissingAssets) > 0:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "atlas home assets",
+				Message:  fmt.Sprintf("%d missing", len(h.Home.MissingAssets)),
+			})
+		case len(h.Home.DriftedAssets) > 0:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "atlas home assets",
+				Message:  fmt.Sprintf("%d drifted", len(h.Home.DriftedAssets)),
+			})
+		default:
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "atlas home assets",
+				Message:  fmt.Sprintf("%d mirrored", len(home.BundledAssets())),
+			})
+		}
 	}
 
 	return checks
