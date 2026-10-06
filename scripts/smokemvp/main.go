@@ -1,6 +1,6 @@
-// Command smokemvp exercises Atlas MVP lower-level flows in temporary
+// Command smokemvp exercises Atlas Alpha lower-level flows in temporary
 // workspaces. It is invoked by scripts/smoke-mvp.sh and never writes into
-// the Atlas repository root.
+// the Atlas repository root. Callers must set ATLAS_HOME to a temporary path.
 package main
 
 import (
@@ -10,10 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eshmun84/Atlas-CLI/internal/assets"
 	"github.com/eshmun84/Atlas-CLI/internal/cli"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/tui"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
@@ -28,13 +30,15 @@ func main() {
 }
 
 func run() error {
-	homeDir, err := os.MkdirTemp(smokeTempBase(), "atlas-home-smoke-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(homeDir)
-	if err := os.Setenv("ATLAS_HOME", homeDir); err != nil {
-		return err
+	if strings.TrimSpace(os.Getenv("ATLAS_HOME")) == "" {
+		homeDir, err := os.MkdirTemp(smokeTempBase(), "atlas-home-smoke-*")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(homeDir)
+		if err := os.Setenv("ATLAS_HOME", homeDir); err != nil {
+			return err
+		}
 	}
 
 	steps := []struct {
@@ -43,10 +47,14 @@ func run() error {
 	}{
 		{"cli routes (no console reports)", checkCLIRoutes},
 		{"fresh non-Atlas project", checkFreshProject},
-		{"init materialization happy path", checkInitHappyPath},
+		{"init fresh project (mode=new)", checkInitFreshNew},
+		{"init existing project (mode=existing)", checkInitExisting},
+		{"init Cursor+OpenCode happy path", checkInitHappyPath},
 		{"atlas home mirrored on init", checkAtlasHome},
+		{"ATLAS_HOME isolates default ~/.atlas", checkDefaultHomeUntouched},
 		{"initialized Cursor project", checkCursorProject},
 		{"initialized OpenCode project", checkOpenCodeProject},
+		{"developer-owned files preserved", checkDeveloperOwnedPreserved},
 		{"status + doctor surfaces", checkStatusDoctor},
 		{"status/doctor do not create atlas home", checkStatusDoctorNoHomeCreate},
 		{"runtime repair healthy no-op", checkRepairHealthyNoop},
@@ -115,12 +123,34 @@ func checkFreshProject() error {
 	return nil
 }
 
+func checkInitFreshNew() error {
+	root, err := materializeMode([]string{"cursor"}, true, "new")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+	return assertRuntimeReady(root)
+}
+
+func checkInitExisting() error {
+	root, err := materializeMode([]string{"opencode"}, true, "existing")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+	return assertRuntimeReady(root)
+}
+
 func checkInitHappyPath() error {
 	root, err := materialize([]string{"cursor", "opencode"}, true)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(root)
+
+	if got := len(assets.AtlasAgentFilenames); got != 14 {
+		return fmt.Errorf("expected 14 Atlas agents in pack, got %d", got)
+	}
 
 	for _, rel := range []string{
 		config.FileConfig,
@@ -139,7 +169,11 @@ func checkInitHappyPath() error {
 			return fmt.Errorf("missing %s: %w", rel, err)
 		}
 	}
-	for _, path := range config.AtlasAgentRuntimePaths([]string{"cursor", "opencode"}) {
+	agentPaths := config.AtlasAgentRuntimePaths([]string{"cursor", "opencode"})
+	if want := 14 * 2; len(agentPaths) != want {
+		return fmt.Errorf("expected %d agent runtime paths, got %d", want, len(agentPaths))
+	}
+	for _, path := range agentPaths {
 		if _, err := os.Stat(filepath.Join(root, path)); err != nil {
 			return fmt.Errorf("missing atlas agent %s: %w", path, err)
 		}
@@ -201,6 +235,14 @@ func checkAtlasHome() error {
 	}
 	defer os.RemoveAll(root)
 
+	resolved, err := home.Resolve()
+	if err != nil {
+		return err
+	}
+	if filepath.Clean(resolved) != filepath.Clean(homeDir) {
+		return fmt.Errorf("home.Resolve=%q want ATLAS_HOME=%q", resolved, homeDir)
+	}
+
 	for _, dir := range []string{"assets", "agents", "skills", "rules", "templates", "adapters", "contracts", "context", "state"} {
 		if info, err := os.Stat(filepath.Join(homeDir, dir)); err != nil || !info.IsDir() {
 			return fmt.Errorf("home layout missing %s: %v", dir, err)
@@ -222,6 +264,135 @@ func checkAtlasHome() error {
 		}
 	}
 	return nil
+}
+
+func checkDefaultHomeUntouched() error {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	defaultHome := filepath.Join(userHome, home.DefaultDirName)
+	before, err := snapshotOptionalTree(defaultHome)
+	if err != nil {
+		return err
+	}
+
+	root, err := materialize([]string{"cursor", "opencode"}, true)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+
+	objective := "smoke isolation"
+	result, err := workspace.Discover(root)
+	if err != nil {
+		return err
+	}
+	plan := atlascontext.BuildUpdatePlan(root, true, result.Runtime.State, objective)
+	if plan.NeedsApply() {
+		if _, err := atlascontext.ApplyUpdate(root, plan.Signature(), result.Runtime.State, objective, fixedNow(2026, 10, 6, 19, 0, 0)); err != nil {
+			return err
+		}
+	}
+
+	after, err := snapshotOptionalTree(defaultHome)
+	if err != nil {
+		return err
+	}
+	if len(before) != len(after) {
+		return fmt.Errorf("default ~/.atlas tree size changed while ATLAS_HOME set")
+	}
+	for path, content := range before {
+		if after[path] != content {
+			return fmt.Errorf("default ~/.atlas mutated at %s while ATLAS_HOME set", path)
+		}
+	}
+	atlasHome := os.Getenv("ATLAS_HOME")
+	if atlasHome == "" {
+		return fmt.Errorf("ATLAS_HOME unset")
+	}
+	if _, err := os.Stat(filepath.Join(atlasHome, "state", "home.yaml")); err != nil {
+		return fmt.Errorf("expected writes under ATLAS_HOME: %w", err)
+	}
+	return nil
+}
+
+func checkDeveloperOwnedPreserved() error {
+	root, err := os.MkdirTemp(smokeTempBase(), "atlas-smoke-owned-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+
+	owned := map[string]string{
+		"README.md":  "# developer readme\n",
+		".gitignore": "bin/\n.tmp/\n",
+		"notes.txt":  "keep\n",
+	}
+	for rel, body := range owned {
+		if err := os.WriteFile(filepath.Join(root, rel), []byte(body), 0o644); err != nil {
+			return err
+		}
+	}
+	external := filepath.Join(root, ".cursor", "agents", "external-helper.md")
+	if err := os.MkdirAll(filepath.Dir(external), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(external, []byte("external keep\n"), 0o644); err != nil {
+		return err
+	}
+
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:   "owned",
+		ProjectMode:   "existing",
+		DefaultRemote: "origin",
+	})
+	for _, adapter := range []string{"cursor", "opencode"} {
+		if !draft.ToggleMulti("adapters.selected", adapter) {
+			return fmt.Errorf("toggle adapter %s", adapter)
+		}
+	}
+	if _, err := config.ApplyConfig(config.ApplyInput{
+		Root:  root,
+		Draft: draft,
+		MCP:   config.EmptyMCPDraft(),
+		Now:   fixedNow(2026, 10, 5, 12, 30, 0),
+	}); err != nil {
+		return err
+	}
+
+	// Drift an Atlas agent so Repair must rewrite Atlas-owned files only.
+	if err := os.WriteFile(filepath.Join(root, ".cursor", "agents", "atlas-worker.md"), []byte("drift\n"), 0o644); err != nil {
+		return err
+	}
+	result, err := workspace.Discover(root)
+	if err != nil {
+		return err
+	}
+	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	if !plan.NeedsApply() {
+		return fmt.Errorf("expected repair for agent drift")
+	}
+	if _, err := workspace.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 12, 31, 0)); err != nil {
+		return err
+	}
+
+	for rel, body := range owned {
+		got, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil || string(got) != body {
+			return fmt.Errorf("developer-owned %s mutated: %q err=%v", rel, got, err)
+		}
+	}
+	ext, err := os.ReadFile(external)
+	if err != nil || string(ext) != "external keep\n" {
+		return fmt.Errorf("external agent mutated: %q err=%v", ext, err)
+	}
+	for _, forbidden := range []string{"CLAUDE.md", "GEMINI.md", ".agents", ".claude"} {
+		if _, err := os.Stat(filepath.Join(root, forbidden)); !os.IsNotExist(err) {
+			return fmt.Errorf("forbidden path unexpectedly present: %s", forbidden)
+		}
+	}
+	return assertRuntimeReady(root)
 }
 
 func checkStatusDoctorNoHomeCreate() error {
@@ -683,13 +854,21 @@ func checkRepairStalePlan() error {
 }
 
 func materialize(adapters []string, contextGraph bool) (string, error) {
+	return materializeMode(adapters, contextGraph, "existing")
+}
+
+func materializeMode(adapters []string, contextGraph bool, projectMode string) (string, error) {
 	root, err := os.MkdirTemp(smokeTempBase(), "atlas-smoke-*")
 	if err != nil {
 		return "", err
 	}
+	mode := strings.TrimSpace(projectMode)
+	if mode == "" {
+		mode = "existing"
+	}
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName:   "smoke",
-		ProjectMode:   "existing",
+		ProjectMode:   mode,
 		DefaultRemote: "origin",
 	})
 	for _, adapter := range adapters {
@@ -714,6 +893,20 @@ func materialize(adapters []string, contextGraph bool) (string, error) {
 		return "", err
 	}
 	return root, nil
+}
+
+func snapshotOptionalTree(root string) (map[string]string, error) {
+	info, err := os.Stat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]string{}, nil
+		}
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a directory", root)
+	}
+	return snapshotPaths(root)
 }
 
 func assertRuntimeReady(root string) error {

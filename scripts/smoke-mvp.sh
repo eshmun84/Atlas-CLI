@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Atlas MVP release-readiness smoke.
-# Automates build, version, CLI routing, init/materialization, status/doctor
-# surfaces, and runtime repair lower-level flows in temporary workspaces.
+# Atlas Alpha release-readiness smoke.
+# Automates build, local install (temp PREFIX), version, CLI routing,
+# init/materialization, Atlas Home, Context Economy, status/doctor,
+# and runtime repair in temporary workspaces with ATLAS_HOME isolation.
 # Interactive TUI navigation is listed as manual steps at the end.
 set -euo pipefail
 
@@ -41,11 +42,17 @@ mkdir -p "$SMOKE_TMP"
 trap 'rm -rf "$SMOKE_TMP"' EXIT
 export ATLAS_SMOKE_TMP="$SMOKE_TMP"
 
+# Isolate Atlas Home for the whole smoke suite (including focused package tests).
+SMOKE_ATLAS_HOME="$SMOKE_TMP/atlas-home"
+mkdir -p "$SMOKE_ATLAS_HOME"
+export ATLAS_HOME="$SMOKE_ATLAS_HOME"
+
 require_cmd go
 require_cmd make
 
-log "== Atlas MVP smoke =="
+log "== Atlas Alpha smoke =="
 log "repo: $ROOT"
+log "ATLAS_HOME: $ATLAS_HOME"
 log
 
 log "-- build --"
@@ -61,6 +68,26 @@ if [[ ! -x "$BINARY" ]]; then
   exit 1
 fi
 ok "binary present ($BINARY)"
+
+log
+log "-- local install (temporary PREFIX) --"
+SMOKE_PREFIX="$SMOKE_TMP/prefix"
+if PREFIX="$SMOKE_PREFIX" make install; then
+  ok "make install PREFIX=$SMOKE_PREFIX"
+else
+  bad "make install"
+fi
+INSTALLED="$SMOKE_PREFIX/bin/atlas"
+if [[ -x "$INSTALLED" ]]; then
+  installed_ver="$("$INSTALLED" --version 2>/dev/null | tr -d '\r' | sed -e 's/[[:space:]]*$//')"
+  if [[ -n "$installed_ver" ]]; then
+    ok "installed binary --version => $installed_ver"
+  else
+    bad "installed binary --version empty"
+  fi
+else
+  bad "installed binary missing: $INSTALLED"
+fi
 
 log
 log "-- atlas --version --"
@@ -90,7 +117,7 @@ else
 fi
 
 log
-log "-- lower-level MVP matrix (temp workspaces) --"
+log "-- lower-level Alpha matrix (temp workspaces + ATLAS_HOME) --"
 if go run ./scripts/smokemvp; then
   ok "scripts/smokemvp helper"
 else
@@ -99,7 +126,7 @@ fi
 
 log
 log "-- focused package regression --"
-if go test ./internal/config/ ./internal/workspace/ ./internal/doctor/ ./internal/tui/ ./internal/tui/screens/ -count=1; then
+if go test ./internal/config/ ./internal/workspace/ ./internal/doctor/ ./internal/home/ ./internal/context/ ./internal/tui/ ./internal/tui/screens/ -count=1; then
   ok "focused package tests"
 else
   bad "focused package tests"
@@ -129,18 +156,39 @@ fi
 
 cat <<'EOF'
 
-Manual TUI smoke (not automated — requires an interactive terminal):
+Manual TUI / Alpha smoke (not fully automated — requires an interactive terminal):
 
-  1. From a non-Atlas project directory: run `atlas` → Dashboard loads.
-  2. `atlas init` → complete Init Step 1–3 → Apply config → confirm
-     `.atlas/`, `AGENTS.md`, and selected adapter projections exist.
-  3. After init: sidebar shows Configure, Status, Doctor, Runtime Repair.
-  4. `atlas status` / `atlas doctor` open TUI screens (no console reports).
-  5. Runtime Repair → Review healthy workspace → Apply is a no-op.
-  6. Delete `AGENTS.md` or a selected projection → Repair recreates them.
-  7. Introduce `CLAUDE.md` / broken markers → Repair backups then quarantines.
-  8. `atlas start` / `atlas change` / `atlas mcp` → Error dialog (unsupported).
-  9. Confirm Atlas repo root still has no generated runtime artifacts.
+  Use a temporary project and ATLAS_HOME so ~/.atlas is never touched:
+
+    export ATLAS_HOME=/tmp/atlas-home-test-22
+    rm -rf "$ATLAS_HOME"
+    mkdir -p /tmp/atlas-alpha-project && cd /tmp/atlas-alpha-project
+    # from Atlas repo: make build && ./bin/atlas …
+    # or: make install PREFIX="$HOME/.local" && atlas …
+
+  1. `atlas` → Dashboard loads (TUI-first).
+  2. `atlas init` → Init Step 1–3 → select Cursor + OpenCode → Apply.
+  3. Verify project files:
+       AGENTS.md
+       .cursor/rules/atlas.mdc
+       .opencode/atlas.md
+       14 agents under .cursor/agents/ and .opencode/agents/
+       .atlas/agent-registry.md
+       .atlas/runtime-manifest.yaml
+       .atlas/assets.lock.yaml
+       .atlas/contracts/sdd-openspec.md
+  4. Sidebar shows Configure, Status, Doctor, Runtime Repair, Context Economy.
+  5. Context Economy → Review → Apply Update → verify
+       $ATLAS_HOME/context/projects/<id>/{index.yaml,capsule.md,packs/…}
+       and .atlas/state.yaml refs. No product-repo context/ directory.
+  6. `atlas status` / `atlas doctor` are read-only (no mutation, no Home create).
+  7. Runtime Repair healthy → Apply is a no-op.
+  8. Drift an Atlas agent or delete the SDD contract → Repair restores;
+     developer-owned files (README, external agents) stay preserved;
+     Context Economy payloads under Atlas Home stay intact.
+  9. `atlas start` / `atlas change` / `atlas mcp` → Error dialog (unsupported).
+ 10. Confirm ~/.atlas was not written while ATLAS_HOME was set.
+ 11. Confirm Atlas repo root still has no generated runtime artifacts.
 
 EOF
 
