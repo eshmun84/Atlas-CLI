@@ -137,6 +137,12 @@ type StateDocument struct {
 	AppliedAt                string   `yaml:"applied_at"`
 	AtlasVersion             string   `yaml:"atlas_version"`
 	ProjectName              string   `yaml:"project_name"`
+
+	// Minimal Context Economy v0 references (payload lives under Atlas Home).
+	ContextEconomyUpdatedAt   string `yaml:"context_economy_updated_at,omitempty"`
+	ContextEconomyProjectID   string `yaml:"context_economy_project_id,omitempty"`
+	ContextEconomyHomeRel     string `yaml:"context_economy_home_rel,omitempty"`
+	ContextEconomyFingerprint string `yaml:"context_economy_fingerprint,omitempty"`
 }
 
 // AssetsLockDocument is .atlas/assets.lock.yaml for Atlas-owned runtime assets.

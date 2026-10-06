@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 )
 
@@ -71,6 +72,8 @@ type RuntimeHealth struct {
 	DependsOnSDDContract bool
 	SDDContractPresent   bool
 	SDDContractMatches   bool
+
+	ContextEconomy atlascontext.StatusSnapshot
 
 	Home home.Status
 
@@ -212,6 +215,21 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 
 	health.BackupsDirExists = exists(root, config.DirBackups)
 
+	projectName := ""
+	if health.StateLoads {
+		projectName = health.State.ProjectName
+	}
+	if projectName == "" && health.ConfigLoads {
+		projectName = health.Document.Project.Name
+	}
+	health.ContextEconomy = atlascontext.Inspect(atlascontext.InspectInput{
+		Root:           root,
+		Initialized:    health.Initialized,
+		ProjectName:    projectName,
+		StateProjectID: health.State.ContextEconomyProjectID,
+		StateUpdatedAt: health.State.ContextEconomyUpdatedAt,
+	})
+
 	for _, path := range forbiddenRuntimeArtifacts {
 		health.ForbiddenArtifacts = append(health.ForbiddenArtifacts, ForbiddenArtifactStatus{
 			Path:    path,
@@ -286,6 +304,16 @@ func collectRuntimeWarnings(h RuntimeHealth) []string {
 			warnings = append(warnings, "expected SDD/OpenSpec contract missing: "+config.FileSDDOpenSpecContract)
 		case !h.SDDContractMatches:
 			warnings = append(warnings, "SDD/OpenSpec contract content drifted")
+		}
+	}
+	if h.Initialized {
+		switch h.ContextEconomy.State {
+		case atlascontext.StatusMissing:
+			warnings = append(warnings, "Context Economy index missing under Atlas Home")
+		case atlascontext.StatusStale:
+			warnings = append(warnings, "Context Economy index/capsule stale")
+		case atlascontext.StatusUnreadable:
+			warnings = append(warnings, "Context Economy index unreadable")
 		}
 	}
 	if h.Initialized || h.RuntimeMaterialized {

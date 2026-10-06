@@ -6,6 +6,7 @@ Project: {{PROJECT_NAME}}
 - Prefer the Atlas orchestrator at `.opencode/agents/atlas-orchestrator.md` for routing and governed work.
 - Atlas agents are listed in `.atlas/agent-registry.md` and materialized under `.opencode/agents/`.
 - For SDD/OpenSpec phase work, follow `.atlas/contracts/sdd-openspec.md`.
+- Prefer Atlas Home Context Economy capsule/packs before broad repo reads; do not invent them.
 - This file (`.opencode/atlas.md`) is an OpenCode-native entrypoint only, not a full Atlas contract.
 - OpenCode agents/workers/reviewers/commands/plugins are execution surfaces, not independent authorities.
 - Follow Atlas delivery and Git authorization rules from `AGENTS.md`.

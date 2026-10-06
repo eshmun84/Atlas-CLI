@@ -49,6 +49,10 @@ Use `.atlas/agent-registry.md` and `.atlas/runtime-manifest.yaml` to select Atla
 
 Skills are registry-first. Consult `.atlas/skill-registry.md` when it exists. Do not download, invent, or vendor skills into `.cursor/skills` or `.opencode/skills`. Missing registry entries mean the skill is unavailable—say so and continue without inventing one.
 
+## Relation to Context Economy
+
+Before wide repo reads, prefer Atlas Home Context Economy capsule/index/packs when present. If missing or stale, recommend an explicit Context Economy update (TUI). Do not invent capsule/pack contents. Report whether capsule/pack was used.
+
 ## Relation to OpenSpec / SDD
 
 Operate within Atlas SDD semantics from `.atlas/contracts/sdd-openspec.md`. You may propose OpenSpec/SDD steps, file shapes, and verification plans. Do not execute real OpenSpec CLI commands in this slice unless the human explicitly requests a concrete command and the environment supports it. Absence of OpenSpec tooling is not permission to invent command output.

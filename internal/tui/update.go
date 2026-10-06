@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
@@ -49,6 +50,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.discovery = msg.discovery
 		m.report = msg.report
 		m.repairPlan = msg.repairPlan
+		m.contextPlan = msg.contextPlan
 		m.sidebarIndex = indexForRoute(m.Sidebar(), m.route)
 		if m.route == RouteInitPlan {
 			m.applyInitDiscovery(msg.plan)
@@ -67,6 +69,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.repairPlan = workspace.BuildRuntimeRepairPlan(m.discovery.RootPath, m.discovery.Runtime)
 			}
 			m.repairSignature = m.repairPlan.Signature()
+		}
+		if m.route == RouteContextEconomy {
+			m.contextApplied = false
+			m.contextMessage = ""
+			m.contextFooterIdx = 0
+			m.contextResult = atlascontext.UpdateResult{}
+			if m.contextObjective == "" {
+				m.contextObjective = atlascontext.DefaultPackObjective
+			}
+			if len(m.contextPlan.Targets) == 0 && !m.contextPlan.Blocked {
+				m.contextPlan = atlascontext.BuildUpdatePlan(
+					m.discovery.RootPath,
+					m.Initialized(),
+					m.discovery.Runtime.State,
+					m.contextObjective,
+				)
+			}
+			m.contextSignature = m.contextPlan.Signature()
 		}
 		m.ready = true
 		m.contentOffset = 0
@@ -124,7 +144,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.setRoute(DefaultRoute)
 	}
 
-	if (m.route == RouteInitPlan || m.route == RouteConfigure || m.route == RouteRuntimeRepair) && msg.String() == "tab" {
+	if (m.route == RouteInitPlan || m.route == RouteConfigure || m.route == RouteRuntimeRepair || m.route == RouteContextEconomy) && msg.String() == "tab" {
 		if m.focus == FocusSidebar {
 			m.focus = FocusContent
 			if m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepProject {
@@ -136,7 +156,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.route == RouteConfigure && m.configPanel == "" {
 				m.configPanel = screens.ConfigPanelSections
 			}
-			if m.route == RouteRuntimeRepair {
+			if m.route == RouteRuntimeRepair || m.route == RouteContextEconomy {
 				m.configPanel = screens.ConfigPanelFooter
 			}
 		} else {
@@ -157,6 +177,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.focus == FocusContent && m.route == RouteRuntimeRepair {
 		return m.handleRuntimeRepairKey(msg)
+	}
+	if m.focus == FocusContent && m.route == RouteContextEconomy {
+		return m.handleContextEconomyKey(msg)
 	}
 
 	items := m.Sidebar()
@@ -629,6 +652,73 @@ func (m Model) applyRuntimeRepair() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleContextEconomyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	canApply := !m.contextApplied && m.contextPlan.NeedsApply()
+	switch msg.String() {
+	case "pgup", "pgdown", "home", "end":
+		return m.scroll(msg.String()), nil
+	}
+	if !canApply {
+		switch msg.String() {
+		case "enter", " ", "space":
+			return m.setRoute(DefaultRoute)
+		}
+		return m, nil
+	}
+	switch msg.String() {
+	case "left", "h", "up", "k":
+		m.contextFooterIdx = 0
+		return m, nil
+	case "right", "l", "down", "j":
+		m.contextFooterIdx = 1
+		return m, nil
+	case "enter", " ", "space":
+		if m.contextFooterIdx <= 0 {
+			return m.setRoute(DefaultRoute)
+		}
+		return m.applyContextEconomy()
+	}
+	return m, nil
+}
+
+func (m Model) applyContextEconomy() (tea.Model, tea.Cmd) {
+	root := m.discovery.RootPath
+	if m.contextObjective == "" {
+		m.contextObjective = atlascontext.DefaultPackObjective
+	}
+	result, err := atlascontext.ApplyUpdate(root, m.contextSignature, m.discovery.Runtime.State, m.contextObjective, nil)
+	if err != nil {
+		m.contextMessage = err.Error()
+		m.contextResult = result
+		if result.Blocked {
+			m.contextPlan = result.Plan
+			m.contextSignature = result.Plan.Signature()
+		}
+		return m, nil
+	}
+	if result.Stale {
+		m.contextApplied = false
+		m.contextResult = result
+		m.contextPlan = result.Plan
+		m.contextSignature = result.Plan.Signature()
+		m.contextMessage = atlascontext.UpdateStaleMessage
+		m.contextFooterIdx = 0
+		return m, nil
+	}
+	m.contextApplied = true
+	m.contextResult = result
+	m.contextPlan = result.Plan
+	m.contextMessage = result.MessageTitle
+	m.contextFooterIdx = 0
+	if refreshed, discErr := m.discover(root); discErr == nil {
+		m.discovery = refreshed
+		m.contextPlan = atlascontext.BuildUpdatePlan(root, refreshed.Atlas.Initialized(), refreshed.Runtime.State, m.contextObjective)
+		m.contextSignature = m.contextPlan.Signature()
+		m.report = doctor.Evaluate(refreshed)
+	}
+	return m, nil
+}
+
 func (m Model) activateInitReviewFooter() (tea.Model, tea.Cmd) {
 	if m.initReviewFooterIdx <= 0 {
 		m.initWizardStep = screens.InitWizardStepConfig
@@ -724,6 +814,16 @@ func (m Model) setRoute(route Route) (Model, tea.Cmd) {
 		m.repairResult = workspace.RuntimeRepairResult{}
 		m.repairSignature = ""
 	}
+	if route == RouteContextEconomy {
+		m.contextApplied = false
+		m.contextMessage = ""
+		m.contextFooterIdx = 0
+		m.contextResult = atlascontext.UpdateResult{}
+		m.contextSignature = ""
+		if m.contextObjective == "" {
+			m.contextObjective = atlascontext.DefaultPackObjective
+		}
+	}
 	m.syncNameInputFocus()
 	m.loadErr = nil
 	m.contentOffset = 0
@@ -795,6 +895,13 @@ func (m Model) loadCmd() tea.Cmd {
 			msg.report = doctor.Evaluate(result)
 		case RouteRuntimeRepair:
 			msg.repairPlan = workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+		case RouteContextEconomy:
+			msg.contextPlan = atlascontext.BuildUpdatePlan(
+				root,
+				result.Atlas.Initialized(),
+				result.Runtime.State,
+				atlascontext.DefaultPackObjective,
+			)
 		}
 		return msg
 	}

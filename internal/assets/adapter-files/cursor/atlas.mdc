@@ -9,6 +9,7 @@ alwaysApply: true
 - Prefer the Atlas orchestrator at `.cursor/agents/atlas-orchestrator.md` for routing and governed work.
 - Atlas agents are listed in `.atlas/agent-registry.md` and materialized under `.cursor/agents/`.
 - For SDD/OpenSpec phase work, follow `.atlas/contracts/sdd-openspec.md`.
+- Prefer Atlas Home Context Economy capsule/packs before broad repo reads; do not invent them.
 - This file is a Cursor-native entrypoint only, not a full Atlas contract.
 - Follow Atlas scope, Git authorization, verification, human authority, and skill-loading rules from `AGENTS.md`.
 - Project configuration lives under `.atlas/config.yaml`.

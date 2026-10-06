@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
@@ -366,6 +367,8 @@ func evaluateRuntime(h workspace.RuntimeHealth) []Check {
 		}
 	}
 
+	checks = append(checks, evaluateContextEconomy(h)...)
+
 	switch {
 	case h.Initialized && !h.BackupsDirExists:
 		checks = append(checks, Check{
@@ -407,6 +410,48 @@ func evaluateRuntime(h workspace.RuntimeHealth) []Check {
 	}
 
 	return checks
+}
+
+func evaluateContextEconomy(h workspace.RuntimeHealth) []Check {
+	ce := h.ContextEconomy
+	switch {
+	case !ce.Applicable:
+		return []Check{{
+			Severity: SeverityPass,
+			Name:     "context economy",
+			Message:  "not configured (project uninitialized)",
+		}}
+	case ce.State == atlascontext.StatusMissing:
+		return []Check{{
+			Severity: SeverityWarn,
+			Name:     "context economy",
+			Message:  "missing under Atlas Home",
+		}}
+	case ce.State == atlascontext.StatusStale:
+		return []Check{{
+			Severity: SeverityWarn,
+			Name:     "context economy",
+			Message:  "stale",
+		}}
+	case ce.State == atlascontext.StatusUnreadable:
+		return []Check{{
+			Severity: SeverityWarn,
+			Name:     "context economy",
+			Message:  "unreadable",
+		}}
+	case ce.State == atlascontext.StatusPresent:
+		return []Check{{
+			Severity: SeverityPass,
+			Name:     "context economy",
+			Message:  "present",
+		}}
+	default:
+		return []Check{{
+			Severity: SeverityPass,
+			Name:     "context economy",
+			Message:  "n/a",
+		}}
+	}
 }
 
 func evaluateHome(h workspace.RuntimeHealth) []Check {

@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
@@ -104,20 +105,30 @@ type Model struct {
 	repairFooterIdx int
 	repairApplied   bool
 	repairSignature string
-	loadErr         error
-	ready           bool
-	quitting        bool
+
+	contextPlan      atlascontext.UpdatePlan
+	contextResult    atlascontext.UpdateResult
+	contextMessage   string
+	contextFooterIdx int
+	contextApplied   bool
+	contextSignature string
+	contextObjective string
+
+	loadErr  error
+	ready    bool
+	quitting bool
 
 	getwd    func() (string, error)
 	discover func(string) (workspace.DiscoveryResult, error)
 }
 
 type loadedMsg struct {
-	plan       initplan.Plan
-	discovery  workspace.DiscoveryResult
-	report     doctor.Report
-	repairPlan workspace.RuntimeRepairPlan
-	err        error
+	plan        initplan.Plan
+	discovery   workspace.DiscoveryResult
+	report      doctor.Report
+	repairPlan  workspace.RuntimeRepairPlan
+	contextPlan atlascontext.UpdatePlan
+	err         error
 }
 
 // NewModel builds a TUI model for the given options.
@@ -136,7 +147,7 @@ func NewModel(opts Options) Model {
 		route = DefaultRoute
 	}
 
-	items := SidebarItems(false, false)
+	items := SidebarItems(false, false, false)
 	return Model{
 		width:             MinWidth,
 		height:            MinHeight,
@@ -181,7 +192,7 @@ func newTextInput(placeholder string) textinput.Model {
 
 func validRoute(route Route) bool {
 	switch route {
-	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteHelp, RouteError:
+	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteContextEconomy, RouteHelp, RouteError:
 		return true
 	default:
 		return false
@@ -190,7 +201,7 @@ func validRoute(route Route) bool {
 
 func needsWorkspace(route Route) bool {
 	switch route {
-	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair:
+	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteContextEconomy:
 		return true
 	default:
 		return false
@@ -231,6 +242,9 @@ func (m Model) MCPAddEnv() string                       { return m.mcpEnvInput.V
 func (m Model) RepairApplied() bool                     { return m.repairApplied }
 func (m Model) RepairMessage() string                   { return m.repairMessage }
 func (m Model) RepairPlan() workspace.RuntimeRepairPlan { return m.repairPlan }
+func (m Model) ContextApplied() bool                    { return m.contextApplied }
+func (m Model) ContextMessage() string                  { return m.contextMessage }
+func (m Model) ContextPlan() atlascontext.UpdatePlan    { return m.contextPlan }
 func (m Model) NameCursor() int                         { return m.nameInput.Position() }
 func (m Model) Quitting() bool                          { return m.quitting }
 
@@ -248,7 +262,7 @@ func (m Model) editingTextInput() bool {
 func (m Model) Initialized() bool { return m.discovery.Atlas.Initialized() }
 
 func (m Model) Sidebar() []SidebarItem {
-	return SidebarItems(m.Initialized(), workspace.ShowRuntimeRepair(m.discovery))
+	return SidebarItems(m.Initialized(), workspace.ShowRuntimeRepair(m.discovery), m.Initialized())
 }
 
 func (m Model) ProjectName() string {

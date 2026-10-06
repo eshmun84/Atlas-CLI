@@ -210,6 +210,13 @@ func (m Model) rawContent() string {
 			ApplyMessage:   m.repairMessage,
 			ContentFocused: m.focus == FocusContent,
 		})
+	case RouteContextEconomy:
+		return screens.RenderContextEconomy(screens.ContextEconomyView{
+			Plan:           m.contextPlan,
+			Applied:        m.contextApplied,
+			ApplyMessage:   m.contextMessage,
+			ContentFocused: m.focus == FocusContent,
+		})
 	default:
 		return screens.Dashboard(m.discovery)
 	}
@@ -348,6 +355,32 @@ func (m Model) renderActionRow() (string, bool) {
 			FooterIndex:    m.repairFooterIdx,
 			Width:          width,
 		}), true
+	case m.route == RouteContextEconomy:
+		panel := ""
+		if m.focus == FocusContent {
+			panel = screens.ConfigPanelFooter
+		}
+		if m.contextApplied || m.contextPlan.Blocked || !m.contextPlan.NeedsApply() {
+			return screens.RenderActionFooter(screens.ActionFooterView{
+				ShowBack:       true,
+				ShowNext:       false,
+				BackLabel:      "Close",
+				ContentFocused: m.focus == FocusContent,
+				PanelFocus:     panel,
+				FooterIndex:    0,
+				Width:          width,
+			}), true
+		}
+		return screens.RenderActionFooter(screens.ActionFooterView{
+			ShowBack:       true,
+			ShowNext:       true,
+			BackLabel:      "Close",
+			NextLabel:      "Update context",
+			ContentFocused: m.focus == FocusContent,
+			PanelFocus:     panel,
+			FooterIndex:    m.contextFooterIdx,
+			Width:          width,
+		}), true
 	default:
 		return "", false
 	}
@@ -392,6 +425,12 @@ func (m Model) renderFooter() string {
 			text = "Tab focus  PgUp/PgDn scroll  Close  b dash  q quit"
 		} else {
 			text = "Tab focus  PgUp/PgDn scroll  Close  Apply repair  b dash  q quit"
+		}
+	case RouteContextEconomy:
+		if m.contextApplied || m.contextPlan.Blocked || !m.contextPlan.NeedsApply() {
+			text = "Tab focus  PgUp/PgDn scroll  Close  b dash  q quit"
+		} else {
+			text = "Tab focus  PgUp/PgDn scroll  Close  Update context  b dash  q quit"
 		}
 	}
 	return text

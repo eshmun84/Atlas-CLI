@@ -22,6 +22,7 @@ var LayoutDirectories = []string{
 	"templates",
 	"adapters",
 	"contracts",
+	"context",
 	"state",
 }
 

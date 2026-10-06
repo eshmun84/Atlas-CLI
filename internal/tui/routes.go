@@ -11,6 +11,7 @@ const (
 	RouteStatus
 	RouteDoctor
 	RouteRuntimeRepair
+	RouteContextEconomy
 	RouteHelp
 	RouteError
 )
@@ -34,6 +35,8 @@ func (r Route) String() string {
 		return "Doctor"
 	case RouteRuntimeRepair:
 		return "Runtime Repair"
+	case RouteContextEconomy:
+		return "Context Economy"
 	case RouteHelp:
 		return "Help"
 	case RouteError:

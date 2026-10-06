@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
@@ -42,6 +43,7 @@ func Status(result workspace.DiscoveryResult) string {
 	fmt.Fprintf(&b, "  AGENTS.md: %s\n", agentsStatus(rt))
 	fmt.Fprintf(&b, "  AGENTS markers: %s\n", markersStatus(rt))
 	fmt.Fprintf(&b, "  SDD/OpenSpec contract: %s\n", sddContractStatus(rt))
+	fmt.Fprintf(&b, "  Context Economy: %s\n", contextEconomyStatus(rt))
 	fmt.Fprintf(&b, "  Adapters: %s\n", adaptersLabel(rt.SelectedAdapters))
 	fmt.Fprintln(&b, "  Adapter projections:")
 	if len(rt.ExpectedProjections) == 0 {
@@ -244,6 +246,25 @@ func sddContractStatus(rt workspace.RuntimeHealth) string {
 		return statusFail.Render("drifted")
 	default:
 		return statusYes.Render("present")
+	}
+}
+
+func contextEconomyStatus(rt workspace.RuntimeHealth) string {
+	ce := rt.ContextEconomy
+	if !ce.Applicable {
+		return statusNo.Render("not configured")
+	}
+	switch ce.State {
+	case atlascontext.StatusMissing:
+		return statusWarn.Render("missing")
+	case atlascontext.StatusStale:
+		return statusWarn.Render("stale")
+	case atlascontext.StatusUnreadable:
+		return statusFail.Render("unreadable")
+	case atlascontext.StatusPresent:
+		return statusYes.Render("present")
+	default:
+		return statusNo.Render("n/a")
 	}
 }
 

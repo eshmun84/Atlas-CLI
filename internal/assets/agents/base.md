@@ -65,4 +65,11 @@ Tests, reviews, smoke results, and evidence packages inform judgment; they never
 
 Use the minimum sufficient context. Prefer Atlas-provided references and targeted files over loading the entire repository by default.
 
-Context Graph is a preference/context aid only. Project preference: Context Graph is **{{CONTEXT_GRAPH_STATUS}}** (`context.graph.enabled`). There is no graph engine, database, embeddings index, capsule store, or context-pack runtime in this project yet. Use Context Graph only when Atlas enables or provides it. Do not invent graph context when it is unavailable. Load raw files only when Atlas references are insufficient for correctness.
+Before broad repository reads, check Context Economy artifacts when present under Atlas Home:
+- `$ATLAS_HOME/context/projects/<project-id>/capsule.md`
+- `$ATLAS_HOME/context/projects/<project-id>/index.yaml`
+- `$ATLAS_HOME/context/projects/<project-id>/packs/*.yaml`
+
+`.atlas/state.yaml` may record only minimal references (`context_economy_*`). Do not expect large context payloads inside the product repo. If capsule/pack/index is missing or stale, say so and recommend an explicit Context Economy update in Atlas TUI. Do not invent capsule/pack contents. Report when capsule/pack was used and when it was not.
+
+Context Graph is a preference/context aid only. Project preference: Context Graph is **{{CONTEXT_GRAPH_STATUS}}** (`context.graph.enabled`). There is no graph engine, database, embeddings index, or semantic search in this slice. Use Context Graph only when Atlas enables or provides it. Do not invent graph context when it is unavailable. Load raw files only when Atlas references and Context Economy surfaces are insufficient for correctness.

@@ -49,6 +49,10 @@ Cataloged in `.atlas/agent-registry.md`. Prefer routing via `atlas-orchestrator`
 
 Skills are registry-first. Consult `.atlas/skill-registry.md` when it exists. Do not download, invent, or vendor skills into `.cursor/skills` or `.opencode/skills`.
 
+## Relation to Context Economy
+
+Prefer capsule/pack for candidate scoping when present. Do not invent missing context. Reviewers remain evidence-only.
+
 ## Relation to OpenSpec / SDD
 
 Do not invent OpenSpec/SDD command results. Do not treat review as phase acceptance.

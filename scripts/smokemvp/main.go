@@ -12,6 +12,7 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/cli"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/tui"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
@@ -54,6 +55,7 @@ func run() error {
 		{"runtime repair Atlas agents + preserve external", checkRepairAtlasAgents},
 		{"runtime repair SDD/OpenSpec contract", checkRepairSDDContract},
 		{"runtime repair stale plan rejection", checkRepairStalePlan},
+		{"context economy update + stale + readonly", checkContextEconomy},
 	}
 	for _, step := range steps {
 		fmt.Printf("  • %s\n", step.name)
@@ -199,7 +201,7 @@ func checkAtlasHome() error {
 	}
 	defer os.RemoveAll(root)
 
-	for _, dir := range []string{"assets", "agents", "skills", "rules", "templates", "adapters", "contracts", "state"} {
+	for _, dir := range []string{"assets", "agents", "skills", "rules", "templates", "adapters", "contracts", "context", "state"} {
 		if info, err := os.Stat(filepath.Join(homeDir, dir)); err != nil || !info.IsDir() {
 			return fmt.Errorf("home layout missing %s: %v", dir, err)
 		}
@@ -293,7 +295,7 @@ func checkStatusDoctor() error {
 	}
 	status := screens.Status(result)
 	if !strings.Contains(status, "Atlas Status") || !strings.Contains(status, "AGENTS.md") ||
-		!strings.Contains(status, "SDD/OpenSpec contract") {
+		!strings.Contains(status, "SDD/OpenSpec contract") || !strings.Contains(status, "Context Economy") {
 		return fmt.Errorf("status render missing expected headings")
 	}
 	beforeTree, err := snapshotPaths(root)
@@ -509,6 +511,138 @@ func checkRepairSDDContract() error {
 		return fmt.Errorf("external agent touched: %q err=%v", ext, err)
 	}
 	return assertRuntimeReady(root)
+}
+
+func checkContextEconomy() error {
+	root, err := materialize([]string{"cursor", "opencode"}, true)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+
+	external := filepath.Join(root, ".cursor", "agents", "external-helper.md")
+	if err := os.WriteFile(external, []byte("keep me\n"), 0o644); err != nil {
+		return err
+	}
+
+	result, err := workspace.Discover(root)
+	if err != nil {
+		return err
+	}
+	if result.Runtime.ContextEconomy.State != atlascontext.StatusMissing {
+		return fmt.Errorf("expected missing context economy before update: %#v", result.Runtime.ContextEconomy)
+	}
+
+	before := snapshotPathsMust(root)
+	_ = screens.Status(result)
+	_ = doctor.Evaluate(result)
+	after := snapshotPathsMust(root)
+	if len(before) != len(after) {
+		return fmt.Errorf("status/doctor mutated tree before context update")
+	}
+
+	objective := "implement SDD verify for atlas agents"
+	plan := atlascontext.BuildUpdatePlan(root, true, result.Runtime.State, objective)
+	if !plan.NeedsApply() {
+		return fmt.Errorf("expected context update plan: %#v", plan)
+	}
+	applied, err := atlascontext.ApplyUpdate(root, plan.Signature(), result.Runtime.State, objective, fixedNow(2026, 10, 6, 18, 0, 0))
+	if err != nil || applied.Noop {
+		return fmt.Errorf("context apply failed: %#v err=%v", applied, err)
+	}
+	for _, path := range []string{applied.CapsulePath, applied.PackPath, atlascontext.IndexPath(plan.HomePath, plan.ProjectID)} {
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("missing context artifact %s: %w", path, err)
+		}
+	}
+	packRaw, err := os.ReadFile(applied.PackPath)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(packRaw), "objective:") || !strings.Contains(string(packRaw), "candidates:") {
+		return fmt.Errorf("pack incomplete:\n%s", packRaw)
+	}
+	if !strings.Contains(string(packRaw), "path:") || !strings.Contains(string(packRaw), "reason:") {
+		return fmt.Errorf("pack missing path/reason:\n%s", packRaw)
+	}
+	if _, err := os.Stat(filepath.Join(root, "context")); !os.IsNotExist(err) {
+		return fmt.Errorf("context payload written into product repo")
+	}
+	stateRaw, err := os.ReadFile(filepath.Join(root, config.FileState))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(stateRaw), "context_economy_project_id:") {
+		return fmt.Errorf("state missing context economy refs")
+	}
+
+	refreshed, err := workspace.Discover(root)
+	if err != nil {
+		return err
+	}
+	if refreshed.Runtime.ContextEconomy.State != atlascontext.StatusPresent {
+		return fmt.Errorf("expected present context economy: %#v", refreshed.Runtime.ContextEconomy)
+	}
+	before = snapshotPathsMust(root)
+	status := screens.Status(refreshed)
+	_ = doctor.Evaluate(refreshed)
+	if !strings.Contains(status, "Context Economy") {
+		return fmt.Errorf("status missing Context Economy")
+	}
+	after = snapshotPathsMust(root)
+	for path, content := range before {
+		if after[path] != content {
+			return fmt.Errorf("status/doctor mutated %s", path)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "extra_context_probe.go"), []byte("package main\n"), 0o644); err != nil {
+		return err
+	}
+	staleDisc, err := workspace.Discover(root)
+	if err != nil {
+		return err
+	}
+	if staleDisc.Runtime.ContextEconomy.State != atlascontext.StatusStale {
+		return fmt.Errorf("expected stale after file change: %#v", staleDisc.Runtime.ContextEconomy)
+	}
+
+	// Runtime Repair must not delete/replace Context Economy Home payloads.
+	capsuleBefore, err := os.ReadFile(applied.CapsulePath)
+	if err != nil {
+		return err
+	}
+	repairPlan := workspace.BuildRuntimeRepairPlan(root, staleDisc.Runtime)
+	for _, target := range repairPlan.Targets {
+		if strings.Contains(target.Path, "context/projects") || strings.HasSuffix(target.Path, "capsule.md") {
+			return fmt.Errorf("repair targets context economy path: %#v", target)
+		}
+	}
+	if repairPlan.NeedsApply() {
+		if _, err := workspace.ApplyRuntimeRepair(root, repairPlan.Signature(), fixedNow(2026, 10, 6, 18, 5, 0)); err != nil {
+			return err
+		}
+	}
+	capsuleAfter, err := os.ReadFile(applied.CapsulePath)
+	if err != nil {
+		return err
+	}
+	if string(capsuleAfter) != string(capsuleBefore) {
+		return fmt.Errorf("runtime repair mutated context capsule")
+	}
+	ext, err := os.ReadFile(external)
+	if err != nil || string(ext) != "keep me\n" {
+		return fmt.Errorf("external agent touched: %q err=%v", ext, err)
+	}
+	return nil
+}
+
+func snapshotPathsMust(root string) map[string]string {
+	out, err := snapshotPaths(root)
+	if err != nil {
+		panic(err)
+	}
+	return out
 }
 
 func checkRepairStalePlan() error {
