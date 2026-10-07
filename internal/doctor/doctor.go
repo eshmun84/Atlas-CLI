@@ -63,6 +63,8 @@ func Evaluate(result workspace.DiscoveryResult) Report {
 		})
 	}
 
+	checks = append(checks, evaluateRemoteDefaultBranch(result.Git)...)
+
 	checks = append(checks, evaluateRuntime(result.Runtime)...)
 	checks = append(checks, evaluateHome(result.Runtime)...)
 
@@ -94,6 +96,33 @@ func Evaluate(result workspace.DiscoveryResult) Report {
 	}
 
 	return Report{Checks: checks}
+}
+
+// evaluateRemoteDefaultBranch reports local knowledge of refs/remotes/<remote>/HEAD.
+// Read-only: never contacts remotes or runs git remote set-head.
+func evaluateRemoteDefaultBranch(git workspace.GitInfo) []Check {
+	if !git.IsRepo {
+		return nil
+	}
+	remote := strings.TrimSpace(git.DefaultRemote)
+	if remote == "" {
+		return nil
+	}
+	if branch := strings.TrimSpace(git.DefaultBranch); branch != "" {
+		return []Check{{
+			Severity: SeverityPass,
+			Name:     "remote default branch",
+			Message:  branch,
+		}}
+	}
+	return []Check{{
+		Severity: SeverityWarn,
+		Name:     "remote default branch",
+		Message: fmt.Sprintf(
+			"unknown locally (refs/remotes/%s/HEAD missing); run: git remote set-head %s -a",
+			remote, remote,
+		),
+	}}
 }
 
 func evaluateRuntime(h workspace.RuntimeHealth) []Check {

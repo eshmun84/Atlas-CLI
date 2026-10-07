@@ -112,7 +112,8 @@ func doctorSectionFor(name string) string {
 	switch {
 	case name == "workspace":
 		return "Workspace"
-	case name == "git" || name == "branch" || name == "remotes" || name == "tool git" || name == "tool gh":
+	case name == "git" || name == "branch" || name == "remotes" || name == "remote default branch" ||
+		name == "tool git" || name == "tool gh":
 		return "Git"
 	case strings.HasPrefix(name, "atlas config") || strings.HasPrefix(name, "atlas state") || name == "tool openspec":
 		return "Atlas Configuration"

@@ -442,6 +442,7 @@ func TestStatusGitTechLibraries(t *testing.T) {
 	})
 	for _, want := range []string{
 		"Default remote: origin",
+		"Remote default branch: main",
 		"Project Technology",
 		"Bubble Tea",
 		"Atlas Runtime",
@@ -463,23 +464,78 @@ func TestStatusGitTechLibraries(t *testing.T) {
 	}
 }
 
+func TestStatusRemoteDefaultBranchUnknownLocally(t *testing.T) {
+	t.Parallel()
+
+	view := stripANSI(screens.Status(workspace.DiscoveryResult{
+		RootPath: "/tmp/demo",
+		Git: workspace.GitInfo{
+			IsRepo:           true,
+			CurrentBranch:    "feature/x",
+			DefaultRemote:    "origin",
+			DefaultRemoteURL: "https://example.com/demo.git",
+			// DefaultBranch empty: origin/main|develop|staging exist but origin/HEAD does not.
+			Remotes: []workspace.GitRemote{{Name: "origin", URL: "https://example.com/demo.git"}},
+		},
+		Atlas: workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
+	}))
+	if !strings.Contains(view, "Remote default branch: unknown locally") {
+		t.Fatalf("expected unknown locally, got:\n%s", view)
+	}
+	if strings.Contains(view, "Remote default branch: none") {
+		t.Fatalf("must not show none when default remote exists:\n%s", view)
+	}
+	if strings.Contains(view, "Default branch:") {
+		t.Fatalf("old Default branch label must be renamed:\n%s", view)
+	}
+}
+
+func TestStatusRemoteDefaultBranchResolved(t *testing.T) {
+	t.Parallel()
+
+	view := stripANSI(screens.Status(workspace.DiscoveryResult{
+		RootPath: "/tmp/demo",
+		Git: workspace.GitInfo{
+			IsRepo:        true,
+			CurrentBranch: "feature/x",
+			DefaultRemote: "origin",
+			DefaultBranch: "main",
+		},
+		Atlas: workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
+	}))
+	if !strings.Contains(view, "Remote default branch: main") {
+		t.Fatalf("expected main, got:\n%s", view)
+	}
+}
+
 func TestStatusEmptyRemoteIsNone(t *testing.T) {
 	t.Parallel()
 
-	view := screens.Status(workspace.DiscoveryResult{
+	view := stripANSI(screens.Status(workspace.DiscoveryResult{
 		RootPath: "/tmp/demo",
 		Git: workspace.GitInfo{
 			IsRepo:        true,
 			CurrentBranch: "main",
 		},
 		Atlas: workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
-	})
-	for _, want := range []string{"Default remote:", "Remote URL:", "Remotes:", "none"} {
+	}))
+	for _, want := range []string{
+		"Default remote:",
+		"Remote URL:",
+		"Remote default branch:",
+		"Remotes:",
+		"none",
+	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "Default remote: unknown") || strings.Contains(view, "Remote URL: unknown") {
+	if !strings.Contains(view, "Remote default branch: none") {
+		t.Fatalf("expected Remote default branch: none:\n%s", view)
+	}
+	if strings.Contains(view, "Default remote: unknown") ||
+		strings.Contains(view, "Remote URL: unknown") ||
+		strings.Contains(view, "Remote default branch: unknown locally") {
 		t.Fatalf("empty git remote fields must display as none:\n%s", view)
 	}
 }

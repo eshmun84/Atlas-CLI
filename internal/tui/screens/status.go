@@ -80,7 +80,7 @@ func writeStatusSourceControl(b *strings.Builder, result workspace.DiscoveryResu
 	fmt.Fprintf(b, "  Current branch: %s\n", displayOrNone(result.Git.CurrentBranch))
 	fmt.Fprintf(b, "  Default remote: %s\n", displayOrNone(result.Git.DefaultRemote))
 	fmt.Fprintf(b, "  Remote URL: %s\n", displayOrNone(result.Git.DefaultRemoteURL))
-	fmt.Fprintf(b, "  Default branch: %s\n", displayOrNone(result.Git.DefaultBranch))
+	fmt.Fprintf(b, "  Remote default branch: %s\n", remoteDefaultBranchLabel(result.Git))
 	fmt.Fprintf(b, "  Remotes: %s\n", remotesSummary(result.Git))
 	fmt.Fprintf(b, "  gh: %s\n", toolAvailability(result.Tools, "gh"))
 	if result.Runtime.ConfigLoads {
@@ -405,6 +405,19 @@ func remotesSummary(git workspace.GitInfo) string {
 		names = append(names, remote.Name)
 	}
 	return strings.Join(names, ", ")
+}
+
+// remoteDefaultBranchLabel renders the local view of refs/remotes/<remote>/HEAD.
+// "none" means no default remote; "unknown locally" means the remote exists but
+// its HEAD symbolic-ref is not configured in this clone.
+func remoteDefaultBranchLabel(git workspace.GitInfo) string {
+	if branch := strings.TrimSpace(git.DefaultBranch); branch != "" {
+		return branch
+	}
+	if strings.TrimSpace(git.DefaultRemote) != "" {
+		return statusNo.Render("unknown locally")
+	}
+	return statusNo.Render("none")
 }
 
 func toolAvailability(tools []workspace.ToolInfo, name string) string {

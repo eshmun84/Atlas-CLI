@@ -88,6 +88,49 @@ func TestEvaluate_WarnsWhenRepoHasNoRemotes(t *testing.T) {
 	})
 
 	assertHas(t, report, doctor.SeverityWarn, "remotes", "none detected")
+	if hasCheck(report, "remote default branch") {
+		t.Fatal("remote default branch check should be skipped when no default remote")
+	}
+}
+
+func TestEvaluate_WarnsWhenRemoteDefaultBranchUnknownLocally(t *testing.T) {
+	t.Parallel()
+
+	report := doctor.Evaluate(workspace.DiscoveryResult{
+		RootPath: "/tmp/demo",
+		Git: workspace.GitInfo{
+			IsRepo:        true,
+			CurrentBranch: "feature/x",
+			DefaultRemote: "origin",
+			Remotes: []workspace.GitRemote{
+				{Name: "origin", URL: "https://example.com/demo.git"},
+			},
+		},
+		Runtime: healthyRuntime(),
+	})
+
+	assertHas(t, report, doctor.SeverityWarn, "remote default branch",
+		"unknown locally (refs/remotes/origin/HEAD missing); run: git remote set-head origin -a")
+}
+
+func TestEvaluate_PassesWhenRemoteDefaultBranchKnown(t *testing.T) {
+	t.Parallel()
+
+	report := doctor.Evaluate(workspace.DiscoveryResult{
+		RootPath: "/tmp/demo",
+		Git: workspace.GitInfo{
+			IsRepo:        true,
+			CurrentBranch: "feature/x",
+			DefaultRemote: "origin",
+			DefaultBranch: "main",
+			Remotes: []workspace.GitRemote{
+				{Name: "origin", URL: "https://example.com/demo.git"},
+			},
+		},
+		Runtime: healthyRuntime(),
+	})
+
+	assertHas(t, report, doctor.SeverityPass, "remote default branch", "main")
 }
 
 func TestEvaluate_ReadyWhenClean(t *testing.T) {
@@ -98,6 +141,8 @@ func TestEvaluate_ReadyWhenClean(t *testing.T) {
 		Git: workspace.GitInfo{
 			IsRepo:        true,
 			CurrentBranch: "develop",
+			DefaultRemote: "origin",
+			DefaultBranch: "main",
 			Remotes: []workspace.GitRemote{
 				{Name: "origin", URL: "git@example.com:demo.git"},
 			},

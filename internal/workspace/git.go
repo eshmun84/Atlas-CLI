@@ -64,7 +64,12 @@ func discoverGit(root string) (GitInfo, []string, error) {
 	if info.DefaultRemote != "" {
 		branch, err := defaultRemoteBranch(gitPath, root, info.DefaultRemote)
 		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("unable to determine default branch: %v", err))
+			// Missing refs/remotes/<remote>/HEAD is common after git remote add;
+			// leave DefaultBranch empty so Status can show "unknown locally".
+			warnings = append(warnings, fmt.Sprintf(
+				"remote default branch unknown locally: refs/remotes/%s/HEAD is not configured",
+				info.DefaultRemote,
+			))
 		} else {
 			info.DefaultBranch = branch
 		}

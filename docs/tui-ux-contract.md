@@ -61,7 +61,7 @@ Sections, in order:
 
 1. **Workspace** — root, project name, Atlas setup state, project mode.
 2. **Atlas Runtime** — initialized / materialized / contract health summary. No exhaustive runtime file lists.
-3. **Source Control / Delivery Tools** — Git repo/branch/remote (`none` when empty), `gh` availability, delivery-assist preference. No Git mutations.
+3. **Source Control / Delivery Tools** — Git repo/branch/remote (`none` when empty). Remote default branch is resolved only from local `refs/remotes/<remote>/HEAD` (`unknown locally` when that ref is missing; `none` when there is no default remote). `gh` availability, delivery-assist preference. No Git mutations; Status never contacts remotes or runs `git remote set-head`.
 4. **Project Technology** — detected stack and libraries. PATH tool `go` appears only when the project stack includes Go.
 5. **Adapters** — selected adapters and high-level projection health (`selected` / `materialized` / `missing` / `NOT SELECTED` for inactive adapters).
 6. **Governance Tools** — workflow/spec-engine preferences and OpenSpec CLI availability (`NOT IMPLEMENTED` where Atlas does not run OpenSpec).
