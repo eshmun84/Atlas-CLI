@@ -86,7 +86,7 @@ Sections, in order:
 
 Doctor remains read-only and never repairs.
 
-## Init Setup (Slice 25)
+## Init Setup (Slice 25+)
 
 Init configures governed runtime, adapters, governance, and delivery assistance. It does not imply Atlas owns GitFlow or repository lifecycle.
 
@@ -95,9 +95,17 @@ Init configures governed runtime, adapters, governance, and delivery assistance.
 - Adapters: Cursor and OpenCode only; Available when the runtime tool is on PATH; unavailable rows are visible but disabled.
 - Delivery: Platform, Governance files, Assisted operations only. Versioned only when GitHub is selected. No tools diagnostics or Git ops on this screen.
 - Memory is not an Init choice (always-on Atlas-managed memory).
-- Context is not an Init choice in Slice 25: no CodeGraph option, no Atlas Context Graph setup, no Context Economy decision (Context Economy remains a separate explicit flow).
-- Review → Apply summarizes choices and carries the no-Git Init policy. Status and Doctor remain read-only.
+- Context is not an Init choice: no CodeGraph option, no Atlas Context Graph setup, no Context Economy decision (Context Economy remains a separate explicit flow).
+- Review → Apply summarizes Project writes, Atlas Home writes, Atlas Home reset, and No Git operations. Status and Doctor remain read-only.
+- When Atlas Home already holds project-scoped data for the same canonical project identity, Review requires explicit reset acceptance (`x`) before Apply. Reset deletes only `$ATLAS_HOME/projects/<project-id>/`.
+
+## Atlas Home storage (Slice 26)
+
+- Project-scoped local data lives under `$ATLAS_HOME/projects/<project-id>/` (identity derived from canonical project root, not name alone).
+- Context Economy payloads: `$ATLAS_HOME/projects/<project-id>/context/`.
+- New backups/quarantine: `$ATLAS_HOME/projects/<project-id>/backups/<timestamp>/`.
+- Portable project files under `.atlas/` must not gain absolute machine paths or new machine-local event fields.
 
 ## Out of scope for this contract
 
-Full Atlas Home storage migration, CodeGraph, real MCP materialization, marketplace, Skills v1, Git automation, new CLI commands.
+CodeGraph, real MCP materialization, marketplace, Skills v1, Git automation, new CLI commands.

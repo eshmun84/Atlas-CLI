@@ -40,7 +40,8 @@ func BuildAssetsLockDocumentFor(homePath string, doc ProjectDocument, atlasVersi
 			Checksum: checksumHex(data),
 		}
 		if homePath != "" {
-			entry.HomePath = filepath.ToSlash(home.AssetHomePath(homePath, asset))
+			// Home-relative only — never absolute machine paths in portable lock.
+			entry.HomePath = home.RelHomePath(homePath, home.AssetHomePath(homePath, asset))
 		}
 		entry.ProjectPaths = projectPathsForHomeAsset(asset, selected, DependsOnSDDOpenSpecContract(doc))
 		entries = append(entries, entry)
@@ -75,11 +76,13 @@ func BuildAssetsLockDocumentFor(homePath string, doc ProjectDocument, atlasVersi
 		ProjectPaths: []string{FileRuntimeManifest},
 	})
 
-	return AssetsLockDocument{
+	docOut := AssetsLockDocument{
 		SchemaVersion: PersistSchemaVersion,
-		HomePath:      homePath,
 		Assets:        entries,
 	}
+	// Do not persist absolute ATLAS_HOME into portable project files.
+	_ = homePath
+	return docOut
 }
 
 // RenderAssetsLockYAMLFor marshals a fully contextual assets lock.

@@ -1,41 +1,44 @@
 package context
 
 import (
+	"os"
 	"path/filepath"
 
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 )
 
-// Home layout under Atlas Home for Context Economy v0.
+// Home layout for Context Economy under project-scoped Atlas Home storage.
 const (
-	DirContext         = "context"
-	DirContextProjects = "context/projects"
-	FileIndexYAML      = "index.yaml"
-	FileCapsuleMD      = "capsule.md"
-	DirPacks           = "packs"
+	FileIndexYAML = "index.yaml"
+	FileCapsuleMD = "capsule.md"
+	DirPacks      = "packs"
+
+	// LegacyContextProjectsRel is the pre-Slice-26 Context Economy root under Atlas Home.
+	// Transitional: read-only compatibility for existing payloads.
+	LegacyContextProjectsRel = "context/projects"
 )
 
-// ContextRoot returns $ATLAS_HOME/context.
-func ContextRoot(homePath string) string {
-	return filepath.Join(homePath, DirContext)
+// ContextRoot returns $ATLAS_HOME/projects/<project-id>/context.
+func ContextRoot(homePath, projectID string) string {
+	return home.ProjectContextDir(homePath, projectID)
 }
 
-// ProjectsRoot returns $ATLAS_HOME/context/projects.
-func ProjectsRoot(homePath string) string {
-	return filepath.Join(homePath, filepath.FromSlash(DirContextProjects))
-}
-
-// ProjectDir returns $ATLAS_HOME/context/projects/<project-id>.
+// ProjectDir returns $ATLAS_HOME/projects/<project-id>/context.
 func ProjectDir(homePath, projectID string) string {
-	return filepath.Join(ProjectsRoot(homePath), projectID)
+	return ContextRoot(homePath, projectID)
 }
 
-// IndexPath returns the project index.yaml path under Atlas Home.
+// LegacyProjectDir returns the transitional $ATLAS_HOME/context/projects/<project-id>.
+func LegacyProjectDir(homePath, projectID string) string {
+	return filepath.Join(homePath, filepath.FromSlash(LegacyContextProjectsRel), projectID)
+}
+
+// IndexPath returns the project index.yaml path under Atlas Home (canonical layout).
 func IndexPath(homePath, projectID string) string {
 	return filepath.Join(ProjectDir(homePath, projectID), FileIndexYAML)
 }
 
-// CapsulePath returns the project capsule.md path under Atlas Home.
+// CapsulePath returns the project capsule.md path under Atlas Home (canonical layout).
 func CapsulePath(homePath, projectID string) string {
 	return filepath.Join(ProjectDir(homePath, projectID), FileCapsuleMD)
 }
@@ -50,7 +53,31 @@ func PackPath(homePath, projectID, packID string) string {
 	return filepath.Join(PacksDir(homePath, projectID), packID+".yaml")
 }
 
+// ResolveContextDir picks the canonical Context Economy directory when present,
+// otherwise falls back to the transitional legacy path for read-only inspection.
+func ResolveContextDir(homePath, projectID string) string {
+	canonical := ProjectDir(homePath, projectID)
+	if fileExists(filepath.Join(canonical, FileIndexYAML)) {
+		return canonical
+	}
+	legacy := LegacyProjectDir(homePath, projectID)
+	if fileExists(filepath.Join(legacy, FileIndexYAML)) {
+		return legacy
+	}
+	return canonical
+}
+
+// HomeRelContext returns the Home-relative context path for state refs.
+func HomeRelContext(projectID string) string {
+	return filepath.ToSlash(filepath.Join(home.DirProjects, projectID, home.ProjectDirContext))
+}
+
 // ResolveHome returns the Atlas Home path without creating directories.
 func ResolveHome() (string, error) {
 	return home.Resolve()
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }

@@ -30,14 +30,41 @@ func TestProjectID_Stable(t *testing.T) {
 func TestPaths_UnderAtlasHome(t *testing.T) {
 	homePath := "/tmp/atlas-home-x"
 	id := "demo-abc"
-	if got := atlascontext.IndexPath(homePath, id); got != filepath.Join(homePath, "context", "projects", id, "index.yaml") {
+	if got := atlascontext.IndexPath(homePath, id); got != filepath.Join(homePath, "projects", id, "context", "index.yaml") {
 		t.Fatalf("index path = %q", got)
 	}
-	if got := atlascontext.CapsulePath(homePath, id); !strings.HasSuffix(got, filepath.Join("context", "projects", id, "capsule.md")) {
+	if got := atlascontext.CapsulePath(homePath, id); !strings.HasSuffix(got, filepath.Join("projects", id, "context", "capsule.md")) {
 		t.Fatalf("capsule path = %q", got)
 	}
 	if got := atlascontext.PackPath(homePath, id, "orient"); !strings.Contains(got, filepath.Join("packs", "orient.yaml")) {
 		t.Fatalf("pack path = %q", got)
+	}
+}
+
+func TestApplyUpdate_WritesUnderHomeProjectContext(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv(home.EnvAtlasHome, homeDir)
+	root := t.TempDir()
+	write(t, filepath.Join(root, "go.mod"), "module demo\n")
+	state := config.StateDocument{Initialized: true, ProjectName: "demo"}
+	plan := atlascontext.BuildUpdatePlan(root, true, state, atlascontext.DefaultPackObjective)
+	result, err := atlascontext.ApplyUpdate(root, plan.Signature(), state, atlascontext.DefaultPackObjective, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := atlascontext.ProjectID(root, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDir := filepath.Join(homeDir, "projects", id, "context")
+	if !strings.HasPrefix(result.CapsulePath, wantDir) {
+		t.Fatalf("capsule = %q want under %q", result.CapsulePath, wantDir)
+	}
+	if _, err := os.Stat(filepath.Join(root, "context")); !os.IsNotExist(err) {
+		t.Fatal("must not write context/ into product repo")
+	}
+	if _, err := os.Stat(filepath.Join(homeDir, "context", "projects", id)); !os.IsNotExist(err) {
+		t.Fatal("must not write legacy context/projects layout for new updates")
 	}
 }
 

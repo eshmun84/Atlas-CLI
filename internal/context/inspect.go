@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 )
 
 // StatusSnapshot is a read-only Context Economy report for Status/Doctor.
@@ -66,9 +67,11 @@ func Inspect(in InspectInput) StatusSnapshot {
 		id = computed
 	}
 	snap.ProjectID = id
-	snap.ProjectDir = ProjectDir(homePath, id)
-	snap.IndexPath = IndexPath(homePath, id)
-	snap.CapsulePath = CapsulePath(homePath, id)
+
+	dir := ResolveContextDir(homePath, id)
+	snap.ProjectDir = dir
+	snap.IndexPath = filepath.Join(dir, FileIndexYAML)
+	snap.CapsulePath = filepath.Join(dir, FileCapsuleMD)
 
 	indexInfo, indexErr := os.Stat(snap.IndexPath)
 	capsuleInfo, capsuleErr := os.Stat(snap.CapsulePath)
@@ -129,9 +132,5 @@ func InspectFromState(root string, initialized bool, state config.StateDocument)
 
 // RelHomePath returns a display path under Atlas Home when possible.
 func RelHomePath(homePath, full string) string {
-	rel, err := filepath.Rel(homePath, full)
-	if err != nil {
-		return full
-	}
-	return filepath.ToSlash(rel)
+	return home.RelHomePath(homePath, full)
 }

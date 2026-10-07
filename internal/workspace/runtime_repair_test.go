@@ -10,6 +10,7 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
@@ -72,10 +73,13 @@ func TestApplyRuntimeRepair_BrokenMarkersBackupReplace(t *testing.T) {
 	if len(result.Replaced) == 0 {
 		t.Fatalf("expected replace: %#v", result)
 	}
-	backup := filepath.Join(root, ".atlas", "backups", "20261005T150100Z", "AGENTS.md")
+	backup := homeBackupFile(t, root, result.BackupDir, "AGENTS.md")
 	data, err := os.ReadFile(backup)
 	if err != nil || string(data) != old {
 		t.Fatalf("backup = %q err=%v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".atlas", "backups")); !os.IsNotExist(err) {
+		t.Fatal("repair backups must not write under product repo .atlas/backups")
 	}
 	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
 	if err != nil {
@@ -161,7 +165,7 @@ func TestApplyRuntimeRepair_NonAtlasProjectionContentReplace(t *testing.T) {
 	if !containsPath(result.Replaced, config.FileCursorAtlasMDC) {
 		t.Fatalf("result = %#v", result)
 	}
-	backed, err := os.ReadFile(filepath.Join(cursorRoot, ".atlas", "backups", "20261005T150400Z", ".cursor", "rules", "atlas.mdc"))
+	backed, err := os.ReadFile(homeBackupFile(t, cursorRoot, result.BackupDir, ".cursor/rules/atlas.mdc"))
 	if err != nil || string(backed) != oldCursor {
 		t.Fatalf("cursor backup = %q err=%v", backed, err)
 	}
@@ -189,7 +193,7 @@ func TestApplyRuntimeRepair_NonAtlasProjectionContentReplace(t *testing.T) {
 	if !containsPath(result.Replaced, config.FileOpenCodeAtlas) {
 		t.Fatalf("result = %#v", result)
 	}
-	backed, err = os.ReadFile(filepath.Join(opencodeRoot, ".atlas", "backups", "20261005T150500Z", ".opencode", "atlas.md"))
+	backed, err = os.ReadFile(homeBackupFile(t, opencodeRoot, result.BackupDir, ".opencode/atlas.md"))
 	if err != nil || string(backed) != oldOpen {
 		t.Fatalf("opencode backup = %q err=%v", backed, err)
 	}
@@ -286,7 +290,7 @@ func TestApplyRuntimeRepair_QuarantinesCompetingArtifacts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, config.FileCursorAtlasMDC)); err != nil {
 		t.Fatal(err)
 	}
-	manifestRaw, err := os.ReadFile(filepath.Join(root, ".atlas", "backups", "20261005T150300Z", "manifest.json"))
+	manifestRaw, err := os.ReadFile(homeBackupFile(t, root, result.BackupDir, "manifest.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +306,7 @@ func TestApplyRuntimeRepair_QuarantinesCompetingArtifacts(t *testing.T) {
 			t.Fatalf("incomplete entry %#v", entry)
 		}
 	}
-	backed, err := os.ReadFile(filepath.Join(root, ".atlas", "backups", "20261005T150300Z", "CLAUDE.md"))
+	backed, err := os.ReadFile(homeBackupFile(t, root, result.BackupDir, "CLAUDE.md"))
 	if err != nil || string(backed) != "claude\n" {
 		t.Fatalf("quarantine backup missing: %q %v", backed, err)
 	}
@@ -568,6 +572,22 @@ func applyRepair(t *testing.T, root, signature string, nowFn func() time.Time) w
 		t.Fatalf("unexpected stale: %#v", result)
 	}
 	return result
+}
+
+func homeBackupFile(t *testing.T, root, backupRel, rel string) string {
+	t.Helper()
+	homePath, err := home.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backupRel == "" {
+		id, idErr := home.ProjectID(root, "demo")
+		if idErr != nil {
+			t.Fatal(idErr)
+		}
+		t.Fatalf("expected Home backup dir for project %s under %s", id, homePath)
+	}
+	return filepath.Join(homePath, filepath.FromSlash(backupRel), filepath.FromSlash(rel))
 }
 
 func mustDiscover(t *testing.T, root string) workspace.DiscoveryResult {

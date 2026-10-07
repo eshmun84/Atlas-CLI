@@ -695,16 +695,22 @@ func (m *Model) enterInitReview() {
 	m.initReviewMessage = ""
 	m.initReviewFooterIdx = 0
 	m.initApplied = false
+	m.initAcceptHomeReset = false
 	m.configPanel = screens.ConfigPanelFooter
 	m.configFooterIdx = 0
 	m.contentOffset = 0
-	m.initReviewPlan = initplan.BuildReview(initplan.ReviewInput{
-		Root:      m.discovery.RootPath,
-		Draft:     m.configDraft,
-		MCP:       m.mcpDraft,
-		Artifacts: m.discovery.RuntimeArtifacts,
-	})
+	m.refreshInitReviewPlan()
 	m.syncNameInputFocus()
+}
+
+func (m *Model) refreshInitReviewPlan() {
+	m.initReviewPlan = initplan.BuildReview(initplan.ReviewInput{
+		Root:            m.discovery.RootPath,
+		Draft:           m.configDraft,
+		MCP:             m.mcpDraft,
+		Artifacts:       m.discovery.RuntimeArtifacts,
+		AcceptHomeReset: m.initAcceptHomeReset,
+	})
 }
 
 func (m Model) handleInitReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -720,6 +726,13 @@ func (m Model) handleInitReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "pgup", "pgdown", "home", "end":
 		return m.scroll(msg.String()), nil
+	case "x":
+		if m.initReviewPlan.HomeDataDetected {
+			m.initAcceptHomeReset = !m.initAcceptHomeReset
+			m.refreshInitReviewPlan()
+			m.initReviewMessage = ""
+		}
+		return m, nil
 	case "left", "h", "up", "k":
 		m.initReviewFooterIdx = 0
 		m.configFooterIdx = 0
@@ -884,10 +897,16 @@ func (m Model) activateInitReviewFooter() (tea.Model, tea.Cmd) {
 
 func (m Model) applyInitConfig() (tea.Model, tea.Cmd) {
 	root := m.discovery.RootPath
+	m.refreshInitReviewPlan()
+	if len(m.initReviewPlan.Blockers) > 0 {
+		m.initReviewMessage = m.initReviewPlan.Blockers[0].Message
+		return m, nil
+	}
 	if _, err := config.ApplyConfig(config.ApplyInput{
-		Root:  root,
-		Draft: m.configDraft,
-		MCP:   m.mcpDraft,
+		Root:            root,
+		Draft:           m.configDraft,
+		MCP:             m.mcpDraft,
+		AcceptHomeReset: m.initAcceptHomeReset,
 	}); err != nil {
 		m.initReviewMessage = err.Error()
 		return m, nil

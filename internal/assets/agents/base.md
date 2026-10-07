@@ -66,9 +66,9 @@ Tests, reviews, smoke results, and evidence packages inform judgment; they never
 Use the minimum sufficient context. Prefer Atlas-provided references and targeted files over loading the entire repository by default.
 
 Before broad repository reads, check Context Economy artifacts when present under Atlas Home:
-- `$ATLAS_HOME/context/projects/<project-id>/capsule.md`
-- `$ATLAS_HOME/context/projects/<project-id>/index.yaml`
-- `$ATLAS_HOME/context/projects/<project-id>/packs/*.yaml`
+- `$ATLAS_HOME/projects/<project-id>/context/capsule.md`
+- `$ATLAS_HOME/projects/<project-id>/context/index.yaml`
+- `$ATLAS_HOME/projects/<project-id>/context/packs/*.yaml`
 
 `.atlas/state.yaml` may record only minimal references (`context_economy_*`). Do not expect large context payloads inside the product repo. If capsule/pack/index is missing or stale, say so and recommend an explicit Context Economy update in Atlas TUI. Do not invent capsule/pack contents. Report when capsule/pack was used and when it was not.
 

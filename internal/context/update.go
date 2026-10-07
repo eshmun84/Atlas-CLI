@@ -227,9 +227,11 @@ func ApplyUpdate(root, expectedSignature string, state config.StateDocument, obj
 	if _, err := home.EnsureAndMirror(now); err != nil {
 		return result, fmt.Errorf("context update: %w", err)
 	}
-	// Ensure context layout exists even if older homes predate the directory.
-	if err := os.MkdirAll(ProjectsRoot(plan.HomePath), 0o755); err != nil {
-		return result, fmt.Errorf("context update: create projects root: %w", err)
+	if err := home.EnsureProjectLayout(plan.HomePath, plan.ProjectID); err != nil {
+		return result, fmt.Errorf("context update: %w", err)
+	}
+	if err := home.WriteProjectIdentity(plan.HomePath, plan.ProjectID, state.ProjectName, root, now); err != nil {
+		return result, fmt.Errorf("context update: %w", err)
 	}
 
 	idx, err := BuildIndex(root, state.ProjectName, now)
@@ -307,9 +309,23 @@ func updateProjectState(root string, state config.StateDocument, projectID strin
 		// Do not create state for uninitialized projects.
 		return nil
 	}
-	state.ContextEconomyUpdatedAt = now.UTC().Format(time.RFC3339)
+	stamp := now.UTC().Format(time.RFC3339)
+	homePath, err := ResolveHome()
+	if err != nil {
+		return fmt.Errorf("context update: resolve home: %w", err)
+	}
+	local, _, _ := home.LoadProjectLocalState(homePath, projectID)
+	local.ContextEconomyUpdatedAt = stamp
+	local.ContextEconomyFingerprint = idx.Fingerprint
+	if err := home.WriteProjectLocalState(homePath, projectID, local); err != nil {
+		return fmt.Errorf("context update: %w", err)
+	}
+
+	// Transitional compatibility mirrors in portable .atlas/state.yaml.
+	// Prefer Home project-local state for machine-local timestamps/fingerprints.
+	state.ContextEconomyUpdatedAt = stamp
 	state.ContextEconomyProjectID = projectID
-	state.ContextEconomyHomeRel = filepath.ToSlash(filepath.Join(DirContextProjects, projectID))
+	state.ContextEconomyHomeRel = HomeRelContext(projectID)
 	state.ContextEconomyFingerprint = idx.Fingerprint
 	if state.SchemaVersion == 0 {
 		state.SchemaVersion = config.PersistSchemaVersion

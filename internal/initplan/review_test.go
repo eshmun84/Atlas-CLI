@@ -100,7 +100,6 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 		".atlas/agent-registry.md",
 		".atlas/runtime-manifest.yaml",
 		".atlas/contracts/sdd-openspec.md",
-		".atlas/backups/",
 		"AGENTS.md",
 		".cursor/rules/atlas.mdc",
 		".opencode/atlas.md",
@@ -109,12 +108,6 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 	}
 	assertCreatePaths(t, plan, wantCreates)
 	for _, file := range plan.Creates {
-		if file.Path == ".atlas/backups/" {
-			if file.Status != "create if needed" {
-				t.Fatalf("backups status = %q", file.Status)
-			}
-			continue
-		}
 		if file.Status != "create/update on Apply" {
 			t.Fatalf("status for %s = %q", file.Path, file.Status)
 		}
@@ -183,13 +176,13 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 
 	foundAgents, foundCursor, foundManifest, foundReplaceAgents, foundReplaceCursor := false, false, false, false, false
 	for _, backup := range plan.Backups {
-		if backup.Path == ".atlas/backups/<timestamp>/AGENTS.md" {
+		if backup.Path == "projects/<project-id>/backups/<timestamp>/AGENTS.md" {
 			foundAgents = true
 		}
-		if backup.Path == ".atlas/backups/<timestamp>/.cursor/rules/atlas.mdc" {
+		if backup.Path == "projects/<project-id>/backups/<timestamp>/.cursor/rules/atlas.mdc" {
 			foundCursor = true
 		}
-		if backup.Path == ".atlas/backups/<timestamp>/manifest.json" {
+		if backup.Path == "projects/<project-id>/backups/<timestamp>/manifest.json" {
 			foundManifest = true
 		}
 	}

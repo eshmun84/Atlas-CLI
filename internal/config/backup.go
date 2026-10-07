@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 )
 
 const BackupManifestSchemaVersion = 1
@@ -41,13 +43,17 @@ type ConflictBackup struct {
 	Reason string
 }
 
-// BackupExistingTargets copies existing runtime targets into .atlas/backups/<timestamp>/.
+// BackupExistingTargets copies existing runtime targets into
+// $ATLAS_HOME/projects/<project-id>/backups/<timestamp>/.
 // When no targets exist, it returns an empty backup dir and does not create a timestamp folder.
 // If backup fails, no target files should be written by the caller.
-func BackupExistingTargets(root string, targets []string, now time.Time) (backupRelDir string, manifest BackupManifest, err error) {
+func BackupExistingTargets(root, homePath, projectID string, targets []string, now time.Time) (backupDir string, manifest BackupManifest, err error) {
 	root = filepath.Clean(strings.TrimSpace(root))
 	if root == "" || root == "." {
 		return "", BackupManifest{}, fmt.Errorf("backup: workspace root is required")
+	}
+	if strings.TrimSpace(homePath) == "" || strings.TrimSpace(projectID) == "" {
+		return "", BackupManifest{}, fmt.Errorf("backup: Atlas Home project identity is required")
 	}
 
 	manifest = BackupManifest{
@@ -84,18 +90,18 @@ func BackupExistingTargets(root string, targets []string, now time.Time) (backup
 		return "", manifest, nil
 	}
 
-	stamp := now.UTC().Format("20060102T150405Z")
-	backupRelDir = filepath.ToSlash(filepath.Join(DirBackups, stamp))
-	backupAbs, err := safeJoinAtlas(root, backupRelDir)
-	if err != nil {
+	if err := home.EnsureProjectLayout(homePath, projectID); err != nil {
 		return "", BackupManifest{}, err
 	}
+	stamp := now.UTC().Format("20060102T150405Z")
+	backupAbs := home.ProjectBackupDir(homePath, projectID, stamp)
+	backupRel := home.RelHomePath(homePath, backupAbs)
 	if err := os.MkdirAll(backupAbs, 0o755); err != nil {
-		return "", BackupManifest{}, fmt.Errorf("backup: create %s: %w", backupRelDir, err)
+		return "", BackupManifest{}, fmt.Errorf("backup: create %s: %w", backupRel, err)
 	}
 
 	for _, item := range toBackup {
-		destRel := filepath.ToSlash(filepath.Join(backupRelDir, item.rel))
+		destRel := filepath.ToSlash(filepath.Join(backupRel, item.rel))
 		destAbs := filepath.Join(backupAbs, filepath.FromSlash(item.rel))
 		if err := os.MkdirAll(filepath.Dir(destAbs), 0o755); err != nil {
 			return "", BackupManifest{}, fmt.Errorf("backup: create parent for %s: %w", destRel, err)
@@ -116,24 +122,23 @@ func BackupExistingTargets(root string, targets []string, now time.Time) (backup
 		})
 	}
 
-	manifestPath := filepath.Join(backupAbs, "manifest.json")
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return "", BackupManifest{}, fmt.Errorf("backup: marshal manifest: %w", err)
+	if err := writeBackupManifest(backupAbs, manifest); err != nil {
+		return "", BackupManifest{}, err
 	}
-	data = append(data, '\n')
-	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
-		return "", BackupManifest{}, fmt.Errorf("backup: write manifest: %w", err)
-	}
-	return backupRelDir, manifest, nil
+	return backupRel, manifest, nil
 }
 
-// BackupConflicts copies files or directories into .atlas/backups/<timestamp>/.
+// BackupConflicts copies files or directories into
+// $ATLAS_HOME/projects/<project-id>/backups/<timestamp>/.
 // Directories are copied recursively. Missing paths are skipped.
-func BackupConflicts(root string, items []ConflictBackup, now time.Time) (backupRelDir string, manifest BackupManifest, err error) {
+// Transitional project-local .atlas/backups/ may still exist for older installs.
+func BackupConflicts(root, homePath, projectID string, items []ConflictBackup, now time.Time) (backupDir string, manifest BackupManifest, err error) {
 	root = filepath.Clean(strings.TrimSpace(root))
 	if root == "" || root == "." {
 		return "", BackupManifest{}, fmt.Errorf("backup: workspace root is required")
+	}
+	if strings.TrimSpace(homePath) == "" || strings.TrimSpace(projectID) == "" {
+		return "", BackupManifest{}, fmt.Errorf("backup: Atlas Home project identity is required")
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -185,18 +190,18 @@ func BackupConflicts(root string, items []ConflictBackup, now time.Time) (backup
 		return "", manifest, nil
 	}
 
-	stamp := now.Format("20060102T150405Z")
-	backupRelDir = filepath.ToSlash(filepath.Join(DirBackups, stamp))
-	backupAbs, err := safeJoinAtlas(root, backupRelDir)
-	if err != nil {
+	if err := home.EnsureProjectLayout(homePath, projectID); err != nil {
 		return "", BackupManifest{}, err
 	}
+	stamp := now.Format("20060102T150405Z")
+	backupAbs := home.ProjectBackupDir(homePath, projectID, stamp)
+	backupRel := home.RelHomePath(homePath, backupAbs)
 	if err := os.MkdirAll(backupAbs, 0o755); err != nil {
-		return "", BackupManifest{}, fmt.Errorf("backup: create %s: %w", backupRelDir, err)
+		return "", BackupManifest{}, fmt.Errorf("backup: create %s: %w", backupRel, err)
 	}
 
 	for _, item := range toBackup {
-		destRel := filepath.ToSlash(filepath.Join(backupRelDir, item.rel))
+		destRel := filepath.ToSlash(filepath.Join(backupRel, item.rel))
 		destAbs := filepath.Join(backupAbs, filepath.FromSlash(item.rel))
 		action := item.item.Action
 		if action == "" {
@@ -241,13 +246,15 @@ func BackupConflicts(root string, items []ConflictBackup, now time.Time) (backup
 	if err := writeBackupManifest(backupAbs, manifest); err != nil {
 		return "", BackupManifest{}, err
 	}
-	return backupRelDir, manifest, nil
+	return backupRel, manifest, nil
 }
 
-func WriteBackupManifest(root, backupRelDir string, manifest BackupManifest) error {
-	backupAbs, err := safeJoinAtlas(root, backupRelDir)
-	if err != nil {
-		return err
+// WriteBackupManifest writes manifest.json into an absolute Home backup directory.
+// backupDir may be Home-relative (projects/<id>/backups/<stamp>) or absolute.
+func WriteBackupManifest(homePath, backupDir string, manifest BackupManifest) error {
+	backupAbs := backupDir
+	if !filepath.IsAbs(backupDir) {
+		backupAbs = filepath.Join(homePath, filepath.FromSlash(backupDir))
 	}
 	return writeBackupManifest(backupAbs, manifest)
 }

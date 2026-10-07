@@ -82,7 +82,23 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 	}
 
 	// Refresh Atlas Home first so project restores use canonical Home content.
-	if _, err := home.EnsureAndMirror(now); err != nil {
+	homeResult, err := home.EnsureAndMirror(now)
+	if err != nil {
+		return result, fmt.Errorf("runtime repair: %w", err)
+	}
+
+	projectName := health.Document.Project.Name
+	if projectName == "" {
+		projectName = health.State.ProjectName
+	}
+	projectID, err := home.ProjectID(root, projectName)
+	if err != nil {
+		return result, fmt.Errorf("runtime repair: project id: %w", err)
+	}
+	if err := home.EnsureProjectLayout(homeResult.HomePath, projectID); err != nil {
+		return result, fmt.Errorf("runtime repair: %w", err)
+	}
+	if err := home.WriteProjectIdentity(homeResult.HomePath, projectID, projectName, root, now); err != nil {
 		return result, fmt.Errorf("runtime repair: %w", err)
 	}
 
@@ -97,7 +113,7 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		}
 	}
 
-	backupDir, manifest, err := config.BackupConflicts(root, backupItems, now)
+	backupDir, manifest, err := config.BackupConflicts(root, homeResult.HomePath, projectID, backupItems, now)
 	if err != nil {
 		return result, fmt.Errorf("runtime repair: %w", err)
 	}
@@ -142,12 +158,12 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 	}
 
 	if backupDir != "" {
-		if err := config.WriteBackupManifest(root, backupDir, manifest); err != nil {
+		if err := config.WriteBackupManifest(homeResult.HomePath, backupDir, manifest); err != nil {
 			return result, err
 		}
 	}
 
-	if err := updateRepairState(root, health, now, result.Actions); err != nil {
+	if err := updateRepairState(root, homeResult.HomePath, projectID, health, now, result.Actions); err != nil {
 		return result, err
 	}
 
@@ -244,8 +260,16 @@ func removeConflict(root, rel string) error {
 	return nil
 }
 
-func updateRepairState(root string, health RuntimeHealth, now time.Time, actions []string) error {
+func updateRepairState(root, homePath, projectID string, health RuntimeHealth, now time.Time, actions []string) error {
 	stamp := now.Format(time.RFC3339)
+
+	local, _, _ := home.LoadProjectLocalState(homePath, projectID)
+	local.RuntimeRepairedAt = stamp
+	local.LastRuntimeRepairActions = append([]string{}, actions...)
+	if err := home.WriteProjectLocalState(homePath, projectID, local); err != nil {
+		return fmt.Errorf("runtime repair: %w", err)
+	}
+
 	state := health.State
 	if !health.StateLoads {
 		state = config.StateDocument{
@@ -259,6 +283,7 @@ func updateRepairState(root string, health RuntimeHealth, now time.Time, actions
 	if state.RuntimeMaterializedAt == "" {
 		state.RuntimeMaterializedAt = stamp
 	}
+	// Transitional mirrors in portable state; prefer Home project-local state.
 	state.RuntimeRepairedAt = stamp
 	state.LastRuntimeRepairActions = append([]string{}, actions...)
 	if state.AppliedAt == "" {

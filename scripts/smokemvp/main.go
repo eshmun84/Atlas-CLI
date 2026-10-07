@@ -840,7 +840,7 @@ func checkContextEconomy() error {
 	}
 	repairPlan := workspace.BuildRuntimeRepairPlan(root, staleDisc.Runtime)
 	for _, target := range repairPlan.Targets {
-		if strings.Contains(target.Path, "context/projects") || strings.HasSuffix(target.Path, "capsule.md") {
+		if strings.Contains(target.Path, "/context/") || strings.Contains(target.Path, "projects/") || strings.HasSuffix(target.Path, "capsule.md") {
 			return fmt.Errorf("repair targets context economy path: %#v", target)
 		}
 	}

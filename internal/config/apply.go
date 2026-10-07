@@ -34,10 +34,11 @@ var forbiddenApplyRelPaths = []string{
 
 // ApplyInput is the in-memory init state used to persist Atlas config and runtime files.
 type ApplyInput struct {
-	Root  string
-	Draft ConfigDraft
-	MCP   MCPDraft
-	Now   func() time.Time
+	Root            string
+	Draft           ConfigDraft
+	MCP             MCPDraft
+	Now             func() time.Time
+	AcceptHomeReset bool
 }
 
 // ApplyResult lists Atlas-owned and runtime paths created by Apply.
@@ -48,6 +49,8 @@ type ApplyResult struct {
 	BackupDir    string
 	HomePath     string
 	HomeCreated  bool
+	ProjectID    string
+	HomeReset    bool
 }
 
 // ApplyConfig persists Atlas-owned configuration under .atlas/ and materializes
@@ -78,22 +81,44 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		return ApplyResult{}, fmt.Errorf("apply config: %w", err)
 	}
 
+	projectID, err := home.ProjectID(root, doc.Project.Name)
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("apply config: project id: %w", err)
+	}
+
 	result := ApplyResult{
 		HomePath:    homeResult.HomePath,
 		HomeCreated: homeResult.Created,
-	}
-	for _, rel := range []string{DirAtlas, DirBackups} {
-		path, err := safeJoinAtlas(root, rel)
-		if err != nil {
-			return ApplyResult{}, err
-		}
-		if err := os.MkdirAll(path, 0o755); err != nil {
-			return ApplyResult{}, fmt.Errorf("apply config: create %s: %w", rel, err)
-		}
-		result.Directories = append(result.Directories, rel)
+		ProjectID:   projectID,
 	}
 
-	backupDir, _, err := BackupExistingTargets(root, targets, now)
+	if home.ProjectDataPresent(homeResult.HomePath, projectID) {
+		if !in.AcceptHomeReset {
+			return result, fmt.Errorf("apply config: Atlas Home project data exists for this project; explicit reset acceptance is required")
+		}
+		if err := home.ResetProject(homeResult.HomePath, projectID); err != nil {
+			return result, fmt.Errorf("apply config: %w", err)
+		}
+		result.HomeReset = true
+	}
+
+	if err := home.EnsureProjectLayout(homeResult.HomePath, projectID); err != nil {
+		return result, fmt.Errorf("apply config: %w", err)
+	}
+	if err := home.WriteProjectIdentity(homeResult.HomePath, projectID, doc.Project.Name, root, now); err != nil {
+		return result, fmt.Errorf("apply config: %w", err)
+	}
+
+	atlasDir, err := safeJoinAtlas(root, DirAtlas)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	if err := os.MkdirAll(atlasDir, 0o755); err != nil {
+		return ApplyResult{}, fmt.Errorf("apply config: create %s: %w", DirAtlas, err)
+	}
+	result.Directories = append(result.Directories, DirAtlas)
+
+	backupDir, _, err := BackupExistingTargets(root, homeResult.HomePath, projectID, targets, now)
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("apply config: %w", err)
 	}

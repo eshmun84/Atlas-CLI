@@ -100,7 +100,7 @@ func RenderContextEconomy(view ContextEconomyView) string {
 		fmt.Fprintln(&b)
 	}
 
-	fmt.Fprintln(&b, initMuted.Render("Writes only under Atlas Home context/projects/ plus minimal .atlas/state.yaml refs."))
+	fmt.Fprintln(&b, initMuted.Render("Writes under Atlas Home projects/<id>/context/ plus minimal .atlas/state.yaml refs."))
 	fmt.Fprintln(&b, initMuted.Render("Status/Doctor never create index, capsule, or packs."))
 	fmt.Fprintln(&b, initMuted.Render("Runtime Repair does not delete or rewrite Context Economy payloads."))
 	return strings.TrimRight(b.String(), "\n")

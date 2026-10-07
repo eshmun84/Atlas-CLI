@@ -133,7 +133,7 @@ func RenderAgentRegistry(projectName string, selected []string, homePath string)
 	fmt.Fprintf(&b, "# Atlas Agent Registry\n\n")
 	fmt.Fprintf(&b, "Project: **%s**\n\n", name)
 	if homePath != "" {
-		fmt.Fprintf(&b, "Atlas Home: `%s`\n\n", homePath)
+		fmt.Fprintf(&b, "Atlas Home: `$ATLAS_HOME`\n\n")
 	}
 	fmt.Fprintf(&b, "This registry lists Atlas-owned runtime agents. Skills remain registry-first via `%s` when present and are not copied into adapter skill folders in this slice.\n\n", FileSkillRegistry)
 	fmt.Fprintf(&b, "`AGENTS.md` remains the project authority. Adapter agent files are execution surfaces only.\n\n")
@@ -145,7 +145,7 @@ func RenderAgentRegistry(projectName string, selected []string, homePath string)
 			ID:        EmbedPathSDDOpenSpecContract,
 			EmbedPath: EmbedPathSDDOpenSpecContract,
 		}
-		fmt.Fprintf(&b, "- Atlas Home: `%s`\n", filepath.ToSlash(home.AssetHomePath(homePath, homeAsset)))
+		fmt.Fprintf(&b, "- Atlas Home: `$ATLAS_HOME/%s`\n", home.RelHomePath(homePath, home.AssetHomePath(homePath, homeAsset)))
 	}
 	fmt.Fprintf(&b, "- SDD phase agents must follow this contract. Do not execute real OpenSpec CLI commands in this slice unless explicitly requested and supported.\n\n")
 
@@ -173,7 +173,7 @@ func RenderAgentRegistry(projectName string, selected []string, homePath string)
 				ID:        "agents/runtime/" + filename,
 				EmbedPath: "agents/runtime/" + filename,
 			}
-			fmt.Fprintf(&b, "- Atlas Home: `%s`\n", filepath.ToSlash(home.AssetHomePath(homePath, homeAsset)))
+			fmt.Fprintf(&b, "- Atlas Home: `$ATLAS_HOME/%s`\n", home.RelHomePath(homePath, home.AssetHomePath(homePath, homeAsset)))
 		}
 		for _, adapter := range adapters {
 			fmt.Fprintf(&b, "- Project path (`%s`): `%s`\n", adapter, AtlasAgentRuntimePath(adapter, filename))

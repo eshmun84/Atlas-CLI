@@ -1722,8 +1722,10 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		".atlas/local.yaml",
 		".atlas/state.yaml",
 		".atlas/assets.lock.yaml",
-		".atlas/backups/",
 		"AGENTS.md",
+		"Atlas Home writes",
+		"Atlas Home reset",
+		"No Git operations",
 		"No conflicting runtime surfaces detected.",
 		"No Atlas-managed backups required",
 		"Existing project source files are preserved.",
@@ -2576,7 +2578,6 @@ func assertAtlasConfigPersisted(t *testing.T, root string) {
 		".atlas/local.yaml",
 		".atlas/state.yaml",
 		".atlas/assets.lock.yaml",
-		".atlas/backups",
 	} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 			t.Fatalf("expected %s: %v", rel, err)

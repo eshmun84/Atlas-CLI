@@ -94,19 +94,21 @@ Project-local (under the product repo):
 Atlas Home (under `$ATLAS_HOME` / `~/.atlas`):
 
 - Mirrored assets (`assets/…`), agents, adapters, contracts
-- Context Economy payloads under `context/projects/<project-id>/` after an explicit Update
+- Project-scoped local data under `projects/<project-id>/` (identity from canonical root)
+- Context Economy payloads under `projects/<project-id>/context/` after an explicit Update
+- Runtime Repair backups under `projects/<project-id>/backups/<timestamp>/`
 
 ## What Status / Doctor validate
 
-Read-only checks for config/state, `AGENTS.md` markers, selected adapters/projections, Atlas agent health, registry/manifest/lock, SDD contract presence/match, Atlas Home visibility, Context Economy state, backups, and basic tool/git presence. They never repair, rematerialize, or create Atlas Home.
+Read-only checks for config/state, `AGENTS.md` markers, selected adapters/projections, Atlas agent health, registry/manifest/lock, SDD contract presence/match, Atlas Home visibility, Context Economy state, backups, and basic tool/git presence. They never repair, rematerialize, or create Atlas Home. Status does not treat Home path as primary; Doctor may show Home path and project-local Home state as diagnostic detail.
 
 ## Runtime Repair
 
-Explicit Review → Apply. Recomputes the plan before Apply. Restores missing/broken Atlas-owned runtime files; quarantines conflicting Atlas-surface artifacts after mandatory backup. Preserves developer-owned files (e.g. `README.md`, `.gitignore`, non-Atlas agents). Does **not** delete Context Economy payloads under Atlas Home.
+Explicit Review → Apply. Recomputes the plan before Apply. Restores missing/broken Atlas-owned runtime files; quarantines conflicting Atlas-surface artifacts after mandatory Home-backed backup. Preserves developer-owned files (e.g. `README.md`, `.gitignore`, non-Atlas agents). Does **not** delete Context Economy payloads under Atlas Home.
 
 ## Context Economy (v0)
 
-Explicit Review → Apply Update. Writes `index.yaml`, `capsule.md`, and packs under Atlas Home `context/projects/<id>/`, plus minimal refs in `.atlas/state.yaml`. Status/Doctor/Repair/discovery/startup do not create or refresh context payloads.
+Explicit Review → Apply Update. Writes `index.yaml`, `capsule.md`, and packs under Atlas Home `projects/<id>/context/`, plus minimal transitional refs in `.atlas/state.yaml`. Status/Doctor/Repair/discovery/startup do not create or refresh context payloads.
 
 ## Known Alpha limitations
 

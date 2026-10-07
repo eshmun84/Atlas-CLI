@@ -57,7 +57,7 @@ Checklist (library-equivalent via `scripts/manualalpha` executed for Slice 22):
 - [x] Verify 14 agents under `.cursor/agents/` and `.opencode/agents/`
 - [x] Verify `.atlas/agent-registry.md`, `runtime-manifest.yaml`, `assets.lock.yaml`
 - [x] Verify `.atlas/contracts/sdd-openspec.md`
-- [x] Context Economy → Update → `index.yaml`, `capsule.md`, pack under `$ATLAS_HOME/context/projects/…`
+- [x] Context Economy → Update → `index.yaml`, `capsule.md`, pack under `$ATLAS_HOME/projects/<id>/context/…`
 - [x] Status / Doctor → no mutation; Home not created by read-only paths when missing
 - [x] Drift agent/contract → Runtime Repair restores Atlas files
 - [x] Developer-owned files preserved; Context payload intact after repair

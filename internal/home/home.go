@@ -14,6 +14,8 @@ const EnvAtlasHome = "ATLAS_HOME"
 const DefaultDirName = ".atlas"
 
 // Layout directories are created under Atlas Home by mutating flows.
+// "context" remains for transitional compatibility with older Context Economy paths.
+// New project-scoped local data lives under projects/<project-id>/.
 var LayoutDirectories = []string{
 	"assets",
 	"agents",
@@ -23,6 +25,7 @@ var LayoutDirectories = []string{
 	"adapters",
 	"contracts",
 	"context",
+	"projects",
 	"state",
 }
 

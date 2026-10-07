@@ -48,6 +48,9 @@ func RenderReview(view ReviewView) string {
 	fmt.Fprintln(&b, initSection.Render("Summary"))
 	fmt.Fprintln(&b, initLabel.Render("Project:"))
 	fmt.Fprintf(&b, "  - Name: %s\n", plan.ProjectName)
+	if plan.ProjectRoot != "" {
+		fmt.Fprintf(&b, "  - Root: %s\n", plan.ProjectRoot)
+	}
 	fmt.Fprintf(&b, "  - Mode: %s\n", plan.ProjectModeLabel)
 	fmt.Fprintln(&b, initLabel.Render("Governance:"))
 	fmt.Fprintf(&b, "  - Workflow: %s\n", plan.Workflow)
@@ -64,7 +67,7 @@ func RenderReview(view ReviewView) string {
 	fmt.Fprintf(&b, "  - MCP preferences: %d recorded\n", plan.MCPCount)
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, initSection.Render("Planned project writes"))
+	fmt.Fprintln(&b, initSection.Render("Project writes"))
 	for _, file := range plan.Creates {
 		status := file.Status
 		if status == "" {
@@ -74,7 +77,7 @@ func RenderReview(view ReviewView) string {
 	}
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, initSection.Render("Planned Atlas Home writes"))
+	fmt.Fprintln(&b, initSection.Render("Atlas Home writes"))
 	if len(plan.HomeWrites) == 0 {
 		fmt.Fprintln(&b, "  "+initMuted.Render("none"))
 	} else {
@@ -82,6 +85,37 @@ func RenderReview(view ReviewView) string {
 			fmt.Fprintf(&b, "  - %s (%s)\n", file.Path, file.Status)
 		}
 	}
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, initSection.Render("Atlas Home reset"))
+	if !plan.HomeDataDetected {
+		fmt.Fprintln(&b, "  "+initMuted.Render("none"))
+	} else {
+		fmt.Fprintf(&b, "  Project name: %s\n", plan.ProjectName)
+		if plan.ProjectRoot != "" {
+			fmt.Fprintf(&b, "  Project root: %s\n", plan.ProjectRoot)
+		}
+		fmt.Fprintln(&b, "  "+initWarn.Render("Home project data detected"))
+		fmt.Fprintln(&b, "  Action: reset local Atlas data before initialization")
+		for _, file := range plan.HomeReset {
+			fmt.Fprintf(&b, "  - %s (%s)\n", file.Path, file.Status)
+		}
+		fmt.Fprintln(&b, "  "+initMuted.Render("Press x to accept. Deletes only this project's Home data."))
+		marker := "[ ]"
+		if plan.AcceptHomeReset {
+			marker = "[x]"
+		}
+		label := "I accept resetting local Atlas Home data for this project"
+		if view.ContentFocused && !view.Applied {
+			fmt.Fprintln(&b, "  "+initSelected.Render(marker+" "+label))
+		} else {
+			fmt.Fprintln(&b, "  "+initOption.Render(marker+" "+label))
+		}
+	}
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, initSection.Render("No Git operations"))
+	fmt.Fprintln(&b, "  "+initOK.Render(plan.GitSafetyStatement))
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, initSection.Render("Runtime conflicts"))

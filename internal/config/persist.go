@@ -126,29 +126,34 @@ type LocalSourceControl struct {
 	DefaultRemote string `yaml:"default_remote"`
 }
 
-// StateDocument is generated .atlas/state.yaml.
+// StateDocument is generated .atlas/state.yaml (portable project runtime markers).
+// Machine-local events prefer $ATLAS_HOME/projects/<id>/state/local.yaml.
 type StateDocument struct {
-	SchemaVersion            int      `yaml:"schema_version"`
-	Initialized              bool     `yaml:"initialized"`
-	RuntimeMaterialized      bool     `yaml:"runtime_materialized"`
-	RuntimeMaterializedAt    string   `yaml:"runtime_materialized_at,omitempty"`
-	RuntimeRepairedAt        string   `yaml:"runtime_repaired_at,omitempty"`
-	LastRuntimeRepairActions []string `yaml:"last_runtime_repair_actions,omitempty"`
-	AppliedAt                string   `yaml:"applied_at"`
-	AtlasVersion             string   `yaml:"atlas_version"`
-	ProjectName              string   `yaml:"project_name"`
+	SchemaVersion       int    `yaml:"schema_version"`
+	Initialized         bool   `yaml:"initialized"`
+	RuntimeMaterialized bool   `yaml:"runtime_materialized"`
+	AppliedAt           string `yaml:"applied_at"`
+	AtlasVersion        string `yaml:"atlas_version"`
+	ProjectName         string `yaml:"project_name"`
 
-	// Minimal Context Economy v0 references (payload lives under Atlas Home).
-	ContextEconomyUpdatedAt   string `yaml:"context_economy_updated_at,omitempty"`
-	ContextEconomyProjectID   string `yaml:"context_economy_project_id,omitempty"`
-	ContextEconomyHomeRel     string `yaml:"context_economy_home_rel,omitempty"`
-	ContextEconomyFingerprint string `yaml:"context_economy_fingerprint,omitempty"`
+	// Transitional machine-local mirrors. Prefer Atlas Home project-local state.
+	// Do not add new machine-local fields here.
+	RuntimeMaterializedAt    string   `yaml:"runtime_materialized_at,omitempty"`     // transitional
+	RuntimeRepairedAt        string   `yaml:"runtime_repaired_at,omitempty"`         // transitional
+	LastRuntimeRepairActions []string `yaml:"last_runtime_repair_actions,omitempty"` // transitional
+
+	// Transitional Context Economy refs (payload lives under Atlas Home).
+	ContextEconomyUpdatedAt   string `yaml:"context_economy_updated_at,omitempty"`  // transitional
+	ContextEconomyProjectID   string `yaml:"context_economy_project_id,omitempty"`  // transitional
+	ContextEconomyHomeRel     string `yaml:"context_economy_home_rel,omitempty"`    // transitional
+	ContextEconomyFingerprint string `yaml:"context_economy_fingerprint,omitempty"` // transitional
 }
 
 // AssetsLockDocument is .atlas/assets.lock.yaml for Atlas-owned runtime assets.
+// HomePath and per-entry HomePath are Home-relative (never absolute machine paths).
 type AssetsLockDocument struct {
 	SchemaVersion int               `yaml:"schema_version"`
-	HomePath      string            `yaml:"home_path,omitempty"`
+	HomePath      string            `yaml:"home_path,omitempty"` // transitional; omit absolute paths
 	Assets        []AssetsLockEntry `yaml:"assets"`
 }
 
@@ -159,7 +164,7 @@ type AssetsLockEntry struct {
 	Source       string   `yaml:"source"`
 	Version      string   `yaml:"version,omitempty"`
 	Checksum     string   `yaml:"checksum,omitempty"`
-	HomePath     string   `yaml:"home_path,omitempty"`
+	HomePath     string   `yaml:"home_path,omitempty"` // Home-relative path under $ATLAS_HOME
 	ProjectPaths []string `yaml:"project_paths,omitempty"`
 }
 

@@ -201,14 +201,16 @@ func TestEvaluate_IncompleteMarkersFailWhenMaterialized(t *testing.T) {
 	assertHas(t, report, doctor.SeverityFail, "agents markers", "AGENTS.md markers incomplete")
 }
 
-func TestEvaluate_MissingBackupsWarnsWhenInitialized(t *testing.T) {
+func TestEvaluate_MissingBackupsPassWhenInitialized(t *testing.T) {
 	t.Parallel()
 
 	rt := healthyRuntime()
 	rt.BackupsDirExists = false
+	rt.LegacyBackupsDirExists = false
+	rt.HomeProject.BackupsPresent = false
 
 	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
-	assertHas(t, report, doctor.SeverityWarn, "backups directory", ".atlas/backups missing for initialized project")
+	assertHas(t, report, doctor.SeverityPass, "backups directory", "no backups yet (created on repair/init backup)")
 	if report.Failed() {
 		t.Fatal("missing backups must not fail")
 	}
@@ -376,6 +378,11 @@ func healthyRuntime() workspace.RuntimeHealth {
 			StatePresent:   true,
 			StateLoads:     true,
 			AssetCount:     len(home.BundledAssets()),
+		},
+		HomeProject: home.ProjectStatus{
+			ProjectID:      "demo-test",
+			Present:        true,
+			BackupsPresent: true,
 		},
 		ContextGraphEnabled:  true,
 		ContextGraphReadable: true,

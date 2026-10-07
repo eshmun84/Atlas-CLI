@@ -57,6 +57,7 @@ type Model struct {
 	initReviewMessage   string
 	initReviewFooterIdx int
 	initApplied         bool
+	initAcceptHomeReset bool
 	nameInput           textinput.Model
 	detectedName        string
 	detectedMode        string

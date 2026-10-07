@@ -440,6 +440,8 @@ func (m Model) renderFooter() string {
 		case screens.InitWizardStepReview:
 			if m.initApplied {
 				text = "Tab focus  PgUp/PgDn scroll  Close  b status  q quit"
+			} else if m.initReviewPlan.HomeDataDetected {
+				text = "Tab focus  PgUp/PgDn scroll  x accept Home reset  Back  Apply config  b status  q quit"
 			} else {
 				text = "Tab focus  PgUp/PgDn scroll  Back  Apply config  b status  q quit"
 			}

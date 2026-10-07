@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 )
 
 // Backup timestamp is never generated during review preview.
@@ -14,10 +15,11 @@ const BackupTimestampPlaceholder = "<timestamp>"
 
 // ReviewInput is the in-memory state used to build a preview plan.
 type ReviewInput struct {
-	Root      string
-	Draft     config.ConfigDraft
-	MCP       config.MCPDraft
-	Artifacts []string
+	Root            string
+	Draft           config.ConfigDraft
+	MCP             config.MCPDraft
+	Artifacts       []string
+	AcceptHomeReset bool
 }
 
 // MaterializationPlan is a typed preview of init materialization.
@@ -26,6 +28,8 @@ type MaterializationPlan struct {
 	ProjectName        string
 	ProjectMode        string
 	ProjectModeLabel   string
+	ProjectRoot        string
+	ProjectID          string
 	Workflow           string
 	SpecEngine         string
 	TestingRequired    string
@@ -39,6 +43,9 @@ type MaterializationPlan struct {
 	MCPEntries         []MCPPlanEntry
 	Creates            []PlannedFile
 	HomeWrites         []PlannedFile
+	HomeReset          []PlannedFile
+	HomeDataDetected   bool
+	AcceptHomeReset    bool
 	ExistingArtifacts  []string
 	Backups            []PlannedBackup
 	Replacements       []PlannedReplacement
@@ -59,7 +66,7 @@ type PlannedFile struct {
 	Status string
 }
 
-// PlannedBackup is a placeholder backup path under .atlas/backups/<timestamp>/.
+// PlannedBackup is a placeholder backup path under projects/<id>/backups/<timestamp>/.
 type PlannedBackup struct {
 	Path   string
 	Source string
@@ -106,6 +113,7 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		ProjectName:        draft.ProjectName(),
 		ProjectMode:        draft.ProjectMode(),
 		ProjectModeLabel:   draft.ProjectModeLabel(),
+		ProjectRoot:        strings.TrimSpace(in.Root),
 		Workflow:           fieldLabel(draft, "governance.default_workflow"),
 		SpecEngine:         fieldLabel(draft, "governance.spec_engine"),
 		TestingRequired:    yesNoLabel(fieldValue(draft, "governance.testing_required")),
@@ -118,6 +126,7 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		MCPCount:           in.MCP.ConfiguredCount(),
 		MCPEntries:         mcpEntries(in.MCP),
 		ExistingArtifacts:  append([]string(nil), in.Artifacts...),
+		AcceptHomeReset:    in.AcceptHomeReset,
 		DeliveryPolicy: []string{
 			"Repository creation requires explicit request.",
 			"Branch creation requires explicit request.",
@@ -131,6 +140,15 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		GitSafetyStatement: "No repository, branch, commit, push, pull request, merge or remote operation will be performed.",
 	}
 
+	if plan.ProjectRoot != "" {
+		if id, idErr := home.ProjectID(plan.ProjectRoot, plan.ProjectName); idErr == nil {
+			plan.ProjectID = id
+			if homePath, homeErr := home.Resolve(); homeErr == nil {
+				plan.HomeDataDetected = home.ProjectDataPresent(homePath, id)
+			}
+		}
+	}
+
 	const status = "create/update on Apply"
 	plan.Creates = []PlannedFile{
 		{Path: config.FileConfig, Kind: "atlas", Status: status},
@@ -140,11 +158,29 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Path: config.FileAgentRegistry, Kind: "atlas", Status: status},
 		{Path: config.FileRuntimeManifest, Kind: "atlas", Status: status},
 		{Path: config.FileSDDOpenSpecContract, Kind: "atlas", Status: status},
-		{Path: config.DirBackups + "/", Kind: "atlas", Status: "create if needed"},
 		{Path: config.FileAgentsMD, Kind: "runtime", Status: status},
 	}
 	plan.HomeWrites = []PlannedFile{
 		{Path: "Atlas Home (ATLAS_HOME or ~/.atlas)", Kind: "home", Status: "ensure + mirror bundled assets on Apply"},
+	}
+	if plan.ProjectID != "" {
+		plan.HomeWrites = append(plan.HomeWrites, PlannedFile{
+			Path:   "projects/" + plan.ProjectID + "/",
+			Kind:   "home-project",
+			Status: "ensure project-scoped local layout on Apply",
+		})
+	}
+	if plan.HomeDataDetected {
+		plan.HomeReset = []PlannedFile{{
+			Path:   "projects/" + plan.ProjectID + "/",
+			Kind:   "home-reset",
+			Status: "delete local Atlas Home project data before init",
+		}}
+		if !plan.AcceptHomeReset {
+			plan.Blockers = append(plan.Blockers, PlanBlocker{
+				Message: "Home project data detected for this project. Accept reset of local Atlas data before Apply.",
+			})
+		}
 	}
 	if config.ChipSelected(adaptersValue, "cursor") {
 		plan.Creates = append(plan.Creates, PlannedFile{
@@ -176,7 +212,7 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 	}
 
 	replaceTargets := plannedReplaceTargets(in.Root, adaptersValue, in.Artifacts)
-	backupRoot := config.DirBackups + "/" + BackupTimestampPlaceholder + "/"
+	backupRoot := BackupPlaceholderDir()
 	if len(replaceTargets) == 0 {
 		plan.Backups = nil
 		plan.Replacements = nil
@@ -204,6 +240,8 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Statement: "Developer-owned non-Atlas agents under .cursor/agents/ and .opencode/agents/ are left untouched."},
 		{Statement: "Skills are registry-first and are not copied into .cursor/skills or .opencode/skills."},
 		{Statement: "Claude Code and Codex adapters are not materialized."},
+		{Statement: "Atlas Home reset affects only projects/<project-id>/ for this canonical project."},
+		{Statement: "No Git operations. Remotes, branches, and repo files outside Atlas Apply targets stay untouched."},
 	}
 
 	if platform == config.SourceControlGitGitHub && storage == "versioned" {
@@ -345,7 +383,7 @@ func mcpEntries(draft config.MCPDraft) []MCPPlanEntry {
 	return out
 }
 
-// BackupPlaceholderDir is the rendered backup root used in review copy.
+// BackupPlaceholderDir is the rendered Home-backed backup root used in review copy.
 func BackupPlaceholderDir() string {
-	return fmt.Sprintf("%s/%s/", config.DirBackups, BackupTimestampPlaceholder)
+	return fmt.Sprintf("projects/<project-id>/backups/%s/", BackupTimestampPlaceholder)
 }

@@ -179,7 +179,7 @@ Manual TUI / Alpha smoke (not fully automated — requires an interactive termin
        .atlas/contracts/sdd-openspec.md
   4. Sidebar shows Configure, Status, Doctor, Runtime Repair, Context Economy.
   5. Context Economy → Review → Apply Update → verify
-       $ATLAS_HOME/context/projects/<id>/{index.yaml,capsule.md,packs/…}
+       $ATLAS_HOME/projects/<id>/context/{index.yaml,capsule.md,packs/…}
        and .atlas/state.yaml refs. No product-repo context/ directory.
   6. `atlas status` / `atlas doctor` are read-only (no mutation, no Home create).
   7. Runtime Repair healthy → Apply is a no-op.

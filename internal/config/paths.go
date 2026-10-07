@@ -18,7 +18,9 @@ const (
 	FileSkillRegistry   = ".atlas/skill-registry.md"
 	// FileSDDOpenSpecContract is the project-local SDD/OpenSpec operational contract.
 	FileSDDOpenSpecContract = ".atlas/contracts/sdd-openspec.md"
-	DirBackups              = ".atlas/backups"
+	// DirBackups is the transitional project-local backup root.
+	// New backups/quarantine write under $ATLAS_HOME/projects/<project-id>/backups/.
+	DirBackups = ".atlas/backups"
 
 	// EmbedPathSDDOpenSpecContract is the bundled/Home embed-relative path.
 	EmbedPathSDDOpenSpecContract = "contracts/sdd-openspec.md"

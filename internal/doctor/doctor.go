@@ -410,23 +410,29 @@ func evaluateRuntime(h workspace.RuntimeHealth) []Check {
 	checks = append(checks, evaluateContextEconomy(h)...)
 
 	switch {
-	case h.Initialized && !h.BackupsDirExists:
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     "backups directory",
-			Message:  ".atlas/backups missing for initialized project",
-		})
-	case h.Initialized && h.BackupsDirExists:
+	case h.Initialized && h.HomeProject.BackupsPresent:
 		checks = append(checks, Check{
 			Severity: SeverityPass,
 			Name:     "backups directory",
-			Message:  ".atlas/backups present",
+			Message:  "Home project backups present",
+		})
+	case h.Initialized && h.LegacyBackupsDirExists:
+		checks = append(checks, Check{
+			Severity: SeverityPass,
+			Name:     "backups directory",
+			Message:  "transitional .atlas/backups present",
+		})
+	case h.Initialized && !h.BackupsDirExists:
+		checks = append(checks, Check{
+			Severity: SeverityPass,
+			Name:     "backups directory",
+			Message:  "no backups yet (created on repair/init backup)",
 		})
 	case !h.Initialized && h.BackupsDirExists:
 		checks = append(checks, Check{
 			Severity: SeverityPass,
 			Name:     "backups directory",
-			Message:  ".atlas/backups present",
+			Message:  "backups present",
 		})
 	}
 
@@ -606,6 +612,42 @@ func evaluateHome(h workspace.RuntimeHealth) []Check {
 				Severity: SeverityPass,
 				Name:     "atlas home assets",
 				Message:  fmt.Sprintf("%d mirrored", len(home.BundledAssets())),
+			})
+		}
+	}
+
+	if depends {
+		switch {
+		case h.HomeProject.ProjectID == "":
+			checks = append(checks, Check{
+				Severity: SeverityWarn,
+				Name:     "atlas home project",
+				Message:  "project id unresolved",
+			})
+		case !h.Home.Exists:
+			checks = append(checks, Check{
+				Severity: SeverityWarn,
+				Name:     "atlas home project",
+				Message:  "Home not created yet",
+			})
+		case h.HomeProject.Present:
+			detail := "present"
+			if h.HomeProject.ContextPresent {
+				detail += "; context data"
+			}
+			if h.HomeProject.BackupsPresent {
+				detail += "; backups dir"
+			}
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "atlas home project",
+				Message:  detail,
+			})
+		default:
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "atlas home project",
+				Message:  "no project-local Home data yet",
 			})
 		}
 	}

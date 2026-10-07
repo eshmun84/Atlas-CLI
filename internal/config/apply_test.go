@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"gopkg.in/yaml.v3"
 )
 
@@ -293,20 +294,29 @@ func TestApplyConfig_BacksUpExistingTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.BackupDir != ".atlas/backups/20261004T200000Z" {
-		t.Fatalf("backup dir = %q", result.BackupDir)
+	id, err := home.ProjectID(root, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBackup := filepath.ToSlash(filepath.Join("projects", id, "backups", "20261004T200000Z"))
+	if result.BackupDir != wantBackup {
+		t.Fatalf("backup dir = %q want %q", result.BackupDir, wantBackup)
+	}
+	backupAbs := filepath.Join(result.HomePath, filepath.FromSlash(result.BackupDir))
+	if _, err := os.Stat(filepath.Join(root, ".atlas", "backups")); !os.IsNotExist(err) {
+		t.Fatal("new backups must not be written under product repo .atlas/backups")
 	}
 
-	backupAgents, err := os.ReadFile(filepath.Join(root, ".atlas", "backups", "20261004T200000Z", "AGENTS.md"))
+	backupAgents, err := os.ReadFile(filepath.Join(backupAbs, "AGENTS.md"))
 	if err != nil || string(backupAgents) != "# old agents\n" {
 		t.Fatalf("backup agents = %q err=%v", backupAgents, err)
 	}
-	backupCursor, err := os.ReadFile(filepath.Join(root, ".atlas", "backups", "20261004T200000Z", ".cursor", "rules", "atlas.mdc"))
+	backupCursor, err := os.ReadFile(filepath.Join(backupAbs, ".cursor", "rules", "atlas.mdc"))
 	if err != nil || string(backupCursor) != "old cursor\n" {
 		t.Fatalf("backup cursor = %q err=%v", backupCursor, err)
 	}
 
-	manifestRaw, err := os.ReadFile(filepath.Join(root, ".atlas", "backups", "20261004T200000Z", "manifest.json"))
+	manifestRaw, err := os.ReadFile(filepath.Join(backupAbs, "manifest.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,6 +395,58 @@ func TestApplyConfig_RequiresRoot(t *testing.T) {
 		MCP:   config.EmptyMCPDraft(),
 	}); err == nil {
 		t.Fatal("expected root error")
+	}
+}
+
+func TestApplyConfig_RequiresHomeResetWhenProjectDataExists(t *testing.T) {
+	withTempAtlasHome(t)
+
+	root := t.TempDir()
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: "demo",
+		ProjectMode: "new",
+	})
+	if _, err := config.ApplyConfig(config.ApplyInput{
+		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.ApplyConfig(config.ApplyInput{
+		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "explicit reset") {
+		t.Fatalf("expected reset gate, got %v", err)
+	}
+	result, err := config.ApplyConfig(config.ApplyInput{
+		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(), AcceptHomeReset: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.HomeReset {
+		t.Fatal("expected HomeReset")
+	}
+
+	otherRoot := t.TempDir()
+	otherID, err := home.ProjectID(otherRoot, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	homePath := result.HomePath
+	if err := home.EnsureProjectLayout(homePath, otherID); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(home.ProjectContextDir(homePath, otherID), "keep.txt")
+	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.ApplyConfig(config.ApplyInput{
+		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(), AcceptHomeReset: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("same-name different-root Home data must survive reset")
 	}
 }
 

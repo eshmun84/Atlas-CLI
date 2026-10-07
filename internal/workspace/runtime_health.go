@@ -75,12 +75,17 @@ type RuntimeHealth struct {
 
 	ContextEconomy atlascontext.StatusSnapshot
 
-	Home home.Status
+	Home        home.Status
+	HomeProject home.ProjectStatus
 
 	ContextGraphEnabled  bool
 	ContextGraphReadable bool
 
+	// BackupsDirExists is true when Home project backups or transitional
+	// project-local .atlas/backups exist.
 	BackupsDirExists bool
+	// LegacyBackupsDirExists is transitional project-local .atlas/backups.
+	LegacyBackupsDirExists bool
 
 	ForbiddenArtifacts []ForbiddenArtifactStatus
 
@@ -213,7 +218,7 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 		health.AgentsExists = files.HasAgentsFile
 	}
 
-	health.BackupsDirExists = exists(root, config.DirBackups)
+	health.LegacyBackupsDirExists = exists(root, config.DirBackups)
 
 	projectName := ""
 	if health.StateLoads {
@@ -221,6 +226,12 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 	}
 	if projectName == "" && health.ConfigLoads {
 		projectName = health.Document.Project.Name
+	}
+	if projectID, idErr := home.ProjectID(root, projectName); idErr == nil && health.Home.Path != "" {
+		health.HomeProject = home.InspectProject(health.Home.Path, projectID)
+		health.BackupsDirExists = health.HomeProject.BackupsPresent || health.LegacyBackupsDirExists
+	} else {
+		health.BackupsDirExists = health.LegacyBackupsDirExists
 	}
 	health.ContextEconomy = atlascontext.Inspect(atlascontext.InspectInput{
 		Root:           root,
@@ -255,9 +266,8 @@ func adaptersFromConfig(cfg config.Config) []string {
 func collectRuntimeWarnings(h RuntimeHealth) []string {
 	var warnings []string
 
-	if h.Initialized && !h.BackupsDirExists {
-		warnings = append(warnings, ".atlas/backups missing for initialized project")
-	}
+	// Backups are created on demand under Atlas Home; absence is not a warning
+	// for a healthy initialized project that has never needed quarantine.
 	if h.RuntimeMaterialized && !h.AgentsExists {
 		warnings = append(warnings, "runtime_materialized=true but AGENTS.md is missing")
 	}

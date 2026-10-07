@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -148,12 +149,18 @@ func TestBuildLocalStateAndLockDocuments(t *testing.T) {
 	}
 	doc := config.BuildProjectDocument(draft, config.EmptyMCPDraft())
 	lockSDD := config.BuildAssetsLockDocumentFor("/tmp/atlas-home", doc, "0.1.0")
+	if lockSDD.HomePath != "" {
+		t.Fatalf("portable assets.lock must not embed absolute HomePath: %q", lockSDD.HomePath)
+	}
 	var sawContract bool
 	for _, entry := range lockSDD.Assets {
 		if entry.ID == config.EmbedPathSDDOpenSpecContract {
 			sawContract = true
 			if entry.Family != "contracts" || entry.Checksum == "" || entry.HomePath == "" {
 				t.Fatalf("contract lock entry incomplete: %#v", entry)
+			}
+			if filepath.IsAbs(entry.HomePath) {
+				t.Fatalf("entry HomePath must be Home-relative: %q", entry.HomePath)
 			}
 			if len(entry.ProjectPaths) != 1 || entry.ProjectPaths[0] != config.FileSDDOpenSpecContract {
 				t.Fatalf("contract project paths = %#v", entry.ProjectPaths)
