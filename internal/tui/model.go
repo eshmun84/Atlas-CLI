@@ -192,7 +192,7 @@ func newTextInput(placeholder string) textinput.Model {
 
 func validRoute(route Route) bool {
 	switch route {
-	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteContextEconomy, RouteHelp, RouteError:
+	case RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteContextEconomy, RouteHelp, RouteError:
 		return true
 	default:
 		return false
@@ -201,7 +201,7 @@ func validRoute(route Route) bool {
 
 func needsWorkspace(route Route) bool {
 	switch route {
-	case RouteDashboard, RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteContextEconomy:
+	case RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteContextEconomy:
 		return true
 	default:
 		return false

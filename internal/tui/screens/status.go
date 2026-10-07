@@ -2,6 +2,8 @@ package screens
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -15,130 +17,416 @@ var (
 	statusNo   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	statusWarn = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	statusFail = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	statusInfo = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	statusAct  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
 )
 
-// Status renders the read-only workspace status screen.
+// Status renders the read-only executive project overview (default landing).
 func Status(result workspace.DiscoveryResult) string {
 	var b strings.Builder
 	rt := result.Runtime
+	doc := rt.Document
 
 	fmt.Fprintln(&b, statusHead.Render("Atlas Status"))
+	fmt.Fprintln(&b, statusNo.Render("Executive overview · read-only"))
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, statusHead.Render("Workspace"))
-	fmt.Fprintf(&b, "  Root: %s\n", result.RootPath)
-	fmt.Fprintf(&b, "  Atlas state: %s\n\n", result.Atlas.State)
 
-	fmt.Fprintln(&b, statusHead.Render("Atlas Home"))
-	fmt.Fprintf(&b, "  Path: %s\n", displayOrUnknown(rt.Home.Path))
-	fmt.Fprintf(&b, "  Present: %s\n", yesNo(rt.Home.Exists))
-	fmt.Fprintf(&b, "  Writable: %s\n", yesNo(rt.Home.Writable))
-	fmt.Fprintf(&b, "  Layout: %s\n", homeLayoutStatus(rt))
-	fmt.Fprintf(&b, "  Assets: %s\n\n", homeAssetsStatus(rt))
-
-	fmt.Fprintln(&b, statusHead.Render("Atlas Runtime"))
-	fmt.Fprintf(&b, "  Initialized: %s\n", yesNo(rt.Initialized))
-	fmt.Fprintf(&b, "  .atlas/config.yaml: %s\n", configStatus(rt))
-	fmt.Fprintf(&b, "  .atlas/state.yaml: %s\n", stateStatus(rt))
-	fmt.Fprintf(&b, "  runtime_materialized: %s\n", boolBadge(rt.RuntimeMaterialized))
-	fmt.Fprintf(&b, "  AGENTS.md: %s\n", agentsStatus(rt))
-	fmt.Fprintf(&b, "  AGENTS markers: %s\n", markersStatus(rt))
-	fmt.Fprintf(&b, "  SDD/OpenSpec contract: %s\n", sddContractStatus(rt))
-	fmt.Fprintf(&b, "  Context Economy: %s\n", contextEconomyStatus(rt))
-	fmt.Fprintf(&b, "  Adapters: %s\n", adaptersLabel(rt.SelectedAdapters))
-	fmt.Fprintln(&b, "  Adapter projections:")
-	if len(rt.ExpectedProjections) == 0 {
-		fmt.Fprintln(&b, "    none expected")
-	} else {
-		for _, proj := range rt.ExpectedProjections {
-			fmt.Fprintf(&b, "    - %s (%s): %s\n", proj.Path, proj.Adapter, presentMissing(proj.Present))
-		}
-	}
-	fmt.Fprintf(&b, "  Context Graph: %s\n", contextGraphStatus(rt))
-	fmt.Fprintf(&b, "  .atlas/backups: %s\n", backupsStatus(rt))
-
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, statusHead.Render("Git"))
-	fmt.Fprintf(&b, "  Repository: %s\n", yesNo(result.Git.IsRepo))
-	fmt.Fprintf(&b, "  Current branch: %s\n", displayOrUnknown(result.Git.CurrentBranch))
-	fmt.Fprintf(&b, "  Default remote: %s\n", displayOrUnknown(result.Git.DefaultRemote))
-	fmt.Fprintf(&b, "  Remote URL: %s\n", displayOrUnknown(result.Git.DefaultRemoteURL))
-	fmt.Fprintf(&b, "  Default branch: %s\n", displayOrUnknown(result.Git.DefaultBranch))
-	fmt.Fprintln(&b, "  Remotes:")
-	if len(result.Git.Remotes) == 0 {
-		fmt.Fprintln(&b, "    none detected")
-	} else {
-		for _, remote := range result.Git.Remotes {
-			fmt.Fprintf(&b, "    - %s %s\n", remote.Name, remote.URL)
-		}
-	}
-
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, statusHead.Render("Files"))
-	fmt.Fprintf(&b, "  README.md: %s\n", yesNo(result.Files.HasReadme))
-	fmt.Fprintf(&b, "  .gitignore: %s\n", yesNo(result.Files.HasGitignore))
-	fmt.Fprintf(&b, "  Makefile: %s\n", yesNo(result.Files.HasMakefile))
-	fmt.Fprintf(&b, "  go.mod: %s\n", yesNo(result.Files.HasGoMod))
-	fmt.Fprintf(&b, "  AGENTS.md: %s\n", yesNo(result.Files.HasAgentsFile))
-	fmt.Fprintf(&b, "  .atlas/: %s\n", yesNo(result.Files.HasAtlasDir))
-	fmt.Fprintf(&b, "  .atlas/config.yaml: %s\n", yesNo(result.Files.HasAtlasConfig))
-
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, statusHead.Render("Technologies"))
-	if len(result.Technologies) == 0 {
-		fmt.Fprintln(&b, "  none detected")
-	} else {
-		for _, tech := range result.Technologies {
-			fmt.Fprintf(&b, "  - %s (%s, %s)\n", tech.Name, tech.Source, tech.Confidence)
-		}
-	}
-
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, statusHead.Render("Libraries"))
-	if len(result.Libraries) == 0 {
-		fmt.Fprintln(&b, "  none detected")
-	} else {
-		for _, lib := range result.Libraries {
-			fmt.Fprintf(&b, "  - %s (%s)\n", lib.Name, lib.Module)
-		}
-	}
-
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, statusHead.Render("Runtime Artifacts"))
-	if len(result.RuntimeArtifacts) == 0 {
-		fmt.Fprintln(&b, "  none detected")
-	} else {
-		for _, path := range result.RuntimeArtifacts {
-			fmt.Fprintf(&b, "  - %s\n", path)
-		}
-	}
-
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, statusHead.Render("Tools"))
-	for _, tool := range result.Tools {
-		fmt.Fprintf(&b, "  %s: %s\n", tool.Name, availability(tool.Available))
-	}
-
-	if len(rt.Warnings) > 0 || len(result.Warnings) > 0 {
-		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, statusHead.Render("Warnings"))
-		seen := map[string]struct{}{}
-		for _, warning := range rt.Warnings {
-			if _, ok := seen[warning]; ok {
-				continue
-			}
-			seen[warning] = struct{}{}
-			fmt.Fprintf(&b, "  - %s\n", statusWarn.Render(warning))
-		}
-		for _, warning := range result.Warnings {
-			if _, ok := seen[warning]; ok {
-				continue
-			}
-			seen[warning] = struct{}{}
-			fmt.Fprintf(&b, "  - %s\n", statusWarn.Render(warning))
-		}
-	}
+	writeStatusWorkspace(&b, result)
+	writeStatusRuntime(&b, result)
+	writeStatusSourceControl(&b, result)
+	writeStatusTechnology(&b, result)
+	writeStatusAdapters(&b, result)
+	writeStatusGovernance(&b, result)
+	writeStatusMCP(&b, result)
+	writeStatusHealth(&b, result, doc.Project.Name != "")
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeStatusWorkspace(b *strings.Builder, result workspace.DiscoveryResult) {
+	fmt.Fprintln(b, statusHead.Render("Workspace"))
+	name := projectDisplayName(result)
+	fmt.Fprintf(b, "  Project: %s\n", name)
+	fmt.Fprintf(b, "  Root: %s\n", displayOrDash(result.RootPath))
+	fmt.Fprintf(b, "  Atlas state: %s\n", result.Atlas.State)
+	fmt.Fprintf(b, "  Project mode: %s\n\n", detectedModeLabel(result))
+}
+
+func writeStatusRuntime(b *strings.Builder, result workspace.DiscoveryResult) {
+	rt := result.Runtime
+	fmt.Fprintln(b, statusHead.Render("Atlas Runtime"))
+	fmt.Fprintf(b, "  Initialized: %s\n", yesNo(rt.Initialized))
+	fmt.Fprintf(b, "  Config: %s\n", configStatus(rt))
+	fmt.Fprintf(b, "  State: %s\n", stateStatus(rt))
+	fmt.Fprintf(b, "  Runtime: %s\n", runtimeMaterializedLabel(rt))
+	fmt.Fprintf(b, "  AGENTS.md contract: %s\n", agentsContractSummary(rt))
+	fmt.Fprintf(b, "  SDD/OpenSpec contract: %s\n", sddContractStatus(rt))
+	fmt.Fprintf(b, "  Context Economy: %s\n\n", contextEconomyStatus(rt))
+}
+
+func writeStatusSourceControl(b *strings.Builder, result workspace.DiscoveryResult) {
+	fmt.Fprintln(b, statusHead.Render("Source Control / Delivery Tools"))
+	fmt.Fprintf(b, "  Repository: %s\n", yesNo(result.Git.IsRepo))
+	fmt.Fprintf(b, "  Current branch: %s\n", displayOrNone(result.Git.CurrentBranch))
+	fmt.Fprintf(b, "  Default remote: %s\n", displayOrNone(result.Git.DefaultRemote))
+	fmt.Fprintf(b, "  Remote URL: %s\n", displayOrNone(result.Git.DefaultRemoteURL))
+	fmt.Fprintf(b, "  Default branch: %s\n", displayOrNone(result.Git.DefaultBranch))
+	fmt.Fprintf(b, "  Remotes: %s\n", remotesSummary(result.Git))
+	fmt.Fprintf(b, "  gh: %s\n", toolAvailability(result.Tools, "gh"))
+	if result.Runtime.ConfigLoads {
+		if result.Runtime.Document.SourceControl.DeliveryAssist {
+			fmt.Fprintf(b, "  Delivery assist: %s\n", statusInfo.Render("configured (NOT IMPLEMENTED)"))
+		} else {
+			fmt.Fprintf(b, "  Delivery assist: %s\n", statusNo.Render("not selected"))
+		}
+		mode := strings.TrimSpace(result.Runtime.Document.SourceControl.Mode)
+		if mode == "" {
+			mode = "none"
+		}
+		fmt.Fprintf(b, "  Source-control mode: %s\n", mode)
+	} else {
+		fmt.Fprintf(b, "  Delivery assist: %s\n", statusNo.Render("n/a"))
+	}
+	fmt.Fprintln(b)
+}
+
+func writeStatusTechnology(b *strings.Builder, result workspace.DiscoveryResult) {
+	fmt.Fprintln(b, statusHead.Render("Project Technology"))
+	if len(result.Technologies) == 0 {
+		fmt.Fprintln(b, "  "+statusNo.Render("none detected"))
+	} else {
+		for _, tech := range result.Technologies {
+			fmt.Fprintf(b, "  - %s (%s)\n", tech.Name, tech.Confidence)
+		}
+	}
+	if projectHasGo(result.Technologies) {
+		fmt.Fprintf(b, "  go toolchain: %s\n", toolAvailability(result.Tools, "go"))
+	}
+	if len(result.Libraries) == 0 {
+		fmt.Fprintf(b, "  Libraries: %s\n", statusNo.Render("none detected"))
+	} else {
+		fmt.Fprintln(b, "  Libraries:")
+		for _, lib := range result.Libraries {
+			fmt.Fprintf(b, "    - %s\n", lib.Name)
+		}
+	}
+	fmt.Fprintln(b)
+}
+
+func writeStatusAdapters(b *strings.Builder, result workspace.DiscoveryResult) {
+	rt := result.Runtime
+	fmt.Fprintln(b, statusHead.Render("Adapters"))
+	if !rt.ConfigLoads {
+		fmt.Fprintln(b, "  "+statusNo.Render("n/a (Atlas not configured)"))
+		fmt.Fprintln(b)
+		return
+	}
+	selected := map[string]bool{}
+	for _, a := range rt.SelectedAdapters {
+		selected[strings.ToLower(strings.TrimSpace(a))] = true
+	}
+	for _, name := range []string{"cursor", "opencode"} {
+		if selected[name] {
+			fmt.Fprintf(b, "  %s: %s\n", name, adapterExecutiveStatus(rt, name))
+			continue
+		}
+		fmt.Fprintf(b, "  %s: %s\n", name, statusNo.Render("NOT SELECTED"))
+	}
+	for _, name := range []string{"claude", "codex"} {
+		fmt.Fprintf(b, "  %s: %s\n", name, statusNo.Render("NOT SELECTED"))
+	}
+	fmt.Fprintln(b)
+}
+
+func writeStatusGovernance(b *strings.Builder, result workspace.DiscoveryResult) {
+	fmt.Fprintln(b, statusHead.Render("Governance Tools"))
+	rt := result.Runtime
+	if !rt.ConfigLoads {
+		fmt.Fprintln(b, "  "+statusNo.Render("n/a (Atlas not configured)"))
+		fmt.Fprintln(b)
+		return
+	}
+	gov := rt.Document.Governance
+	workflow := strings.TrimSpace(gov.Workflow)
+	if workflow == "" {
+		workflow = "none"
+	}
+	engine := strings.TrimSpace(gov.SpecEngine)
+	if engine == "" {
+		engine = "none"
+	}
+	fmt.Fprintf(b, "  Workflow: %s\n", workflow)
+	fmt.Fprintf(b, "  Spec engine: %s\n", engine)
+	fmt.Fprintf(b, "  Testing required: %s\n", yesNo(gov.TestingRequired))
+	fmt.Fprintf(b, "  Review required: %s\n", yesNo(gov.ReviewRequired))
+	fmt.Fprintf(b, "  Evidence required: %s\n", yesNo(gov.EvidenceRequired))
+	fmt.Fprintf(b, "  OpenSpec CLI: %s\n", toolAvailability(result.Tools, "openspec"))
+	fmt.Fprintf(b, "  OpenSpec execution: %s\n", statusInfo.Render("NOT IMPLEMENTED"))
+	fmt.Fprintln(b)
+}
+
+func writeStatusMCP(b *strings.Builder, result workspace.DiscoveryResult) {
+	fmt.Fprintln(b, statusHead.Render("MCP / External Context"))
+	rt := result.Runtime
+	if !rt.ConfigLoads {
+		fmt.Fprintln(b, "  "+statusNo.Render("n/a (Atlas not configured)"))
+		fmt.Fprintln(b)
+		return
+	}
+	mcp := rt.Document.MCP
+	writeMCPBuiltin(b, "jira", mcp.Builtins.Jira.Enabled)
+	writeMCPBuiltin(b, "context7", mcp.Builtins.Context7.Enabled)
+	writeMCPBuiltin(b, "chrome_devtools", mcp.Builtins.ChromeDevTools.Enabled)
+	if len(mcp.Custom) == 0 {
+		fmt.Fprintf(b, "  Custom MCP: %s\n", statusNo.Render("none"))
+	} else {
+		for _, custom := range mcp.Custom {
+			state := "configured"
+			if !custom.Enabled {
+				state = "not selected"
+			}
+			fmt.Fprintf(b, "  Custom %s: %s · %s\n", custom.Name, statusYes.Render(state), statusInfo.Render("connected NOT IMPLEMENTED"))
+		}
+	}
+	fmt.Fprintf(b, "  Credentials / auth: %s\n", statusInfo.Render("NOT IMPLEMENTED"))
+	fmt.Fprintln(b)
+}
+
+func writeStatusHealth(b *strings.Builder, result workspace.DiscoveryResult, _ bool) {
+	rt := result.Runtime
+	fmt.Fprintln(b, statusHead.Render("Health"))
+	pass, warn, errn := statusHealthCounts(result)
+	fmt.Fprintf(b, "  PASS: %s   WARNING: %s   ERROR: %s\n",
+		statusYes.Render(fmt.Sprintf("%d", pass)),
+		statusWarn.Render(fmt.Sprintf("%d", warn)),
+		statusFail.Render(fmt.Sprintf("%d", errn)),
+	)
+	fmt.Fprintf(b, "  Atlas Home: %s\n", homePresenceLabel(rt))
+	fmt.Fprintf(b, "  Context Economy: %s\n", contextEconomyStatus(rt))
+	fmt.Fprintf(b, "  Suggested next action: %s\n", statusAct.Render(suggestedAction(result)))
+}
+
+func writeMCPBuiltin(b *strings.Builder, name string, enabled bool) {
+	if enabled {
+		fmt.Fprintf(b, "  %s: %s · %s\n", name, statusYes.Render("configured"), statusInfo.Render("connected NOT IMPLEMENTED"))
+		return
+	}
+	fmt.Fprintf(b, "  %s: %s\n", name, statusNo.Render("not selected"))
+}
+
+func projectDisplayName(result workspace.DiscoveryResult) string {
+	if result.Runtime.ConfigLoads && strings.TrimSpace(result.Runtime.Document.Project.Name) != "" {
+		return result.Runtime.Document.Project.Name
+	}
+	if result.Atlas.Initialized() && result.Atlas.Config.Project.Name != "" {
+		return result.Atlas.Config.Project.Name
+	}
+	name := filepath.Base(result.RootPath)
+	if name == "" || name == "." {
+		return "—"
+	}
+	return name
+}
+
+func detectedModeLabel(result workspace.DiscoveryResult) string {
+	if result.Runtime.ConfigLoads && result.Runtime.Document.Project.Mode != "" {
+		return result.Runtime.Document.Project.Mode
+	}
+	if result.Atlas.Initialized() && result.Atlas.Config.Project.Mode != "" {
+		return result.Atlas.Config.Project.Mode
+	}
+	if result.Files.HasAtlasConfig {
+		return "existing"
+	}
+	if result.RootPath == "" {
+		return "unknown"
+	}
+	entries, err := os.ReadDir(result.RootPath)
+	if err != nil {
+		return "unknown"
+	}
+	if len(entries) == 0 {
+		return "new"
+	}
+	return "existing"
+}
+
+// SuggestedAction returns the executive next-step hint for Status Health.
+func SuggestedAction(result workspace.DiscoveryResult) string {
+	return suggestedAction(result)
+}
+
+func suggestedAction(result workspace.DiscoveryResult) string {
+	switch result.Atlas.State {
+	case workspace.AtlasStateNotInitialized, workspace.AtlasStatePartialSetup:
+		return "Run Init / Setup"
+	case workspace.AtlasStateInvalidConfig:
+		return "Open Doctor"
+	case workspace.AtlasStateInitialized:
+		if workspace.BuildRuntimeRepairPlan(result.RootPath, result.Runtime).NeedsApply() {
+			return "Review Runtime Repair"
+		}
+		if result.Runtime.ContextEconomy.Applicable &&
+			(result.Runtime.ContextEconomy.State == atlascontext.StatusMissing ||
+				result.Runtime.ContextEconomy.State == atlascontext.StatusStale) {
+			return "Update Context Economy"
+		}
+		if len(result.Warnings) > 0 {
+			return "Open Doctor"
+		}
+		return "Open Configure or Doctor"
+	default:
+		if len(result.Warnings) > 0 {
+			return "Open Doctor"
+		}
+		return "Open Status"
+	}
+}
+
+func runtimeMaterializedLabel(rt workspace.RuntimeHealth) string {
+	if !rt.StateLoads && !rt.Initialized {
+		return statusNo.Render("not materialized")
+	}
+	if rt.RuntimeMaterialized {
+		return statusYes.Render("materialized")
+	}
+	if rt.Initialized {
+		return statusWarn.Render("not materialized")
+	}
+	return statusNo.Render("not materialized")
+}
+
+func agentsContractSummary(rt workspace.RuntimeHealth) string {
+	switch {
+	case !rt.AgentsExists && rt.RuntimeMaterialized:
+		return statusFail.Render("missing")
+	case !rt.AgentsExists:
+		return statusNo.Render("missing")
+	case rt.AgentsMarkers.Complete() && rt.AgentsMarkers.ContractSatisfied(rt.SelectedAdapters):
+		return statusYes.Render("verified")
+	case rt.AgentsExists && rt.RuntimeMaterialized:
+		return statusFail.Render("ERROR (markers/adapters)")
+	default:
+		return statusWarn.Render("WARNING (markers incomplete)")
+	}
+}
+
+func adapterExecutiveStatus(rt workspace.RuntimeHealth, name string) string {
+	var proj *workspace.ProjectionStatus
+	for i := range rt.ExpectedProjections {
+		if strings.EqualFold(rt.ExpectedProjections[i].Adapter, name) {
+			proj = &rt.ExpectedProjections[i]
+			break
+		}
+	}
+	agentsOK := true
+	agentsPresent := 0
+	for _, agent := range rt.ExpectedAgents {
+		if !strings.EqualFold(agent.Adapter, name) {
+			continue
+		}
+		agentsPresent++
+		if !agent.Present || !agent.Matches {
+			agentsOK = false
+		}
+	}
+	switch {
+	case proj != nil && proj.Present && agentsOK && (agentsPresent > 0 || len(rt.ExpectedAgents) == 0):
+		return statusYes.Render("selected · materialized")
+	case proj != nil && !proj.Present:
+		return statusFail.Render("selected · missing projection")
+	case !agentsOK:
+		return statusFail.Render("selected · agent drift")
+	default:
+		return statusWarn.Render("selected")
+	}
+}
+
+func remotesSummary(git workspace.GitInfo) string {
+	if !git.IsRepo || len(git.Remotes) == 0 {
+		return statusNo.Render("none")
+	}
+	names := make([]string, 0, len(git.Remotes))
+	for _, remote := range git.Remotes {
+		names = append(names, remote.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
+func toolAvailability(tools []workspace.ToolInfo, name string) string {
+	for _, tool := range tools {
+		if tool.Name == name {
+			if tool.Available {
+				return statusYes.Render("available")
+			}
+			return statusNo.Render("missing")
+		}
+	}
+	return statusNo.Render("missing")
+}
+
+func projectHasGo(techs []workspace.Technology) bool {
+	for _, tech := range techs {
+		name := strings.ToLower(tech.Name)
+		if name == "go" || strings.Contains(name, "go module") {
+			return true
+		}
+	}
+	return false
+}
+
+func homePresenceLabel(rt workspace.RuntimeHealth) string {
+	switch {
+	case !rt.Home.Exists && (rt.Initialized || rt.RuntimeMaterialized):
+		return statusFail.Render("missing")
+	case !rt.Home.Exists:
+		return statusNo.Render("not created")
+	case !rt.Home.LayoutComplete || len(rt.Home.MissingAssets) > 0 || len(rt.Home.DriftedAssets) > 0:
+		return statusWarn.Render("present (needs attention)")
+	default:
+		return statusYes.Render("present")
+	}
+}
+
+func statusHealthCounts(result workspace.DiscoveryResult) (pass, warn, errn int) {
+	rt := result.Runtime
+	if result.RootPath != "" {
+		pass++
+	}
+	if result.Git.IsRepo {
+		pass++
+	} else {
+		warn++
+	}
+	if rt.Initialized && rt.ConfigLoads && rt.RuntimeMaterialized && rt.AgentsExists && rt.AgentsMarkers.Complete() {
+		pass++
+	} else if rt.Initialized {
+		if !rt.ConfigLoads || (rt.RuntimeMaterialized && !rt.AgentsExists) {
+			errn++
+		} else {
+			warn++
+		}
+	}
+	if rt.Home.Exists {
+		pass++
+	} else if rt.Initialized {
+		warn++
+	}
+	return pass, warn, errn
+}
+
+func displayOrDash(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "—"
+	}
+	return v
+}
+
+func displayOrNone(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return statusNo.Render("none")
+	}
+	return v
 }
 
 func displayOrUnknown(v string) string {
@@ -155,59 +443,14 @@ func yesNo(v bool) string {
 	return statusNo.Render("no")
 }
 
-func boolBadge(v bool) string {
-	if v {
-		return statusYes.Render("true")
-	}
-	return statusNo.Render("false")
-}
-
-func presentMissing(present bool) string {
-	if present {
-		return statusYes.Render("present")
-	}
-	return statusFail.Render("missing")
-}
-
-func availability(available bool) string {
-	if available {
-		return statusYes.Render("available")
-	}
-	return statusNo.Render("unavailable")
-}
-
-func homeLayoutStatus(rt workspace.RuntimeHealth) string {
-	if !rt.Home.Exists {
-		return statusNo.Render("n/a")
-	}
-	if rt.Home.LayoutComplete {
-		return statusYes.Render("complete")
-	}
-	return statusFail.Render("incomplete")
-}
-
-func homeAssetsStatus(rt workspace.RuntimeHealth) string {
-	if !rt.Home.Exists {
-		return statusNo.Render("missing home")
-	}
-	switch {
-	case len(rt.Home.MissingAssets) > 0:
-		return statusFail.Render(fmt.Sprintf("%d missing", len(rt.Home.MissingAssets)))
-	case len(rt.Home.DriftedAssets) > 0:
-		return statusFail.Render(fmt.Sprintf("%d drifted", len(rt.Home.DriftedAssets)))
-	default:
-		return statusYes.Render("ok")
-	}
-}
-
 func configStatus(rt workspace.RuntimeHealth) string {
 	switch {
 	case !rt.ConfigExists:
 		return statusNo.Render("missing")
 	case rt.ConfigLoads:
-		return statusYes.Render("ok")
+		return statusYes.Render("configured")
 	default:
-		return statusFail.Render("invalid")
+		return statusFail.Render("ERROR")
 	}
 }
 
@@ -219,20 +462,10 @@ func stateStatus(rt workspace.RuntimeHealth) string {
 		}
 		return statusNo.Render("missing")
 	case rt.StateLoads:
-		return statusYes.Render("ok")
+		return statusYes.Render("configured")
 	default:
-		return statusFail.Render("invalid")
+		return statusFail.Render("ERROR")
 	}
-}
-
-func agentsStatus(rt workspace.RuntimeHealth) string {
-	if rt.AgentsExists {
-		return statusYes.Render("present")
-	}
-	if rt.RuntimeMaterialized {
-		return statusFail.Render("missing")
-	}
-	return statusNo.Render("missing")
 }
 
 func sddContractStatus(rt workspace.RuntimeHealth) string {
@@ -243,9 +476,9 @@ func sddContractStatus(rt workspace.RuntimeHealth) string {
 	case !rt.SDDContractPresent:
 		return statusFail.Render("missing")
 	case !rt.SDDContractMatches:
-		return statusFail.Render("drifted")
+		return statusFail.Render("ERROR (drifted)")
 	default:
-		return statusYes.Render("present")
+		return statusYes.Render("verified")
 	}
 }
 
@@ -258,70 +491,12 @@ func contextEconomyStatus(rt workspace.RuntimeHealth) string {
 	case atlascontext.StatusMissing:
 		return statusWarn.Render("missing")
 	case atlascontext.StatusStale:
-		return statusWarn.Render("stale")
+		return statusWarn.Render("WARNING (stale)")
 	case atlascontext.StatusUnreadable:
-		return statusFail.Render("unreadable")
+		return statusFail.Render("ERROR (unreadable)")
 	case atlascontext.StatusPresent:
 		return statusYes.Render("present")
 	default:
 		return statusNo.Render("n/a")
 	}
-}
-
-func markersStatus(rt workspace.RuntimeHealth) string {
-	if !rt.AgentsExists {
-		return statusNo.Render("n/a")
-	}
-	m := rt.AgentsMarkers
-	parts := []string{
-		markerFlag("BASE:BEGIN", m.BaseBegin),
-		markerFlag("BASE:END", m.BaseEnd),
-		markerFlag("USER:BEGIN", m.UserBegin),
-		markerFlag("USER:END", m.UserEnd),
-	}
-	label := strings.Join(parts, " ")
-	if m.Complete() {
-		return statusYes.Render(label)
-	}
-	if rt.RuntimeMaterialized {
-		return statusFail.Render(label)
-	}
-	return statusWarn.Render(label)
-}
-
-func markerFlag(name string, ok bool) string {
-	if ok {
-		return name + "=yes"
-	}
-	return name + "=no"
-}
-
-func adaptersLabel(adapters []string) string {
-	if len(adapters) == 0 {
-		return statusNo.Render("none")
-	}
-	return statusYes.Render(strings.Join(adapters, ", "))
-}
-
-func contextGraphStatus(rt workspace.RuntimeHealth) string {
-	if !rt.ContextGraphReadable {
-		if rt.ConfigExists && !rt.ConfigLoads {
-			return statusWarn.Render("unreadable (invalid config)")
-		}
-		return statusNo.Render("n/a")
-	}
-	if rt.ContextGraphEnabled {
-		return statusYes.Render("enabled")
-	}
-	return statusNo.Render("disabled")
-}
-
-func backupsStatus(rt workspace.RuntimeHealth) string {
-	if rt.BackupsDirExists {
-		return statusYes.Render("present")
-	}
-	if rt.Initialized {
-		return statusWarn.Render("missing")
-	}
-	return statusNo.Render("missing")
 }

@@ -82,7 +82,7 @@ func checkCLIRoutes() error {
 		mode  cli.Mode
 		route tui.Route
 	}{
-		{nil, cli.ModeTUI, tui.RouteDashboard},
+		{nil, cli.ModeTUI, tui.RouteStatus},
 		{[]string{"init"}, cli.ModeTUI, tui.RouteInitPlan},
 		{[]string{"status"}, cli.ModeTUI, tui.RouteStatus},
 		{[]string{"doctor"}, cli.ModeTUI, tui.RouteDoctor},
@@ -498,18 +498,40 @@ func checkStatusDoctor() error {
 		return err
 	}
 	status := screens.Status(result)
-	if !strings.Contains(status, "Atlas Status") || !strings.Contains(status, "AGENTS.md") ||
-		!strings.Contains(status, "SDD/OpenSpec contract") || !strings.Contains(status, "Context Economy") {
-		return fmt.Errorf("status render missing expected headings")
+	for _, want := range []string{
+		"Atlas Status",
+		"Workspace",
+		"Atlas Runtime",
+		"Source Control / Delivery Tools",
+		"Project Technology",
+		"Adapters",
+		"Governance Tools",
+		"MCP / External Context",
+		"Health",
+		"AGENTS.md contract",
+		"SDD/OpenSpec contract",
+		"Context Economy",
+	} {
+		if !strings.Contains(status, want) {
+			return fmt.Errorf("status render missing %q", want)
+		}
 	}
 	beforeTree, err := snapshotPaths(root)
 	if err != nil {
 		return err
 	}
 	report := doctor.Evaluate(result)
-	doctorView := screens.Doctor(report)
-	if !strings.Contains(doctorView, "Atlas Doctor") {
-		return fmt.Errorf("doctor render missing heading")
+	doctorView := screens.Doctor(report, result)
+	for _, want := range []string{
+		"Atlas Doctor",
+		"Overall Health",
+		"WARNING",
+		"Atlas Home",
+		"MCP / External Context",
+	} {
+		if !strings.Contains(doctorView, want) {
+			return fmt.Errorf("doctor render missing %q", want)
+		}
 	}
 	afterTree, err := snapshotPaths(root)
 	if err != nil {

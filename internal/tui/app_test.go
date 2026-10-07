@@ -18,11 +18,11 @@ import (
 
 func TestDefaultModelRoute(t *testing.T) {
 	m := tui.NewModel(tui.Options{Route: tui.DefaultRoute})
-	if m.Route() != tui.RouteDashboard {
-		t.Fatalf("route = %v, want dashboard", m.Route())
+	if m.Route() != tui.RouteStatus {
+		t.Fatalf("route = %v, want Status", m.Route())
 	}
-	if got := sidebarLabel(m, m.SidebarIndex()); got != "Dashboard" {
-		t.Fatalf("sidebar selected = %q, want Dashboard", got)
+	if got := sidebarLabel(m, m.SidebarIndex()); got != "Status" {
+		t.Fatalf("sidebar selected = %q, want Status", got)
 	}
 }
 
@@ -77,7 +77,7 @@ func TestSidebarEnterExitQuits(t *testing.T) {
 func TestSidebarInitVsConfigure(t *testing.T) {
 	root := t.TempDir()
 	uninit := loadWorkspace(t, tui.Options{
-		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	labels := sidebarLabels(uninit)
 	if !contains(labels, "Init / Setup") || contains(labels, "Configure") || contains(labels, "MCP") || contains(labels, "Runtime Repair") {
@@ -86,7 +86,7 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 
 	writeValidAtlasConfig(t, root)
 	initd := loadWorkspace(t, tui.Options{
-		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	labels = sidebarLabels(initd)
 	if !contains(labels, "Configure") || contains(labels, "Init / Setup") || contains(labels, "MCP") {
@@ -689,7 +689,7 @@ func TestBReturnsDefaultRoute(t *testing.T) {
 	m, cmd := apply(m, key("b"))
 	m = applyCmd(t, m, cmd)
 	if m.Route() != tui.DefaultRoute {
-		t.Fatalf("route = %v, want dashboard", m.Route())
+		t.Fatalf("route = %v, want Status", m.Route())
 	}
 	if m.Quitting() {
 		t.Fatal("b must not quit")
@@ -709,8 +709,8 @@ func TestGlobalQAndCtrlCQuit(t *testing.T) {
 		load func(t *testing.T) tui.Model
 	}
 	screensToQuit := []screen{
-		{"dashboard", func(t *testing.T) tui.Model {
-			return loadWorkspace(t, tui.Options{Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+		{"status", func(t *testing.T) tui.Model {
+			return loadWorkspace(t, tui.Options{Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
 		}},
 		{"init-step-1", func(t *testing.T) tui.Model {
 			return loadWorkspace(t, tui.Options{Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
@@ -773,7 +773,7 @@ func TestGlobalQAndCtrlCQuit(t *testing.T) {
 	}
 }
 
-func TestQDoesNotNavigateToDashboard(t *testing.T) {
+func TestQDoesNotNavigateToStatus(t *testing.T) {
 	root := t.TempDir()
 	writeValidAtlasConfig(t, root)
 	for _, route := range []tui.Route{tui.RouteInitPlan, tui.RouteConfigure, tui.RouteStatus, tui.RouteHelp} {
@@ -792,7 +792,7 @@ func TestQDoesNotNavigateToDashboard(t *testing.T) {
 			t.Fatalf("q on %v should quit", route)
 		}
 		if model.Route() == tui.DefaultRoute && route != tui.DefaultRoute {
-			t.Fatalf("q on %v must not navigate to dashboard", route)
+			t.Fatalf("q on %v must not navigate to Status", route)
 		}
 	}
 
@@ -934,7 +934,7 @@ func TestEscQuitsFromDefault(t *testing.T) {
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model := updated.(tui.Model)
 	if !model.Quitting() {
-		t.Fatal("esc from dashboard should quit")
+		t.Fatal("esc from Status should quit")
 	}
 	if cmd == nil {
 		t.Fatal("expected quit cmd")
@@ -946,7 +946,7 @@ func TestEscReturnsToDefaultFromChild(t *testing.T) {
 	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = applyCmd(t, m, cmd)
 	if m.Route() != tui.DefaultRoute {
-		t.Fatalf("esc route = %v, want dashboard", m.Route())
+		t.Fatalf("esc route = %v, want Status", m.Route())
 	}
 	if m.Quitting() {
 		t.Fatal("esc from help should not quit")
@@ -997,13 +997,27 @@ func TestShellViews(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dash := loadWorkspace(t, tui.Options{
-		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+	status := loadWorkspace(t, tui.Options{
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
-	assertShell(t, dash.View(), "Dashboard")
-	assertGlobalTopGap(t, dash.View())
-	if !strings.Contains(dash.View(), "Suggested next action") {
-		t.Fatalf("dashboard missing next action:\n%s", dash.View())
+	assertShell(t, status.View(), "Atlas Status")
+	assertGlobalTopGap(t, status.View())
+	for _, want := range []string{
+		"Workspace",
+		"Atlas Runtime",
+		"Source Control / Delivery Tools",
+		"Project Technology",
+		"Adapters",
+		"Governance Tools",
+		"MCP / External Context",
+		"Health",
+		"Suggested next action",
+		"Bubble Tea",
+		"go toolchain",
+	} {
+		if !strings.Contains(status.View(), want) {
+			t.Fatalf("status missing %q:\n%s", want, status.View())
+		}
 	}
 	assertNoMutation(t, root)
 
@@ -1014,21 +1028,15 @@ func TestShellViews(t *testing.T) {
 	assertInitWizardView(t, initM.View())
 	assertNoMutation(t, root)
 
-	status := loadWorkspace(t, tui.Options{
-		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
-	})
-	assertShell(t, status.View(), "Atlas Status")
-	for _, want := range []string{"Atlas Runtime", "Technologies", "Libraries", "Bubble Tea", "runtime_materialized"} {
-		if !strings.Contains(status.View(), want) {
-			t.Fatalf("status missing %q:\n%s", want, status.View())
-		}
-	}
-	assertNoMutation(t, root)
-
 	doc := loadWorkspace(t, tui.Options{
 		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	assertShell(t, doc.View(), "Atlas Doctor")
+	for _, want := range []string{"Overall Health", "WARNING", "Atlas Runtime", "Adapters"} {
+		if !strings.Contains(doc.View(), want) {
+			t.Fatalf("doctor missing %q:\n%s", want, doc.View())
+		}
+	}
 	assertNoMutation(t, root)
 
 	help := sized(tui.NewModel(tui.Options{Route: tui.RouteHelp}))
@@ -1058,19 +1066,30 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 	status := loadWorkspace(t, tui.Options{
 		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
-	view := status.View()
+	assertShell(t, status.View(), "Atlas Status")
+	discovered, err := workspace.Discover(root)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	content := screens.Status(discovered)
 	for _, want := range []string{
-		"Atlas Home",
 		"Atlas Runtime",
 		"Initialized",
-		"runtime_materialized",
-		".cursor/rules/atlas.mdc",
-		"Context Graph",
-		"AGENTS markers",
+		"materialized",
+		"Adapters",
+		"cursor:",
+		"Health",
+		"Atlas Home:",
+		"Governance Tools",
+		"MCP / External Context",
 	} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("status missing %q:\n%s", want, view)
+		if !strings.Contains(content, want) {
+			t.Fatalf("status missing %q:\n%s", want, content)
 		}
+	}
+	// Runtime file inventories belong in Doctor / Repair, not Status.
+	if strings.Contains(content, "Runtime Artifacts") || strings.Contains(content, "AGENTS markers") {
+		t.Fatalf("status should not list runtime file inventories:\n%s", content)
 	}
 	assertSnapshotUnchanged(t, root, before)
 
@@ -1078,13 +1097,16 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	docView := doc.View()
-	for _, want := range []string{"PASS", "atlas config", "agents markers", "adapter projection cursor", "atlas home"} {
+	for _, want := range []string{
+		"PASS", "WARNING", "Overall Health", "atlas config", "agents markers",
+		"adapter projection cursor", "atlas home", "Atlas Home",
+	} {
 		if !strings.Contains(docView, want) {
 			t.Fatalf("doctor missing %q:\n%s", want, docView)
 		}
 	}
 	if strings.Contains(docView, "FAIL") {
-		t.Fatalf("doctor unexpected FAIL:\n%s", docView)
+		t.Fatalf("doctor unexpected FAIL badge:\n%s", docView)
 	}
 	assertSnapshotUnchanged(t, root, before)
 }
@@ -1122,8 +1144,8 @@ func TestRuntimeRepairTUIApplyAndNoAutoMutation(t *testing.T) {
 	doc := loadWorkspace(t, tui.Options{
 		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
-	if !strings.Contains(doc.View(), "FAIL") {
-		t.Fatalf("doctor should fail missing AGENTS:\n%s", doc.View())
+	if !strings.Contains(doc.View(), "ERROR") {
+		t.Fatalf("doctor should ERROR on missing AGENTS:\n%s", doc.View())
 	}
 	assertSnapshotUnchanged(t, root, statusBefore)
 
@@ -1746,11 +1768,11 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 
 	updated, cmd := m.Update(key("enter"))
 	m = applyCmd(t, updated.(tui.Model), cmd)
-	if m.Route() != tui.RouteDashboard {
-		t.Fatalf("close route = %s, want Dashboard", m.Route())
+	if m.Route() != tui.RouteStatus {
+		t.Fatalf("close route = %s, want Status", m.Route())
 	}
 	if !m.Initialized() {
-		t.Fatal("dashboard should see initialized atlas config")
+		t.Fatal("Status should see initialized atlas config")
 	}
 }
 
@@ -2115,12 +2137,12 @@ func TestInitContentFocusGlobalKeys(t *testing.T) {
 		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	m = mustModel(m.Update(key("tab")))
-	// Leave the project-name text field so b remains a global dashboard shortcut.
+	// Leave the project-name text field so b remains a global Status shortcut.
 	m = mustModel(m.Update(key("down")))
 	m, cmd := apply(m, key("b"))
 	m = applyCmd(t, m, cmd)
 	if m.Route() != tui.DefaultRoute {
-		t.Fatalf("b route = %v, want dashboard", m.Route())
+		t.Fatalf("b route = %v, want Status", m.Route())
 	}
 }
 
@@ -2142,7 +2164,7 @@ func TestErrorDialogView(t *testing.T) {
 			t.Fatalf("missing %q in error layout:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"Init / Setup", "Status", "Doctor", "Help", "Exit", "Dashboard", "Configure", "MCP"} {
+	for _, banned := range []string{"Init / Setup", "Status", "Doctor", "Help", "Exit", "Configure", "MCP"} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("error layout must not contain %q:\n%s", banned, view)
 		}
@@ -2231,7 +2253,7 @@ func TestSmallTerminalView(t *testing.T) {
 func TestMinHeightOmitsTopGap(t *testing.T) {
 	root := t.TempDir()
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteDashboard, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	m = mustModel(m.Update(tea.WindowSizeMsg{Width: 80, Height: tui.MinHeight}))
 	view := m.View()
@@ -2249,7 +2271,7 @@ func TestMinHeightOmitsTopGap(t *testing.T) {
 
 func assertShell(t *testing.T, view, contentTitle string) {
 	t.Helper()
-	for _, want := range []string{"Atlas", "Dashboard", "Status", "Doctor", "Help", "Exit", contentTitle} {
+	for _, want := range []string{"Atlas", "Status", "Doctor", "Help", "Exit", contentTitle} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in view:\n%s", want, view)
 		}

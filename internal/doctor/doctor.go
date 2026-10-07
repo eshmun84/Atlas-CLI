@@ -66,7 +66,18 @@ func Evaluate(result workspace.DiscoveryResult) Report {
 	checks = append(checks, evaluateRuntime(result.Runtime)...)
 	checks = append(checks, evaluateHome(result.Runtime)...)
 
+	hasGo := false
+	for _, tech := range result.Technologies {
+		name := strings.ToLower(tech.Name)
+		if name == "go" || strings.Contains(name, "go module") {
+			hasGo = true
+			break
+		}
+	}
 	for _, tool := range result.Tools {
+		if tool.Name == "go" && !hasGo {
+			continue
+		}
 		if tool.Available {
 			checks = append(checks, Check{
 				Severity: SeverityPass,

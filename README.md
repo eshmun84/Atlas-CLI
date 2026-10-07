@@ -10,7 +10,7 @@ Practical Alpha RC: installable locally, validated by `make check` + `make smoke
 
 ### What Atlas does today
 
-- TUI-first shell: Dashboard, Init, Configure, Status, Doctor, Runtime Repair, Context Economy, Help
+- TUI-first shell: Status (default landing), Init, Configure, Doctor, Runtime Repair, Context Economy, Help
 - Init / Configure with persistence under `.atlas/`
 - Atlas Home (`ATLAS_HOME` or `~/.atlas`) with mirrored bundled assets
 - Runtime materialization: composed `AGENTS.md`, Cursor/OpenCode projections, **14 Atlas agents per selected runtime**, registry/manifest/lock, SDD/OpenSpec operational contract
@@ -55,7 +55,7 @@ make build
 ## Run
 
 ```bash
-atlas                 # TUI → Dashboard
+atlas                 # TUI → Status (default landing)
 atlas init            # TUI → Init / Setup
 atlas status          # TUI → Status (read-only)
 atlas doctor          # TUI → Doctor (read-only)
@@ -128,6 +128,7 @@ make smoke-mvp      # Alpha release-readiness smoke
 
 See also:
 
+- [docs/tui-ux-contract.md](docs/tui-ux-contract.md)
 - [docs/release-notes.md](docs/release-notes.md)
 - [docs/release-readiness.md](docs/release-readiness.md)
 

@@ -6,7 +6,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 )
 
-// Atlas project setup states for Dashboard / Overview.
+// Atlas project setup states for Status overview.
 const (
 	AtlasStateNotInitialized = "Not initialized"
 	AtlasStateInitialized    = "Initialized"

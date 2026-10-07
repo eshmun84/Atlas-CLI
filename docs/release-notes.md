@@ -6,7 +6,7 @@ First practical Alpha RC: installable locally, Home-backed assets, Cursor/OpenCo
 
 ### Included
 
-- TUI-first launcher: Dashboard, Init / Setup, Configure, Status, Doctor, Runtime Repair, Context Economy, Help
+- TUI-first launcher: Status (default landing), Init / Setup, Configure, Doctor, Runtime Repair, Context Economy, Help
 - Config persistence under `.atlas/` (`config.yaml`, `local.yaml`, `state.yaml`, `assets.lock.yaml`, `agent-registry.md`, `runtime-manifest.yaml`, `contracts/`, `backups/`)
 - Atlas Home (`ATLAS_HOME` or `~/.atlas`) created/updated only by mutating flows (Init Apply, Runtime Repair Apply, Context Update Apply)
 - Runtime gateway: composed `AGENTS.md`; Cursor/OpenCode projections; **14 Atlas agents per selected runtime**

@@ -9,15 +9,15 @@ type SidebarItem struct {
 
 // SidebarItems returns sidebar entries for the current Atlas setup state.
 // Init / Setup and Configure are mutually exclusive.
+// Status is the default landing screen (no separate Dashboard).
 func SidebarItems(initialized, showRepair, showContext bool) []SidebarItem {
 	setup := SidebarItem{Label: "Init / Setup", Route: RouteInitPlan}
 	if initialized {
 		setup = SidebarItem{Label: "Configure", Route: RouteConfigure}
 	}
 	items := []SidebarItem{
-		{Label: "Dashboard", Route: RouteDashboard},
-		setup,
 		{Label: "Status", Route: RouteStatus},
+		setup,
 		{Label: "Doctor", Route: RouteDoctor},
 	}
 	if showRepair {

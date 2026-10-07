@@ -166,7 +166,7 @@ Manual TUI / Alpha smoke (not fully automated — requires an interactive termin
     # from Atlas repo: make build && ./bin/atlas …
     # or: make install PREFIX="$HOME/.local" && atlas …
 
-  1. `atlas` → Dashboard loads (TUI-first).
+  1. `atlas` → Status loads (default landing / executive overview).
   2. `atlas init` → Init Step 1–3 → select Cursor + OpenCode → Apply.
   3. Verify project files:
        AGENTS.md

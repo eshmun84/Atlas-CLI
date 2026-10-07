@@ -9,6 +9,7 @@ func Help() string {
 	return helpHead.Render("Atlas Help") + `
 
 TUI-first shell with sidebar navigation.
+Status is the default landing screen (executive overview).
 The only normal console output is: atlas --version
 
 ` + helpHead.Render("Supported routes") + `
@@ -58,7 +59,7 @@ These are not Atlas CLI commands.
   PgUp/PgDn    scroll content
   Home/End     jump content / name edges
   h / ?        Help
-  b            Dashboard
-  esc          Dashboard (quit from Dashboard); leave screens/forms
+  b            Status (default landing)
+  esc          Status (quit from Status); leave screens/forms
   q / ctrl+c   quit the TUI (q types while editing text fields)`
 }

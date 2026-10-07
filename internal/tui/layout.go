@@ -131,8 +131,6 @@ func (m Model) rawContent() string {
 	switch m.route {
 	case RouteHelp:
 		return screens.Help()
-	case RouteDashboard:
-		return screens.Dashboard(m.discovery)
 	case RouteInitPlan:
 		if m.initWizardStep == screens.InitWizardStepReview {
 			return screens.RenderReview(screens.ReviewView{
@@ -202,7 +200,7 @@ func (m Model) rawContent() string {
 	case RouteStatus:
 		return screens.Status(m.discovery)
 	case RouteDoctor:
-		return screens.Doctor(m.report)
+		return screens.Doctor(m.report, m.discovery)
 	case RouteRuntimeRepair:
 		return screens.RenderRuntimeRepair(screens.RepairView{
 			Plan:           m.repairPlan,
@@ -218,7 +216,7 @@ func (m Model) rawContent() string {
 			ContentFocused: m.focus == FocusContent,
 		})
 	default:
-		return screens.Dashboard(m.discovery)
+		return screens.Status(m.discovery)
 	}
 }
 
@@ -387,7 +385,7 @@ func (m Model) renderActionRow() (string, bool) {
 }
 
 func (m Model) renderFooter() string {
-	text := "↑/↓ menu  Enter select  PgUp/PgDn scroll  h help  b dash  q quit"
+	text := "↑/↓ menu  Enter select  PgUp/PgDn scroll  h help  b status  q quit"
 	switch m.route {
 	case RouteError:
 		text = "Enter/q/Esc salir"
@@ -395,42 +393,42 @@ func (m Model) renderFooter() string {
 		switch m.initWizardStep {
 		case screens.InitWizardStepConfig:
 			if m.mcpMode == screens.MCPModeAdd {
-				text = "Tab focus  ↑/↓  Space/Enter  Add MCP  b dash  q quit"
+				text = "Tab focus  ↑/↓  Space/Enter  Add MCP  b status  q quit"
 			} else if m.mcpSectionActive() {
-				text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter  d remove custom  b dash  q quit"
+				text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter  d remove custom  b status  q quit"
 			} else {
-				text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter select  b dash  q quit"
+				text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter select  b status  q quit"
 			}
 		case screens.InitWizardStepReview:
 			if m.initApplied {
-				text = "Tab focus  PgUp/PgDn scroll  Close  b dash  q quit"
+				text = "Tab focus  PgUp/PgDn scroll  Close  b status  q quit"
 			} else {
-				text = "Tab focus  PgUp/PgDn scroll  Back  Apply config  b dash  q quit"
+				text = "Tab focus  PgUp/PgDn scroll  Back  Apply config  b status  q quit"
 			}
 		default:
-			text = "Tab focus  ↑/↓ fields  ←/→ edit name  Enter Next  r reset  b dash  q quit"
+			text = "Tab focus  ↑/↓ fields  ←/→ edit name  Enter Next  r reset  b status  q quit"
 		}
 	case RouteConfigure:
 		if m.mcpMode == screens.MCPModeAdd {
-			text = "Tab focus  ↑/↓  Space/Enter  Add MCP  b dash  q quit"
+			text = "Tab focus  ↑/↓  Space/Enter  Add MCP  b status  q quit"
 		} else if m.mcpSectionActive() {
-			text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter  d remove custom  Apply changes  b dash  q quit"
+			text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter  d remove custom  Apply changes  b status  q quit"
 		} else {
-			text = "Tab focus  ↑/↓ rows  Space/Enter select  Close  Apply changes  b dash  q quit"
+			text = "Tab focus  ↑/↓ rows  Space/Enter select  Close  Apply changes  b status  q quit"
 		}
 	case RouteHelp:
-		text = "↑/↓ menu  Enter select  PgUp/PgDn scroll  b dash  q quit"
+		text = "↑/↓ menu  Enter select  PgUp/PgDn scroll  b status  q quit"
 	case RouteRuntimeRepair:
 		if m.repairApplied || m.repairPlan.Blocked || !m.repairPlan.NeedsApply() {
-			text = "Tab focus  PgUp/PgDn scroll  Close  b dash  q quit"
+			text = "Tab focus  PgUp/PgDn scroll  Close  b status  q quit"
 		} else {
-			text = "Tab focus  PgUp/PgDn scroll  Close  Apply repair  b dash  q quit"
+			text = "Tab focus  PgUp/PgDn scroll  Close  Apply repair  b status  q quit"
 		}
 	case RouteContextEconomy:
 		if m.contextApplied || m.contextPlan.Blocked || !m.contextPlan.NeedsApply() {
-			text = "Tab focus  PgUp/PgDn scroll  Close  b dash  q quit"
+			text = "Tab focus  PgUp/PgDn scroll  Close  b status  q quit"
 		} else {
-			text = "Tab focus  PgUp/PgDn scroll  Close  Update context  b dash  q quit"
+			text = "Tab focus  PgUp/PgDn scroll  Close  Update context  b status  q quit"
 		}
 	}
 	return text

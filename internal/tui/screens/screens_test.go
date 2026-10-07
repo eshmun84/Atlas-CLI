@@ -20,19 +20,13 @@ func TestScreenTitles(t *testing.T) {
 	if !strings.Contains(screens.Status(workspace.DiscoveryResult{RootPath: "/tmp"}), "Atlas Status") {
 		t.Fatal("status")
 	}
-	if !strings.Contains(screens.Doctor(doctor.Report{}), "Atlas Doctor") {
+	if !strings.Contains(screens.Doctor(doctor.Report{}, workspace.DiscoveryResult{}), "Atlas Doctor") {
 		t.Fatal("doctor")
 	}
 	if !strings.Contains(screens.RenderRuntimeRepair(screens.RepairView{
 		Plan: workspace.RuntimeRepairPlan{Healthy: true},
 	}), "Runtime Repair") {
 		t.Fatal("repair")
-	}
-	if !strings.Contains(screens.Dashboard(workspace.DiscoveryResult{
-		RootPath: "/tmp/demo",
-		Atlas:    workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
-	}), "Dashboard") {
-		t.Fatal("dashboard")
 	}
 }
 
@@ -443,16 +437,44 @@ func TestStatusGitTechLibraries(t *testing.T) {
 	})
 	for _, want := range []string{
 		"Default remote: origin",
-		"Technologies",
+		"Project Technology",
 		"Bubble Tea",
 		"Atlas Runtime",
-		"runtime_materialized",
+		"materialized",
 		"Adapters",
-		".cursor/rules/atlas.mdc",
-		"Context Graph",
+		"Source Control / Delivery Tools",
+		"Health",
+		"MCP / External Context",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, "Remote URL: unknown") {
+		t.Fatalf("empty remote must not display as unknown:\n%s", view)
+	}
+	if !strings.Contains(view, "Remote URL:") || !strings.Contains(view, "https://example.com/demo.git") {
+		t.Fatalf("expected remote URL in status:\n%s", view)
+	}
+}
+
+func TestStatusEmptyRemoteIsNone(t *testing.T) {
+	t.Parallel()
+
+	view := screens.Status(workspace.DiscoveryResult{
+		RootPath: "/tmp/demo",
+		Git: workspace.GitInfo{
+			IsRepo:        true,
+			CurrentBranch: "main",
+		},
+		Atlas: workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
+	})
+	for _, want := range []string{"Default remote:", "Remote URL:", "Remotes:", "none"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Default remote: unknown") || strings.Contains(view, "Remote URL: unknown") {
+		t.Fatalf("empty git remote fields must display as none:\n%s", view)
 	}
 }
