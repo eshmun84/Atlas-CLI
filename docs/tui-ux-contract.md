@@ -3,6 +3,8 @@
 This document defines the product UX contract for the Atlas CLI interactive shell.
 It governs navigation, Status, and Doctor. It does not authorize new product capabilities.
 
+**Release stance:** Alpha 2 is a release candidate, not final V1. Cursor and OpenCode are the supported materialized runtimes. Status/Doctor stay read-only; Runtime Repair is the explicit runtime mutation path; Context Economy v0 is file-based and explicit-update; CodeGraph, Atlas Context Graph, MCP materialization/auth, Skills v1, marketplace, OpenSpec CLI execution, Git automation, and Claude/Codex activation remain out of scope. See [release-readiness.md](release-readiness.md).
+
 ## Principles
 
 1. **Honest over complete** — show what Atlas knows; label gaps as `NOT IMPLEMENTED`, `NOT SELECTED`, or `missing`.
@@ -121,4 +123,4 @@ Init configures governed runtime, adapters, governance, and delivery assistance.
 
 ## Out of scope for this contract
 
-CodeGraph, real MCP materialization, marketplace, Skills v1, Git automation, new CLI commands.
+Final V1 claims, CodeGraph, Atlas Context Graph engine, real MCP materialization/auth/verification, marketplace/community registry, Skills v1, OpenSpec CLI execution, Git automation, Claude/Codex activation, tag/release/publish, new CLI commands.

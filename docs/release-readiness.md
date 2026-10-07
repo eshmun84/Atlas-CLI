@@ -1,6 +1,7 @@
-# Atlas Alpha release-readiness checklist
+# Atlas Alpha 2 release-readiness checklist
 
-Version under test: **0.1.0** (Alpha RC).  
+Version under test: **0.1.0** (Alpha 2 release candidate).
+Alpha 2 is **not** final V1.
 No git tag / GitHub release / publish unless a human explicitly approves later.
 
 ## Automated gate
@@ -17,40 +18,47 @@ No git tag / GitHub release / publish unless a human explicitly approves later.
 - [x] build
 - [x] local install to temporary `PREFIX`
 - [x] `atlas --version`
-- [x] TUI-first routing + unsupported commands
-- [x] init fresh (`new`) / init existing
-- [x] Cursor / OpenCode / Cursor+OpenCode
-- [x] Atlas Home with temporary `ATLAS_HOME`
-- [x] agent + contract materialization (14 agents/runtime)
-- [x] Context Economy update
-- [x] status/doctor read-only
-- [x] runtime repair + developer-owned preservation
-- [x] no accidental writes to default `~/.atlas` when `ATLAS_HOME` is set
+- [x] unsupported commands exit non-zero and do not mutate
+- [x] TUI-first routing
+- [x] empty directory (fresh non-Atlas)
+- [x] Git + README existing project
+- [x] initialized Atlas project
+- [x] Cursor-only init
+- [x] OpenCode-only init
+- [x] Cursor + OpenCode init
+- [x] Status read-only
+- [x] Doctor read-only
+- [x] Runtime Repair
+- [x] Context Economy update / read-only / stale detection
+- [x] Configure config-only behavior
+- [x] Init Home reset gate
+- [x] `ATLAS_HOME` project isolation (default `~/.atlas` untouched)
+- [x] same-name different-root isolation
 - [x] no generated runtime artifacts in Atlas repo root
 
-## Manual smoke (temporary Home)
+## Manual smoke (temporary Home + PREFIX)
 
 Library-equivalent (non-interactive) helper:
 
 ```bash
-export ATLAS_HOME=/tmp/atlas-home-test-22
+export ATLAS_HOME=/tmp/atlas-home-alpha2-rc
 rm -rf "$ATLAS_HOME"
-PROJECT=/tmp/atlas-alpha-project-22
+PROJECT=/tmp/atlas-alpha2-project
 rm -rf "$PROJECT" && mkdir -p "$PROJECT"
 make build
-make install PREFIX=/tmp/atlas-prefix-test-22
+make install PREFIX=/tmp/atlas-prefix-alpha2-rc
 ATLAS_SMOKE_MANUAL_ROOT="$PROJECT" ATLAS_HOME="$ATLAS_HOME" go run ./scripts/manualalpha
 ```
 
 Interactive TUI (optional confirmation):
 
 ```bash
-export ATLAS_HOME=/tmp/atlas-home-test-22
-cd /tmp/atlas-alpha-project-22
+export ATLAS_HOME=/tmp/atlas-home-alpha2-rc
+cd /tmp/atlas-alpha2-project
 atlas   # or ./bin/atlas from the Atlas repo
 ```
 
-Checklist (library-equivalent via `scripts/manualalpha` executed for Slice 22):
+Checklist (library-equivalent via `scripts/manualalpha`):
 
 - [x] Init with Cursor + OpenCode → Apply
 - [x] Verify `AGENTS.md`, `.cursor/rules/atlas.mdc`, `.opencode/atlas.md`
@@ -69,13 +77,34 @@ Interactive TUI click-through remains optional human confirmation.
 ## Guarantees (must hold)
 
 - Status / Doctor / discovery / startup do not mutate
-- Runtime Repair remains explicit (Review → Apply)
+- Runtime Repair remains the explicit runtime mutation path (Review → Apply)
+- Configure Apply remains config-only (no silent rematerialization)
 - Context update remains explicit
+- Init Home reset requires explicit acceptance and deletes only `$ATLAS_HOME/projects/<project-id>/`
 - Atlas Home is not created by read-only flows
 - Tests/smoke use temporary `ATLAS_HOME`
 - No credential writes
 - No generated runtime artifacts left in the Atlas repo root
+- No tag / release / publish without explicit human approval
+
+## Honest capability boundaries
+
+| Area | Alpha 2 RC stance |
+| --- | --- |
+| Materialized runtimes | Cursor + OpenCode only |
+| Status / Doctor | Read-only |
+| Runtime Repair | Explicit mutation path |
+| Context Economy v0 | File-based, explicit update |
+| CodeGraph | Not implemented |
+| Atlas Context Graph | Preference only; not implemented |
+| MCP | Preference/config only; no materialization/auth/verification |
+| OpenSpec | Operational contract only; no CLI execution |
+| Git | Discovery only; no automation |
+| Skills v1 | Not implemented |
+| Marketplace / community registry | Not implemented |
+| Claude / Codex | Not activated |
+| Tag / release / publish | Human approval required |
 
 ## Out of scope for this RC
 
-Marketplace, real OpenSpec CLI, Claude/Codex adapters, Git automation, hooks, embeddings, daemon, new major features.
+Final V1, CodeGraph, Atlas Context Graph engine, MCP materialization/auth, Skills v1, marketplace/community registry, real OpenSpec CLI, Claude/Codex activation, Git automation, hooks, embeddings, daemon, new CLI commands, tag/release/publish.

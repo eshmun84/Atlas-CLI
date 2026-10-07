@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Atlas Alpha release-readiness smoke.
+# Atlas Alpha 2 release-readiness smoke.
 # Automates build, local install (temp PREFIX), version, CLI routing,
-# init/materialization, Atlas Home, Context Economy, status/doctor,
-# and runtime repair in temporary workspaces with ATLAS_HOME isolation.
-# Interactive TUI navigation is listed as manual steps at the end.
+# empty/Git+README surfaces, init/materialization, Configure config-only,
+# Home reset gate, same-name isolation, Atlas Home, Context Economy,
+# status/doctor, and runtime repair in temporary workspaces with
+# ATLAS_HOME isolation. Interactive TUI navigation is listed as manual
+# steps at the end.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -50,7 +52,7 @@ export ATLAS_HOME="$SMOKE_ATLAS_HOME"
 require_cmd go
 require_cmd make
 
-log "== Atlas Alpha smoke =="
+log "== Atlas Alpha 2 smoke =="
 log "repo: $ROOT"
 log "ATLAS_HOME: $ATLAS_HOME"
 log
@@ -156,15 +158,15 @@ fi
 
 cat <<'EOF'
 
-Manual TUI / Alpha smoke (not fully automated — requires an interactive terminal):
+Manual TUI / Alpha 2 smoke (not fully automated — requires an interactive terminal):
 
   Use a temporary project and ATLAS_HOME so ~/.atlas is never touched:
 
-    export ATLAS_HOME=/tmp/atlas-home-test-22
+    export ATLAS_HOME=/tmp/atlas-home-alpha2-rc
     rm -rf "$ATLAS_HOME"
-    mkdir -p /tmp/atlas-alpha-project && cd /tmp/atlas-alpha-project
+    mkdir -p /tmp/atlas-alpha2-project && cd /tmp/atlas-alpha2-project
     # from Atlas repo: make build && ./bin/atlas …
-    # or: make install PREFIX="$HOME/.local" && atlas …
+    # or: make install PREFIX=/tmp/atlas-prefix-alpha2-rc && atlas …
 
   1. `atlas` → Status loads (default landing / executive overview).
   2. `atlas init` → Init Step 1–3 → select Cursor + OpenCode → Apply.
@@ -178,18 +180,22 @@ Manual TUI / Alpha smoke (not fully automated — requires an interactive termin
        .atlas/assets.lock.yaml
        .atlas/contracts/sdd-openspec.md
   4. Sidebar shows Configure, Status, Doctor, Runtime Repair, Context Economy.
-  5. Context Economy → Review → Apply Update → verify
+  5. Configure → adapter/MCP preference change → Apply writes config.yaml only;
+     Runtime Repair recommended when runtime impact; no silent rematerialize.
+  6. Context Economy → Review → Apply Update → verify
        $ATLAS_HOME/projects/<id>/context/{index.yaml,capsule.md,packs/…}
        and .atlas/state.yaml refs. No product-repo context/ directory.
-  6. `atlas status` / `atlas doctor` are read-only (no mutation, no Home create).
-  7. Runtime Repair healthy → Apply is a no-op.
-  8. Drift an Atlas agent or delete the SDD contract → Repair restores;
+  7. `atlas status` / `atlas doctor` are read-only (no mutation, no Home create).
+  8. Runtime Repair healthy → Apply is a no-op.
+  9. Drift an Atlas agent or delete the SDD contract → Repair restores;
      developer-owned files (README, external agents) stay preserved;
      Context Economy payloads under Atlas Home stay intact.
-  9. `atlas start` / `atlas change` / `atlas mcp` → Error dialog (unsupported)
+ 10. Re-init with existing Home project data → Home reset gate required.
+ 11. `atlas start` / `atlas change` / `atlas mcp` → Error dialog (unsupported)
      and process exit code != 0 after the dialog closes.
- 10. Confirm ~/.atlas was not written while ATLAS_HOME was set.
- 11. Confirm Atlas repo root still has no generated runtime artifacts.
+ 12. Confirm ~/.atlas was not written while ATLAS_HOME was set.
+ 13. Confirm Atlas repo root still has no generated runtime artifacts.
+ 14. Do not tag / release / publish without explicit human approval.
 
 EOF
 

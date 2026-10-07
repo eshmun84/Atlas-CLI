@@ -1,4 +1,4 @@
-// Command smokemvp exercises Atlas Alpha lower-level flows in temporary
+// Command smokemvp exercises Atlas Alpha 2 lower-level flows in temporary
 // workspaces. It is invoked by scripts/smoke-mvp.sh and never writes into
 // the Atlas repository root. Callers must set ATLAS_HOME to a temporary path.
 package main
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/initplan"
 	"github.com/eshmun84/Atlas-CLI/internal/tui"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
@@ -47,15 +49,19 @@ func run() error {
 		fn   func() error
 	}{
 		{"cli routes (no console reports)", checkCLIRoutes},
-		{"unsupported commands exit non-zero", checkUnsupportedExitNonZero},
-		{"fresh non-Atlas project", checkFreshProject},
+		{"unsupported commands exit non-zero and do not mutate", checkUnsupportedExitNonZero},
+		{"empty directory (fresh non-Atlas)", checkFreshProject},
+		{"Git + README existing project", checkGitReadmeExistingProject},
 		{"init fresh project (mode=new)", checkInitFreshNew},
 		{"init existing project (mode=existing)", checkInitExisting},
 		{"init Cursor+OpenCode happy path", checkInitHappyPath},
 		{"atlas home mirrored on init", checkAtlasHome},
 		{"ATLAS_HOME isolates default ~/.atlas", checkDefaultHomeUntouched},
+		{"same-name different-root isolation", checkSameNameDifferentRootIsolation},
 		{"initialized Cursor project", checkCursorProject},
 		{"initialized OpenCode project", checkOpenCodeProject},
+		{"Configure config-only behavior", checkConfigureConfigOnly},
+		{"Init Home reset gate", checkInitHomeResetGate},
 		{"developer-owned files preserved", checkDeveloperOwnedPreserved},
 		{"status + doctor surfaces", checkStatusDoctor},
 		{"status/doctor do not create atlas home", checkStatusDoctorNoHomeCreate},
@@ -105,6 +111,27 @@ func checkCLIRoutes() error {
 }
 
 func checkUnsupportedExitNonZero() error {
+	atlasHome := os.Getenv("ATLAS_HOME")
+	if atlasHome == "" {
+		return fmt.Errorf("ATLAS_HOME unset")
+	}
+	probe, err := os.MkdirTemp(smokeTempBase(), "atlas-smoke-unsupported-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(probe)
+	if err := os.WriteFile(filepath.Join(probe, "marker.txt"), []byte("keep\n"), 0o644); err != nil {
+		return err
+	}
+	beforeProbe, err := snapshotPaths(probe)
+	if err != nil {
+		return err
+	}
+	beforeHome, err := snapshotOptionalTree(atlasHome)
+	if err != nil {
+		return err
+	}
+
 	prev := cli.RunTUI
 	cli.RunTUI = func(opts tui.Options) error {
 		if opts.Route != tui.RouteError {
@@ -122,6 +149,21 @@ func checkUnsupportedExitNonZero() error {
 		}
 	}
 
+	afterProbe, err := snapshotPaths(probe)
+	if err != nil {
+		return err
+	}
+	afterHome, err := snapshotOptionalTree(atlasHome)
+	if err != nil {
+		return err
+	}
+	if err := assertSnapshotEqual("unsupported probe", beforeProbe, afterProbe); err != nil {
+		return err
+	}
+	if err := assertSnapshotEqual("ATLAS_HOME after unsupported", beforeHome, afterHome); err != nil {
+		return err
+	}
+
 	// Supported routes and --version must still succeed with mocked TUI.
 	cli.RunTUI = func(tui.Options) error { return nil }
 	for _, args := range [][]string{nil, {"init"}, {"status"}, {"doctor"}, {"help"}} {
@@ -133,6 +175,272 @@ func checkUnsupportedExitNonZero() error {
 		return fmt.Errorf("--version: unexpected error %v", err)
 	}
 	return nil
+}
+
+func checkGitReadmeExistingProject() error {
+	root, err := os.MkdirTemp(smokeTempBase(), "atlas-smoke-git-readme-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# existing project\n"), 0o644); err != nil {
+		return err
+	}
+	if err := initGitRepo(root, "main"); err != nil {
+		return err
+	}
+
+	before, err := snapshotPaths(root)
+	if err != nil {
+		return err
+	}
+	disc, err := workspace.Discover(root)
+	if err != nil {
+		return err
+	}
+	afterDiscover, err := snapshotPaths(root)
+	if err != nil {
+		return err
+	}
+	if err := assertSnapshotEqual("discover git+readme", before, afterDiscover); err != nil {
+		return err
+	}
+	if !disc.Git.IsRepo {
+		return fmt.Errorf("expected git repo")
+	}
+	if !disc.Files.HasReadme {
+		return fmt.Errorf("expected README.md")
+	}
+	if disc.Atlas.Initialized() || disc.Runtime.Initialized {
+		return fmt.Errorf("git+readme project should not be Atlas-initialized yet")
+	}
+
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:   "git-readme",
+		ProjectMode:   "existing",
+		DefaultRemote: "origin",
+	})
+	if !draft.ToggleMulti("adapters.selected", "cursor") {
+		return fmt.Errorf("toggle cursor")
+	}
+	if _, err := config.ApplyConfig(config.ApplyInput{
+		Root:  root,
+		Draft: draft,
+		MCP:   config.EmptyMCPDraft(),
+		Now:   fixedNow(2026, 10, 7, 12, 0, 0),
+	}); err != nil {
+		return err
+	}
+	readme, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil || string(readme) != "# existing project\n" {
+		return fmt.Errorf("README mutated by init: %q err=%v", readme, err)
+	}
+	return assertRuntimeReady(root)
+}
+
+func checkSameNameDifferentRootIsolation() error {
+	homeDir := os.Getenv("ATLAS_HOME")
+	if homeDir == "" {
+		return fmt.Errorf("ATLAS_HOME unset")
+	}
+	rootA, err := materializeNamed("same-name", []string{"cursor"}, "existing")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(rootA)
+	rootB, err := materializeNamed("same-name", []string{"opencode"}, "existing")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(rootB)
+
+	idA, err := home.ProjectID(rootA, "same-name")
+	if err != nil {
+		return err
+	}
+	idB, err := home.ProjectID(rootB, "same-name")
+	if err != nil {
+		return err
+	}
+	if idA == idB {
+		return fmt.Errorf("same name different root must yield distinct project ids: %q", idA)
+	}
+	if !home.ProjectDataPresent(homeDir, idA) || !home.ProjectDataPresent(homeDir, idB) {
+		return fmt.Errorf("expected Home data for both project ids")
+	}
+	if err := home.ResetProject(homeDir, idA); err != nil {
+		return err
+	}
+	if home.ProjectDataPresent(homeDir, idA) {
+		return fmt.Errorf("project A Home data should be reset")
+	}
+	if !home.ProjectDataPresent(homeDir, idB) {
+		return fmt.Errorf("project B Home data must remain after resetting A")
+	}
+	if _, err := os.Stat(filepath.Join(rootB, config.FileAgentsMD)); err != nil {
+		return fmt.Errorf("product repo B must remain: %w", err)
+	}
+	return nil
+}
+
+func checkConfigureConfigOnly() error {
+	root, err := materialize([]string{"cursor"}, true)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+
+	agentsBefore, err := os.ReadFile(filepath.Join(root, config.FileAgentsMD))
+	if err != nil {
+		return err
+	}
+	cursorBefore, err := os.ReadFile(filepath.Join(root, config.FileCursorAtlasMDC))
+	if err != nil {
+		return err
+	}
+	beforeTree, err := snapshotPaths(root)
+	if err != nil {
+		return err
+	}
+
+	draft := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
+		ProjectName:           "smoke",
+		ProjectMode:           "existing",
+		ToolCursorAvailable:   true,
+		ToolOpenCodeAvailable: true,
+	})
+	if !draft.ToggleMulti("adapters.selected", "cursor") {
+		return fmt.Errorf("toggle cursor")
+	}
+	if !draft.ToggleMulti("adapters.selected", "opencode") {
+		return fmt.Errorf("toggle opencode")
+	}
+	mcp := config.EmptyMCPDraft()
+	mcp.ToggleBuiltin(0)
+	res, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: draft, MCP: mcp})
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(res.Notice, "config.yaml") {
+		return fmt.Errorf("missing config-only notice: %q", res.Notice)
+	}
+	if !res.Impact.RuntimeRepairNeeded {
+		return fmt.Errorf("adapter change should recommend Runtime Repair")
+	}
+	agentsAfter, err := os.ReadFile(filepath.Join(root, config.FileAgentsMD))
+	if err != nil {
+		return err
+	}
+	if string(agentsAfter) != string(agentsBefore) {
+		return fmt.Errorf("Configure mutated AGENTS.md")
+	}
+	cursorAfter, err := os.ReadFile(filepath.Join(root, config.FileCursorAtlasMDC))
+	if err != nil {
+		return err
+	}
+	if string(cursorAfter) != string(cursorBefore) {
+		return fmt.Errorf("Configure mutated Cursor projection")
+	}
+	if _, err := os.Stat(filepath.Join(root, config.FileOpenCodeAtlas)); !os.IsNotExist(err) {
+		return fmt.Errorf("Configure must not materialize OpenCode projection")
+	}
+	afterTree, err := snapshotPaths(root)
+	if err != nil {
+		return err
+	}
+	configRel := filepath.ToSlash(config.FileConfig)
+	for path, content := range beforeTree {
+		got, ok := afterTree[path]
+		if !ok {
+			return fmt.Errorf("Configure removed %s", path)
+		}
+		if path == configRel {
+			continue
+		}
+		if got != content {
+			return fmt.Errorf("Configure mutated %s", path)
+		}
+	}
+	doc, err := config.LoadProjectDocument(filepath.Join(root, config.FileConfig))
+	if err != nil {
+		return err
+	}
+	if !containsString(doc.Adapters.Selected, "opencode") {
+		return fmt.Errorf("config.yaml missing opencode preference: %#v", doc.Adapters.Selected)
+	}
+	return nil
+}
+
+func checkInitHomeResetGate() error {
+	root, err := materializeNamed("reset-gate", []string{"cursor"}, "existing")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(root)
+
+	homeDir := os.Getenv("ATLAS_HOME")
+	if homeDir == "" {
+		return fmt.Errorf("ATLAS_HOME unset")
+	}
+	pid, err := home.ProjectID(root, "reset-gate")
+	if err != nil {
+		return err
+	}
+	if !home.ProjectDataPresent(homeDir, pid) {
+		return fmt.Errorf("expected Home project data before re-init")
+	}
+	marker := filepath.Join(home.ProjectContextDir(homeDir, pid), "keep-me.txt")
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(marker, []byte("stale\n"), 0o644); err != nil {
+		return err
+	}
+
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:         "reset-gate",
+		ProjectMode:         "existing",
+		ToolCursorAvailable: true,
+	})
+	if !draft.ToggleMulti("adapters.selected", "cursor") {
+		return fmt.Errorf("toggle cursor")
+	}
+	review := initplan.BuildReview(initplan.ReviewInput{Draft: draft, MCP: config.EmptyMCPDraft(), Root: root})
+	if !review.HomeDataDetected {
+		return fmt.Errorf("review should detect Home data")
+	}
+	if review.AcceptHomeReset {
+		return fmt.Errorf("AcceptHomeReset must default false")
+	}
+	_, err = config.ApplyConfig(config.ApplyInput{
+		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(), AcceptHomeReset: false,
+		Now: fixedNow(2026, 10, 7, 13, 0, 0),
+	})
+	if err == nil || !strings.Contains(err.Error(), "reset acceptance") {
+		return fmt.Errorf("expected Home reset gate, got %v", err)
+	}
+	if _, statErr := os.Stat(marker); statErr != nil {
+		return fmt.Errorf("gate failure must not wipe Home data: %v", statErr)
+	}
+
+	applied, err := config.ApplyConfig(config.ApplyInput{
+		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(), AcceptHomeReset: true,
+		Now: fixedNow(2026, 10, 7, 13, 1, 0),
+	})
+	if err != nil {
+		return err
+	}
+	if !applied.HomeReset {
+		return fmt.Errorf("expected HomeReset=true after accepted re-init")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		return fmt.Errorf("accepted reset must clear prior project Home data")
+	}
+	if !home.ProjectDataPresent(homeDir, pid) {
+		return fmt.Errorf("re-init should recreate project Home layout")
+	}
+	return assertRuntimeReady(root)
 }
 
 func checkFreshProject() error {
@@ -909,10 +1217,18 @@ func checkRepairStalePlan() error {
 }
 
 func materialize(adapters []string, contextGraph bool) (string, error) {
-	return materializeMode(adapters, contextGraph, "existing")
+	return materializeNamedMode("smoke", adapters, "existing", contextGraph)
 }
 
 func materializeMode(adapters []string, contextGraph bool, projectMode string) (string, error) {
+	return materializeNamedMode("smoke", adapters, projectMode, contextGraph)
+}
+
+func materializeNamed(projectName string, adapters []string, projectMode string) (string, error) {
+	return materializeNamedMode(projectName, adapters, projectMode, true)
+}
+
+func materializeNamedMode(projectName string, adapters []string, projectMode string, contextGraph bool) (string, error) {
 	root, err := os.MkdirTemp(smokeTempBase(), "atlas-smoke-*")
 	if err != nil {
 		return "", err
@@ -921,8 +1237,12 @@ func materializeMode(adapters []string, contextGraph bool, projectMode string) (
 	if mode == "" {
 		mode = "existing"
 	}
+	name := strings.TrimSpace(projectName)
+	if name == "" {
+		name = "smoke"
+	}
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:   "smoke",
+		ProjectName:   name,
 		ProjectMode:   mode,
 		DefaultRemote: "origin",
 	})
@@ -948,6 +1268,47 @@ func materializeMode(adapters []string, contextGraph bool, projectMode string) (
 		return "", err
 	}
 	return root, nil
+}
+
+func initGitRepo(root, branch string) error {
+	if _, err := exec.LookPath("git"); err != nil {
+		return fmt.Errorf("git unavailable: %w", err)
+	}
+	cmd := exec.Command("git", "-C", root, "init", "--template=", "-b", branch)
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_TEMPLATE_DIR=",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git init: %v\n%s", err, out)
+	}
+	return nil
+}
+
+func assertSnapshotEqual(label string, before, after map[string]string) error {
+	if len(before) != len(after) {
+		return fmt.Errorf("%s: tree size changed before=%d after=%d", label, len(before), len(after))
+	}
+	for path, content := range before {
+		got, ok := after[path]
+		if !ok {
+			return fmt.Errorf("%s: path removed: %s", label, path)
+		}
+		if got != content {
+			return fmt.Errorf("%s: path mutated: %s", label, path)
+		}
+	}
+	return nil
+}
+
+func containsString(values []string, want string) bool {
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 func snapshotOptionalTree(root string) (map[string]string, error) {

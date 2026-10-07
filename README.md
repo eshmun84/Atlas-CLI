@@ -4,32 +4,39 @@ Atlas is a governed AI-assisted software engineering framework.
 
 Atlas is **not** a coding agent. The CLI launches a full-screen interactive TUI. Product work happens in that shell, not as console report dumps.
 
-## Alpha status (`0.1.0` — release candidate)
+## Alpha 2 status (`0.1.0` — release candidate)
 
-Practical Alpha RC: installable locally, validated by `make check` + `make smoke-mvp`, usable with Cursor and OpenCode.
+Practical **Alpha 2** release candidate: installable locally, validated by `make check` + `make smoke-mvp`, usable with Cursor and OpenCode.
+
+Alpha 2 is **not** final V1. Do not tag, create a GitHub release, or publish without explicit human approval.
 
 ### What Atlas does today
 
 - TUI-first shell: Status (default landing), Init, Configure, Doctor, Runtime Repair, Context Economy, Help
 - Init / Configure with persistence under `.atlas/`
-- Atlas Home (`ATLAS_HOME` or `~/.atlas`) with mirrored bundled assets
-- Runtime materialization: composed `AGENTS.md`, Cursor/OpenCode projections, **14 Atlas agents per selected runtime**, registry/manifest/lock, SDD/OpenSpec operational contract
-- Status + Doctor runtime awareness (read-only)
-- Explicit Runtime Repair (Review → Apply) with backup/quarantine of Atlas conflicts
-- Explicit Context Economy v0 update (index / capsule / pack under Atlas Home project storage)
-- Configure Apply is config-only (`.atlas/config.yaml`); Runtime Repair rematerializes runtime files; MCP is preference/config only
+- Atlas Home (`ATLAS_HOME` or `~/.atlas`) with mirrored bundled assets and project-scoped `projects/<id>/` storage
+- Runtime materialization: composed `AGENTS.md`, **Cursor and OpenCode** projections, **14 Atlas agents per selected runtime**, registry/manifest/lock, SDD/OpenSpec operational contract
+- Status + Doctor runtime awareness (**read-only**)
+- Explicit **Runtime Repair** (Review → Apply) — the runtime mutation path — with backup/quarantine of Atlas conflicts
+- Explicit **Context Economy v0** update (index / capsule / pack under Atlas Home project storage; file-based)
+- Configure Apply is **config-only** (`.atlas/config.yaml`); MCP is preference/config only
+- Init Home reset gate when project-scoped Home data already exists
 - `atlas --version` as the only normal console output
 
 ### What Atlas does **not** do yet
 
-- No marketplace / remote asset registry
-- No real OpenSpec CLI integration or live specs/tasks automation
-- No Claude / Codex active adapters
-- No MCP connections or credential storage
+- Not final V1
+- No CodeGraph implementation
+- No Atlas Context Graph implementation (preference flag only)
+- No marketplace / community / remote asset registry
+- No Skills v1
+- No real OpenSpec CLI execution or live specs/tasks automation
+- No Claude / Codex activation
+- No MCP materialization, auth, or verification
 - No Git commit/push/automation
 - No hooks, embeddings, daemon, or background service
 - No daily workflow commands (`atlas start`, `atlas change`, `atlas mcp`)
-- Context Graph remains a preference flag (Context Economy is the file-based Alpha surface)
+- No git tag / GitHub release / publish without explicit human approval
 
 ## Install / local build
 
@@ -63,9 +70,9 @@ atlas doctor          # TUI → Doctor (read-only)
 atlas --version       # console: version only
 ```
 
-Unsupported commands such as `atlas start`, `atlas change`, and `atlas mcp` open an Error dialog inside the TUI — they are not real commands.
+Unsupported commands such as `atlas start`, `atlas change`, and `atlas mcp` open an Error dialog inside the TUI — they are not real commands and exit non-zero after the dialog closes.
 
-## Recommended Alpha flow (Cursor + OpenCode)
+## Recommended Alpha 2 flow (Cursor + OpenCode)
 
 1. `export ATLAS_HOME=...` if you want an isolated Home (recommended for trials).
 2. From a project directory: `atlas init` → select **Cursor** and/or **OpenCode** → Review → **Apply config**.
@@ -74,6 +81,7 @@ Unsupported commands such as `atlas start`, `atlas change`, and `atlas mcp` open
 5. In Atlas TUI: **Context Economy** → Review → Apply Update when you want a fresh capsule/pack.
 6. Use **Status** / **Doctor** for read-only health.
 7. Use **Runtime Repair** only when Atlas-owned runtime files drift or go missing.
+8. Use **Configure** for config preference edits only; rematerialize via Runtime Repair when adapters/runtime impact.
 
 ## What Init Apply materializes
 
@@ -95,7 +103,7 @@ Project-local (under the product repo):
 Atlas Home (under `$ATLAS_HOME` / `~/.atlas`):
 
 - Mirrored assets (`assets/…`), agents, adapters, contracts
-- Project-scoped local data under `projects/<project-id>/` (identity from canonical root)
+- Project-scoped local data under `projects/<project-id>/` (identity from canonical root; same name + different root → different ID)
 - Context Economy payloads under `projects/<project-id>/context/` after an explicit Update
 - Runtime Repair backups under `projects/<project-id>/backups/<timestamp>/`
 
@@ -107,27 +115,32 @@ Read-only checks for config/state, `AGENTS.md` markers, selected adapters/projec
 
 Explicit Review → Apply. Recomputes the plan before Apply. Restores missing/broken Atlas-owned runtime files; quarantines conflicting Atlas-surface artifacts after mandatory Home-backed backup. Preserves developer-owned files (e.g. `README.md`, `.gitignore`, non-Atlas agents). Does **not** delete Context Economy payloads under Atlas Home.
 
+## Configure
+
+Config-only Apply: writes `.atlas/config.yaml` (and may create optional `docs/atlas/README.md` once when selected on Init and still missing). Does **not** rematerialize runtime files. Adapter/runtime impact requires Runtime Repair. MCP selections remain preference/config only.
+
 ## Context Economy (v0)
 
-Explicit Review → Apply Update. Writes `index.yaml`, `capsule.md`, and packs under Atlas Home `projects/<id>/context/`, plus minimal transitional refs in `.atlas/state.yaml`. Status/Doctor/Repair/discovery/startup do not create or refresh context payloads.
+Explicit Review → Apply Update. Writes `index.yaml`, `capsule.md`, and packs under Atlas Home `projects/<id>/context/`, plus minimal transitional refs in `.atlas/state.yaml`. Status/Doctor/Repair/discovery/startup do not create or refresh context payloads. This is **not** CodeGraph and **not** an Atlas Context Graph engine.
 
-## Known Alpha limitations
+## Known Alpha 2 limitations
 
+- Not final V1
 - OpenSpec contract is operational guidance only — no OpenSpec CLI execution
-- Claude/Codex adapters not active
-- No marketplace, MCP, Git automation, hooks, embeddings, or daemon
+- Cursor + OpenCode only; Claude/Codex not activated
+- No CodeGraph; no Atlas Context Graph implementation
+- No marketplace, Skills v1, MCP materialization/auth, Git automation, hooks, embeddings, or daemon
 - Configure Apply updates `.atlas/config.yaml` only; use Runtime Repair to rematerialize runtime files
-- Context Graph preference has no graph engine behind it
 - No git tag / GitHub release / publish in this RC unless a human explicitly approves later
 
 ## Validation
 
 ```bash
 make check          # fmt + vet + unit tests
-make smoke-mvp      # Alpha release-readiness smoke
+make smoke-mvp      # Alpha 2 release-readiness smoke
 ```
 
-`make smoke-mvp` runs `scripts/smoke-mvp.sh`: local build, temp `PREFIX` install, `atlas --version`, CLI routing, temp-workspace matrix under isolated `ATLAS_HOME`, focused package tests (including `home` + `context`), and repo-root cleanliness. Interactive TUI steps are printed at the end. For a non-interactive manual Alpha pass against a temp project, use `go run ./scripts/manualalpha` with `ATLAS_SMOKE_MANUAL_ROOT` + `ATLAS_HOME`.
+`make smoke-mvp` runs `scripts/smoke-mvp.sh`: local build, temp `PREFIX` install, `atlas --version`, CLI routing, temp-workspace matrix under isolated `ATLAS_HOME` (empty dir, Git+README, Cursor/OpenCode init, Configure config-only, Home reset gate, same-name isolation, Status/Doctor read-only, Runtime Repair, Context Economy, cleanliness), focused package tests, and repo-root cleanliness. Interactive TUI steps are printed at the end. For a non-interactive manual Alpha pass against a temp project, use `go run ./scripts/manualalpha` with `ATLAS_SMOKE_MANUAL_ROOT` + `ATLAS_HOME`.
 
 See also:
 
@@ -149,7 +162,7 @@ internal/doctor/     # diagnostics model
 internal/initplan/   # init dry-run planning
 internal/workspace/  # discovery, runtime health, repair
 internal/assets/     # embedded agents, adapters, contracts
-internal/version/    # version string (0.1.0 Alpha RC)
+internal/version/    # version string (0.1.0 Alpha 2 RC)
 scripts/             # release smoke helpers
 docs/                # release notes + readiness checklist
 ```

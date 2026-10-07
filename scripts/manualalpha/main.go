@@ -1,8 +1,9 @@
-// Command manualalpha runs the Slice 22 Alpha manual smoke against a project
-// root and ATLAS_HOME provided via environment variables. It never writes into
-// the Atlas repository root.
+// Command manualalpha runs the Alpha 2 release-candidate manual smoke against a
+// project root and ATLAS_HOME provided via environment variables. It never
+// writes into the Atlas repository root.
 //
-//	ATLAS_SMOKE_MANUAL_ROOT=/tmp/proj ATLAS_HOME=/tmp/atlas-home-test-22 \
+//	ATLAS_SMOKE_MANUAL_ROOT=/tmp/atlas-alpha2-project \
+//	ATLAS_HOME=/tmp/atlas-home-alpha2-rc \
 //	  go run ./scripts/manualalpha
 package main
 
@@ -52,7 +53,7 @@ func run() error {
 	}
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:   "alpha-22",
+		ProjectName:   "alpha2-rc",
 		ProjectMode:   "existing",
 		DefaultRemote: "origin",
 	})
@@ -61,7 +62,7 @@ func run() error {
 			return fmt.Errorf("toggle adapter %s", adapter)
 		}
 	}
-	now := fixedNow(2026, 10, 6, 20, 0, 0)
+	now := fixedNow(2026, 10, 7, 18, 0, 0)
 	if _, err := config.ApplyConfig(config.ApplyInput{
 		Root:  root,
 		Draft: draft,
@@ -98,8 +99,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	plan := atlascontext.BuildUpdatePlan(root, true, disc.Runtime.State, "slice22 manual smoke")
-	applied, err := atlascontext.ApplyUpdate(root, plan.Signature(), disc.Runtime.State, "slice22 manual smoke", now)
+	plan := atlascontext.BuildUpdatePlan(root, true, disc.Runtime.State, "alpha2 rc manual smoke")
+	applied, err := atlascontext.ApplyUpdate(root, plan.Signature(), disc.Runtime.State, "alpha2 rc manual smoke", now)
 	if err != nil {
 		return err
 	}
