@@ -21,9 +21,7 @@ func TestBuildProjectDocument_FromDraftAndMCP(t *testing.T) {
 	if !draft.SelectOption("source_control.mode", "git_github") {
 		t.Fatal("source control")
 	}
-	if !draft.SelectOption("source_control.branch_strategy", "main_develop") {
-		t.Fatal("branch")
-	}
+	// Branch strategy is not an Init setup decision; persist defaults to manual.
 	mcp := config.EmptyMCPDraft()
 	if !mcp.ToggleBuiltin(0) {
 		t.Fatal("jira")
@@ -55,7 +53,7 @@ func TestBuildProjectDocument_FromDraftAndMCP(t *testing.T) {
 	if doc.SourceControl.Mode != "git_github" || doc.SourceControl.DefaultRemote != "origin" {
 		t.Fatalf("source control = %#v", doc.SourceControl)
 	}
-	if doc.SourceControl.BranchStrategy != "main_develop" || doc.SourceControl.GovernanceFiles != "local_only" {
+	if doc.SourceControl.BranchStrategy != "manual" || doc.SourceControl.GovernanceFiles != "local_only" {
 		t.Fatalf("source control policy = %#v", doc.SourceControl)
 	}
 	if doc.SourceControl.DeliveryAssist {
@@ -96,9 +94,10 @@ func TestBuildLocalStateAndLockDocuments(t *testing.T) {
 	t.Parallel()
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:   "demo",
-		ProjectMode:   "existing",
-		DefaultRemote: "upstream",
+		ProjectName:         "demo",
+		ProjectMode:         "existing",
+		DefaultRemote:       "upstream",
+		ToolCursorAvailable: true,
 	})
 	local := config.BuildLocalDocument(draft)
 	if local.SchemaVersion != 1 || local.CredentialsStored || local.SourceControl.DefaultRemote != "upstream" {

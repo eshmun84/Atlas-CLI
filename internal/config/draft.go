@@ -35,8 +35,9 @@ const (
 
 // LabeledOption is a visible selectable option for a draft field.
 type LabeledOption struct {
-	Value string
-	Label string
+	Value    string
+	Label    string
+	Disabled bool
 }
 
 // ConfigField is one typed configuration field with mode-specific mutability.
@@ -47,6 +48,7 @@ type ConfigField struct {
 	Value               string
 	Default             string
 	Options             []string
+	DisabledValues      []string // visible but not selectable option values
 	Type                FieldType
 	InitMutability      FieldMutability
 	ConfigureMutability FieldMutability
@@ -78,7 +80,11 @@ func (f ConfigField) VisibleOptions() []LabeledOption {
 	case FieldTypeChoice, FieldTypeMulti:
 		out := make([]LabeledOption, 0, len(f.Options))
 		for _, opt := range f.Options {
-			out = append(out, LabeledOption{Value: opt, Label: OptionLabel(opt)})
+			out = append(out, LabeledOption{
+				Value:    opt,
+				Label:    optionDisplayLabel(f, opt),
+				Disabled: f.OptionDisabled(opt),
+			})
 		}
 		return out
 	case FieldTypeReadonly, FieldTypeText:
@@ -97,6 +103,17 @@ func (f ConfigField) VisibleOptions() []LabeledOption {
 	default:
 		return nil
 	}
+}
+
+func optionDisplayLabel(f ConfigField, value string) string {
+	if f.Key == "adapters.selected" {
+		name := OptionLabel(value)
+		if f.OptionDisabled(value) {
+			return name + "      Not available"
+		}
+		return name + "      Available"
+	}
+	return OptionLabel(value)
 }
 
 // OptionIndexOf returns the index of value among visible options, or 0.
@@ -139,11 +156,22 @@ func (d ConfigDraft) SelectorSections() []ConfigSection {
 	out := make([]ConfigSection, 0, len(d.Sections))
 	for _, section := range d.Sections {
 		switch section.Key {
-		case "governance", "adapters", "source_control", "memory", "context", "mcp":
+		case "governance", "adapters", "source_control", "mcp":
 			out = append(out, section)
 		}
 	}
 	return out
+}
+
+// OptionDisabled reports whether value is visible but not selectable.
+func (f ConfigField) OptionDisabled(value string) bool {
+	value = strings.TrimSpace(value)
+	for _, disabled := range f.DisabledValues {
+		if disabled == value {
+			return true
+		}
+	}
+	return false
 }
 
 // ProjectName returns project.name from the draft.
@@ -203,19 +231,37 @@ func (d *ConfigDraft) SelectOption(key, value string) bool {
 	if !ok || !field.Editable(d.Mode) {
 		return false
 	}
+	var okSet bool
 	switch field.Type {
 	case FieldTypeBool:
-		return d.SetValue(key, boolString(value))
-	case FieldTypeChoice, FieldTypeText:
-		return d.SetValue(key, value)
+		okSet = d.SetValue(key, boolString(value))
+	case FieldTypeChoice:
+		allowed := false
+		for _, opt := range field.Options {
+			if opt == value {
+				allowed = true
+				break
+			}
+		}
+		if !allowed || field.OptionDisabled(value) {
+			return false
+		}
+		okSet = d.SetValue(key, value)
+	case FieldTypeText:
+		okSet = d.SetValue(key, value)
 	case FieldTypeMulti:
-		return d.ToggleMulti(key, value)
+		okSet = d.ToggleMulti(key, value)
 	default:
 		return false
 	}
+	if okSet && (key == "source_control.mode" || key == "source_control.governance_storage") {
+		SyncDevelopmentDelivery(d)
+	}
+	return okSet
 }
 
 // ToggleMulti toggles a value in a multi-select field.
+// UI activation must enforce OptionDisabled separately so tests/setup can seed values.
 func (d *ConfigDraft) ToggleMulti(key, value string) bool {
 	field, ok := d.FieldByKey(key)
 	if !ok || field.Type != FieldTypeMulti || !field.Editable(d.Mode) {
@@ -255,7 +301,13 @@ func (d *ConfigDraft) CycleChoice(key string, forward bool) bool {
 	} else {
 		idx = (idx - 1 + len(field.Options)) % len(field.Options)
 	}
-	return d.SetValue(key, field.Options[idx])
+	if !d.SetValue(key, field.Options[idx]) {
+		return false
+	}
+	if key == "source_control.mode" {
+		SyncDevelopmentDelivery(d)
+	}
+	return true
 }
 
 // FormatBoolDisplay normalizes a bool draft value for display.
@@ -292,7 +344,7 @@ func OptionLabel(value string) string {
 	case "git_local":
 		return "Git local"
 	case "git_github":
-		return "Git + GitHub"
+		return "GitHub"
 	case "manual":
 		return "Manual"
 	case "simple":

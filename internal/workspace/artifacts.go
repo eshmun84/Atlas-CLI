@@ -10,8 +10,9 @@ var runtimeArtifactNames = []string{
 	"GEMINI.md",
 	".cursor",
 	".opencode",
-	".agents",
 	".claude",
+	".agents",
+	".codex",
 }
 
 // DiscoverRuntimeArtifacts lists recognized agent/adaptor artifacts. Read-only.

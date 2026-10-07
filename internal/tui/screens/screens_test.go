@@ -39,31 +39,99 @@ func TestInitPlanStep1NoPlanPreview(t *testing.T) {
 	t.Parallel()
 
 	view := screens.InitPlan(screens.InitView{
-		RootPath:        "/tmp/demo",
-		DetectedName:    "demo",
-		DetectedMode:    "existing",
-		RecommendedMode: "existing",
-		DraftName:       "demo",
-		ModeConfirmed:   "existing",
-		Decision:        "initialize",
-		Artifacts:       []string{"AGENTS.md"},
-		ActiveField:     screens.InitFieldNext,
-		ContentFocused:  true,
+		RootPath:       "/tmp/demo",
+		DetectedName:   "demo",
+		DetectedMode:   "existing",
+		AtlasState:     "Not initialized",
+		DraftName:      "demo",
+		ModeConfirmed:  "existing",
+		ActiveField:    screens.InitFieldNext,
+		ContentFocused: true,
 	})
 
 	for _, want := range []string{
 		"Step 1 — Project Setup",
-		"Project Identity",
+		"Project Name",
 		"Project Mode",
-		"Runtime Artifacts",
-		"No files will be changed in this slice.",
+		"[x] Existing Project",
+		"[ ] New Project",
+		"No files are written until Review → Apply.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "Plan Preview") {
-		t.Fatal("step 1 must not contain Plan Preview")
+	for _, banned := range []string{
+		"Project Identity",
+		"Project Detection",
+		"Project name:",
+		"Runtime artifact conflict gate",
+		"Accept backup/quarantine and continue Init",
+		"Recommended mode",
+		"Plan Preview",
+		"✓ New Project",
+		"(x) Existing Project",
+		"( ) New Project",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
+	}
+}
+
+func TestInitConflictPreflight(t *testing.T) {
+	t.Parallel()
+
+	view := screens.InitConflict(screens.InitConflictView{
+		RootPath:       "/tmp/demo",
+		Artifacts:      []string{"AGENTS.md", ".cursor"},
+		ActiveField:    screens.InitFieldConflictRefresh,
+		ContentFocused: true,
+	})
+	for _, want := range []string{
+		"Runtime conflict",
+		"Blocking warning",
+		"Detected conflicts",
+		"AGENTS.md",
+		".cursor",
+		"Manual cleanup steps",
+		"1. Review the detected files/directories.",
+		"2. Move them outside the project or back them up manually.",
+		"3. Use Refresh / Re-check after the project is clean.",
+		"Refresh / Re-check",
+		"Exit / Back",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	for _, banned := range []string{
+		"Project Mode",
+		"Accept backup/quarantine",
+		"Backup / quarantine acceptance",
+		"Continue to Setup",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
+	}
+
+	clean := screens.InitConflict(screens.InitConflictView{
+		RootPath:       "/tmp/demo",
+		Artifacts:      nil,
+		ActiveField:    screens.InitFieldConflictContinue,
+		ContentFocused: true,
+	})
+	for _, want := range []string{
+		"No runtime conflicts detected.",
+		"Continue to Setup",
+	} {
+		if !strings.Contains(clean, want) {
+			t.Fatalf("clean missing %q:\n%s", want, clean)
+		}
+	}
+	if strings.Contains(clean, "Blocking warning") || strings.Contains(clean, "AGENTS.md") {
+		t.Fatalf("clean state still shows blocking content:\n%s", clean)
 	}
 }
 
@@ -71,10 +139,13 @@ func TestRenderReview(t *testing.T) {
 	t.Parallel()
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:    "Atlas-CLI",
-		ProjectMode:    "new",
-		CursorDetected: true,
+		ProjectName:         "Atlas-CLI",
+		ProjectMode:         "new",
+		ToolCursorAvailable: true,
 	})
+	if !draft.ToggleMulti("adapters.selected", "cursor") {
+		t.Fatal("expected cursor select")
+	}
 	plan := initplan.BuildReview(initplan.ReviewInput{Draft: draft, MCP: config.EmptyMCPDraft()})
 	view := screens.RenderReview(screens.ReviewView{Plan: plan, ContentFocused: true})
 	for _, want := range []string{
@@ -84,19 +155,32 @@ func TestRenderReview(t *testing.T) {
 		".atlas/config.yaml",
 		"AGENTS.md",
 		".cursor/rules/atlas.mdc",
-		"create/update this slice",
-		"No existing runtime artifacts detected.",
-		"No backups required.",
-		"compact runtime gateway files",
-		"Context Graph: Enabled",
+		"create/update on Apply",
+		"No conflicting runtime surfaces detected.",
+		"No Atlas-managed backups required",
+		"Platform:",
+		"Governance files:",
+		"Assisted operations:",
+		"Init performs no Git operations.",
+		"No repository, branch, commit, push, pull request, merge or remote operation",
+		"Runtime conflicts block Init and require manual cleanup",
+		"Atlas Context Graph is not available in this slice.",
 		"[content focus]",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "planned for later") {
-		t.Fatalf("review must not say planned for later:\n%s", view)
+	for _, banned := range []string{
+		"Memory:",
+		"Context Economy:",
+		"CodeGraph",
+		"Development & Delivery",
+		"planned for later",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
 	}
 }
 
@@ -118,7 +202,7 @@ func TestConfigFormFinalSections(t *testing.T) {
 		ContentFocused: true,
 		ShowBack:       true,
 		ShowNext:       true,
-		FooterNote:     "No files will be changed in this slice.",
+		FooterNote:     "No files are written until Review → Apply.",
 		Width:          110,
 	})
 
@@ -128,9 +212,7 @@ func TestConfigFormFinalSections(t *testing.T) {
 		"Sections",
 		"Governance",
 		"Adapters",
-		"Source Control",
-		"Memory",
-		"Context",
+		"Delivery",
 		"MCP",
 		"Workflow",
 		"[x] SDD",
@@ -140,10 +222,20 @@ func TestConfigFormFinalSections(t *testing.T) {
 		"[x] Testing required",
 		"[x] Review required",
 		"[x] Evidence required",
-		"No files will be changed in this slice.",
+		"No files are written until Review → Apply.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	for _, banned := range []string{"Memory", "Development &", "CodeGraph"} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
+	}
+	for _, section := range draft.SelectorSections() {
+		if section.Key == "context" || section.Title == "Context" {
+			t.Fatal("Init form must not expose Context section")
 		}
 	}
 	for _, bannedVisual := range []string{"[ Yes ]", "[ No ]", "[ OpenSpec ]", "[ None ]"} {
@@ -204,17 +296,28 @@ func TestConfigFormFinalSections(t *testing.T) {
 		t.Fatalf("governance storage must not appear in Governance:\n%s", gov)
 	}
 
+	adaptersDraft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:           "Atlas-CLI",
+		ProjectMode:           "existing",
+		ToolCursorAvailable:   true,
+		ToolOpenCodeAvailable: false,
+	})
 	adapters := screens.RenderConfigForm(screens.ConfigFormView{
-		Draft:        draft,
-		SectionIndex: sectionIndex(draft, "adapters"),
+		Draft:        adaptersDraft,
+		SectionIndex: sectionIndex(adaptersDraft, "adapters"),
 		PanelFocus:   screens.ConfigPanelFields,
 		ShowBack:     true,
 		ShowNext:     true,
 		Width:        100,
 	})
-	for _, want := range []string{"[ ] Cursor", "[ ] OpenCode"} {
+	for _, want := range []string{"[ ] Cursor      Available", "[ ] OpenCode      Not available"} {
 		if !strings.Contains(adapters, want) {
 			t.Fatalf("adapters missing %q:\n%s", want, adapters)
+		}
+	}
+	for _, banned := range []string{"Claude", "Codex", "not supported", "Select supported"} {
+		if strings.Contains(adapters, banned) {
+			t.Fatalf("adapters unexpected %q:\n%s", banned, adapters)
 		}
 	}
 
@@ -227,33 +330,30 @@ func TestConfigFormFinalSections(t *testing.T) {
 		Width:        110,
 	})
 	for _, want := range []string{
-		"[x] None", "[ ] Git local", "[ ] Git + GitHub", "origin",
-		"[x] Manual", "[ ] Simple", "[ ] Main + develop", "[ ] Main + develop + staging",
-		"Atlas governance files", "[x] Local only", "[ ] Versioned",
-		"[ ] Delivery assist",
+		"Delivery",
+		"Platform",
+		"[x] None", "[ ] Git local", "[ ] GitHub",
+		"Governance files", "[x] Local only", "[ ] Versioned",
+		"Assisted operations", "[ ] Enabled",
 	} {
 		if !strings.Contains(sc, want) {
-			t.Fatalf("source control missing %q:\n%s", want, sc)
+			t.Fatalf("delivery missing %q:\n%s", want, sc)
+		}
+	}
+	for _, banned := range []string{
+		"Tools", "Policy", "Suggestions only.", "git ok", "gh ok", "OpenSpec", "CodeGraph",
+		"Branch strategy", "Default remote", "GitFlow", "Development &", "Assistance",
+	} {
+		if strings.Contains(sc, banned) {
+			t.Fatalf("delivery unexpected %q:\n%s", banned, sc)
 		}
 	}
 
-	mem := screens.RenderConfigForm(screens.ConfigFormView{
-		Draft:        draft,
-		SectionIndex: sectionIndex(draft, "memory"),
-		PanelFocus:   screens.ConfigPanelFields,
-		ShowBack:     true,
-		ShowNext:     true,
-		Width:        110,
-	})
-	for _, want := range []string{"[ ] SQLite", "[ ] Context Capsule", "[x] SQLite + Context Capsule"} {
-		if !strings.Contains(mem, want) {
-			t.Fatalf("memory missing %q:\n%s", want, mem)
-		}
+	if sectionIndex(draft, "memory") >= 0 {
+		t.Fatal("memory must not appear in Init selector sections")
 	}
-	for _, banned := range []string{"Memory enabled", "Fixed MVP", "cannot be disabled"} {
-		if strings.Contains(mem, banned) {
-			t.Fatalf("memory unexpected %q:\n%s", banned, mem)
-		}
+	if sectionIndex(draft, "context") >= 0 {
+		t.Fatal("context must not appear in Init selector sections")
 	}
 
 	mcp := screens.RenderConfigForm(screens.ConfigFormView{
@@ -293,9 +393,7 @@ func TestConfigureViewFinalSections(t *testing.T) {
 		"Configure",
 		"Governance",
 		"Adapters",
-		"Source Control",
-		"Memory",
-		"Context",
+		"Delivery",
 		"MCP",
 		"Close discards unsaved changes. Apply changes writes .atlas/config.yaml.",
 	} {
@@ -303,9 +401,14 @@ func TestConfigureViewFinalSections(t *testing.T) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"[ Next ]", "[ Close ]", "Project Stack", "Runtime entrypoint", "Skills / Registry"} {
+	for _, banned := range []string{"[ Next ]", "[ Close ]", "Project Stack", "Runtime entrypoint", "Skills / Registry", "Memory", "Development &", "CodeGraph"} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
+	}
+	for _, section := range draft.SelectorSections() {
+		if section.Key == "context" {
+			t.Fatal("Configure must not expose Context section")
 		}
 	}
 	footer := screens.RenderActionFooter(screens.ActionFooterView{
@@ -327,10 +430,10 @@ func TestRenderMCP(t *testing.T) {
 	})
 	for _, want := range []string{
 		"MCP",
-		"Configure external MCP integrations for Atlas.",
-		"No files will be changed in this slice.",
+		"MCP selections record preferences only.",
+		"NOT IMPLEMENTED",
 		"Atlas is not initialized yet.",
-		"preview only",
+		"draft-only until Init Apply",
 		"Built-in MCPs",
 		"[ ] Jira",
 		"[ ] Context7",
@@ -382,7 +485,7 @@ func TestRenderMCP(t *testing.T) {
 		"My Browser MCP",
 		"stdio",
 		"[x]",
-		"in memory only",
+		"preference recorded",
 	} {
 		if !strings.Contains(active, want) {
 			t.Fatalf("initialized view missing %q:\n%s", want, active)
@@ -396,7 +499,7 @@ func sectionIndex(draft config.ConfigDraft, key string) int {
 			return i
 		}
 	}
-	return 0
+	return -1
 }
 
 func TestStatusGitTechLibraries(t *testing.T) {

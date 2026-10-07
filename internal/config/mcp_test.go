@@ -71,7 +71,7 @@ func TestDefaultMCPDraftBuiltinsAndCustomAdd(t *testing.T) {
 	if config.NormalizeTransport("") != config.MCPTransportStdio {
 		t.Fatal("default transport")
 	}
-	if config.StatusLabel(config.MCPStatusInMemoryOnly) != "in memory only" {
+	if config.StatusLabel(config.MCPStatusInMemoryOnly) != "preference recorded" {
 		t.Fatal("status label")
 	}
 }

@@ -13,6 +13,15 @@ type ProjectSetupInput struct {
 	DefaultRemote    string
 	CursorDetected   bool
 	OpenCodeDetected bool
+
+	// Tool availability (LookPath only; never executed).
+	ToolGitAvailable       bool
+	ToolGHAvailable        bool
+	ToolGlabAvailable      bool
+	ToolBitbucketAvailable bool
+	ToolOpenSpecAvailable  bool
+	ToolCursorAvailable    bool
+	ToolOpenCodeAvailable  bool
 }
 
 // NormalizeProjectMode maps Step 1 modes onto config project modes.
@@ -50,6 +59,11 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 		remote = "origin"
 	}
 
+	// Availability is PATH tool presence only. Project artifacts like .cursor/ are
+	// conflict surfaces handled by Init preflight, not adapter availability.
+	// CursorDetected/OpenCodeDetected still seed selection for Apply/Configure inputs.
+	cursorAvailable := setup.ToolCursorAvailable
+	opencodeAvailable := setup.ToolOpenCodeAvailable
 	adapters := ""
 	if setup.CursorDetected {
 		adapters = ToggleChip(adapters, "cursor")
@@ -57,8 +71,18 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 	if setup.OpenCodeDetected {
 		adapters = ToggleChip(adapters, "opencode")
 	}
+	var adapterDisabled []string
+	if !cursorAvailable {
+		adapterDisabled = append(adapterDisabled, "cursor")
+	}
+	if !opencodeAvailable {
+		adapterDisabled = append(adapterDisabled, "opencode")
+	}
 
-	return ConfigDraft{
+	adaptersField := field("adapters.selected", "", "", adapters, adapters, FieldTypeMulti, []string{"cursor", "opencode"}, FieldEditable, FieldEditable, false, false)
+	adaptersField.DisabledValues = adapterDisabled
+
+	draft := ConfigDraft{
 		Mode: mode,
 		Sections: []ConfigSection{
 			{
@@ -73,82 +97,90 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 			{
 				Key:         "governance",
 				Title:       "Governance",
-				Description: "Atlas always governs AI-assisted work. Evidence required means the agent must report verification evidence when applicable.",
+				Description: "Governance configuration for AI-assisted work. This records Atlas policy preferences — it does not execute OpenSpec CLI commands.",
 				Fields: []ConfigField{
-					field("governance.default_workflow", "Workflow", "", "sdd", "sdd", FieldTypeChoice, []string{"sdd"}, FieldEditable, FieldEditable, true, false),
-					field("governance.spec_engine", "Spec engine", "", "openspec", "openspec", FieldTypeChoice, []string{"openspec", "none"}, FieldEditable, FieldEditable, true, false),
-					field("governance.testing_required", "Testing required", "", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
-					field("governance.review_required", "Review required", "", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
-					field("governance.evidence_required", "Evidence required", "The agent must report verification evidence, commands, tests, smoke, results, and limitations when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
+					field("governance.default_workflow", "Workflow", "SDD (Spec-Driven Development) workflow preference.", "sdd", "sdd", FieldTypeChoice, []string{"sdd"}, FieldEditable, FieldEditable, true, false),
+					field("governance.spec_engine", "Spec engine", "OpenSpec is the preferred spec engine preference. Atlas does not run OpenSpec commands from this screen.", "openspec", "openspec", FieldTypeChoice, []string{"openspec", "none"}, FieldEditable, FieldEditable, true, false),
+					field("governance.testing_required", "Testing required", "Quality gate: testing evidence is required when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
+					field("governance.review_required", "Review required", "Quality gate: review is required when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
+					field("governance.evidence_required", "Evidence required", "Quality gate: the agent must report verification evidence, commands, tests, smoke, results, and limitations when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
 				},
 			},
 			{
 				Key:         "adapters",
 				Title:       "Adapters",
-				Description: "Select the tools Atlas should prepare runtime instructions for.",
+				Description: "",
 				Fields: []ConfigField{
-					field("adapters.selected", "Adapters", "", adapters, adapters, FieldTypeMulti, []string{"cursor", "opencode"}, FieldEditable, FieldEditable, false, false),
+					adaptersField,
 				},
 			},
 			{
 				Key:         "source_control",
-				Title:       "Source Control",
-				Description: "Define how Atlas may assist with Git-related workflow. Atlas never runs Git operations without explicit approval.",
+				Title:       "Delivery",
+				Description: "",
 				Fields: []ConfigField{
-					field("source_control.mode", "Source control mode", "", "none", "none", FieldTypeChoice, []string{"none", "git_local", "git_github"}, FieldEditable, FieldEditable, true, false),
-					field("source_control.default_remote", "Default remote", "Display only in this slice.", remote, remote, FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
-					field("source_control.branch_strategy", "Branch strategy", "", "manual", "manual", FieldTypeChoice, []string{"manual", "simple", "main_develop", "main_develop_staging"}, FieldEditable, FieldEditable, false, false),
-					field("source_control.governance_storage", "Atlas governance files", "Local only keeps Atlas governance/spec/runtime files local where appropriate. Versioned allows those files under explicit Atlas policy. Also covers Spec Engine storage.", "local_only", "local_only", FieldTypeChoice, []string{"local_only", "versioned"}, FieldEditable, FieldEditable, true, false),
-					field("source_control.delivery_assist", "Delivery assist", "Even when enabled, Atlas never runs Git operations without explicit approval.", "false", "false", FieldTypeBool, nil, FieldEditable, FieldEditable, false, false),
-				},
-			},
-			{
-				Key:         "memory",
-				Title:       "Memory",
-				Description: "Atlas always has memory. SQLite stores structured local Atlas memory. Context Capsule gives agents compact context derived from project memory. SQLite + Context Capsule is the recommended default.",
-				Fields: []ConfigField{
-					field(
-						"memory.strategy",
-						"Memory strategy",
-						"",
-						"sqlite_plus_context_capsule",
-						"sqlite_plus_context_capsule",
-						FieldTypeChoice,
-						[]string{"sqlite", "context_capsule", "sqlite_plus_context_capsule"},
-						FieldEditable,
-						FieldEditable,
-						true,
-						false,
-					),
-				},
-			},
-			{
-				Key:         "context",
-				Title:       "Context",
-				Description: "Context Graph is a configuration preference only in this slice. Atlas Home remains the canonical source of skills, agents, rules, and runtime contracts; this project is a compact gateway.",
-				Fields: []ConfigField{
-					field(
-						"context.graph.enabled",
-						"Enable Context Graph",
-						"Preference only. No graph engine, database, or embeddings are created in this slice.",
-						"true",
-						"true",
-						FieldTypeBool,
-						nil,
-						FieldEditable,
-						FieldEditable,
-						false,
-						false,
-					),
+					field("source_control.mode", "Platform", "", "none", "none", FieldTypeChoice, []string{"none", "git_local", "git_github"}, FieldEditable, FieldEditable, true, false),
+					field("source_control.governance_storage", "Governance files", "", "local_only", "local_only", FieldTypeChoice, []string{"local_only", "versioned"}, FieldEditable, FieldEditable, true, false),
+					field("source_control.delivery_assist", "Assisted operations", "", "false", "false", FieldTypeBool, nil, FieldEditable, FieldEditable, false, false),
 				},
 			},
 			{
 				Key:         "mcp",
 				Title:       "MCP",
-				Description: "Configure external MCP integrations for Atlas.",
+				Description: "Preferences only — not connected, authenticated, or verified.",
 				Fields:      nil,
 			},
+			{
+				// Hidden from SelectorSections; retained so persist/load keep remote + branch_strategy + memory.
+				// Context is not an Init/Configure decision in Slice 25 (no CodeGraph / Context Graph setup).
+				Key:         "compat",
+				Title:       "Compatibility",
+				Description: "Internal compatibility fields — not shown in Init/Configure selectors.",
+				Fields: []ConfigField{
+					field("source_control.default_remote", "Default remote", "Not an Init setup decision.", remote, remote, FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
+					field("source_control.branch_strategy", "Branch strategy", "Not an Init setup decision. Atlas does not configure GitFlow.", "manual", "manual", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
+					field("memory.strategy", "Memory strategy", "Always-on local Atlas-managed memory; not an Init setup choice.", "sqlite_plus_context_capsule", "sqlite_plus_context_capsule", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, true, false),
+					field("context.graph.enabled", "Context Graph preference", "Compatibility preference only; Atlas Context Graph is not available in this slice.", "true", "true", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
+				},
+			},
 		},
+	}
+	SyncDevelopmentDelivery(&draft)
+	return draft
+}
+
+// SyncDevelopmentDelivery enforces governance-file versioning rules from delivery platform.
+// Versioned is enabled only when a supported platform (GitHub) is selected.
+func SyncDevelopmentDelivery(draft *ConfigDraft) {
+	if draft == nil {
+		return
+	}
+	mode := "none"
+	if field, ok := draft.FieldByKey("source_control.mode"); ok {
+		mode = strings.TrimSpace(field.Value)
+	}
+	for si := range draft.Sections {
+		if draft.Sections[si].Key != "source_control" {
+			continue
+		}
+		for fi := range draft.Sections[si].Fields {
+			field := &draft.Sections[si].Fields[fi]
+			if field.Key != "source_control.governance_storage" {
+				continue
+			}
+			field.Options = []string{"local_only", "versioned"}
+			field.Description = ""
+			if mode == SourceControlGitGitHub {
+				field.DisabledValues = nil
+				if field.Value != GovernanceFilesLocalOnly && field.Value != GovernanceFilesVersioned {
+					field.Value = GovernanceFilesLocalOnly
+				}
+			} else {
+				field.DisabledValues = []string{"versioned"}
+				field.Value = GovernanceFilesLocalOnly
+			}
+			return
+		}
 	}
 }
 

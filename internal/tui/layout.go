@@ -155,23 +155,29 @@ func (m Model) rawContent() string {
 				ShowNext:       true,
 				BackLabel:      "Back",
 				NextLabel:      "Next",
-				FooterNote:     "No files will be changed in this slice.",
+				FooterNote:     "No files are written until Review → Apply.",
 				Width:          m.contentWidth(),
 				MCP:            m.mcpView(),
 			})
 		}
+		if m.initWizardStep == screens.InitWizardStepConflict {
+			return screens.InitConflict(screens.InitConflictView{
+				RootPath:       m.discovery.RootPath,
+				Artifacts:      m.discovery.RuntimeArtifacts,
+				ActiveField:    m.initField,
+				ContentFocused: m.focus == FocusContent,
+			})
+		}
 		return screens.InitPlan(screens.InitView{
-			RootPath:        m.discovery.RootPath,
-			DetectedName:    m.detectedName,
-			DetectedMode:    m.detectedMode,
-			RecommendedMode: string(m.recommendedMode),
-			DraftName:       m.nameInput.Value(),
-			NameInputView:   m.nameInput.View(),
-			ModeConfirmed:   string(m.initModeConfirmed),
-			Decision:        string(m.initDecision),
-			Artifacts:       m.discovery.RuntimeArtifacts,
-			ActiveField:     m.initField,
-			ContentFocused:  m.focus == FocusContent,
+			RootPath:       m.discovery.RootPath,
+			DetectedName:   m.detectedName,
+			DetectedMode:   m.detectedMode,
+			AtlasState:     m.discovery.Atlas.State,
+			DraftName:      m.nameInput.Value(),
+			NameInputView:  m.nameInput.View(),
+			ModeConfirmed:  string(m.initModeConfirmed),
+			ActiveField:    m.initField,
+			ContentFocused: m.focus == FocusContent,
 		})
 	case RouteConfigure:
 		if len(m.configDraft.Sections) == 0 {
@@ -235,6 +241,31 @@ func (m Model) renderHeader() string {
 func (m Model) renderActionRow() (string, bool) {
 	width := m.contentWidth()
 	switch {
+	case m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepConflict:
+		panel := ""
+		footerIdx := 0
+		if m.focus == FocusContent {
+			panel = screens.ConfigPanelFooter
+			if m.initField == screens.InitFieldConflictExit {
+				footerIdx = 0
+			} else {
+				footerIdx = 1
+			}
+		}
+		nextLabel := "Refresh / Re-check"
+		if !m.hasRuntimeArtifacts() {
+			nextLabel = "Continue to Setup"
+		}
+		return screens.RenderActionFooter(screens.ActionFooterView{
+			ShowBack:       true,
+			ShowNext:       true,
+			BackLabel:      "Exit / Back",
+			NextLabel:      nextLabel,
+			ContentFocused: m.focus == FocusContent,
+			PanelFocus:     panel,
+			FooterIndex:    footerIdx,
+			Width:          width,
+		}), true
 	case m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepProject:
 		panel := ""
 		if m.focus == FocusContent && m.initField == screens.InitFieldNext {
@@ -392,6 +423,12 @@ func (m Model) renderFooter() string {
 		text = "Enter/q/Esc salir"
 	case RouteInitPlan:
 		switch m.initWizardStep {
+		case screens.InitWizardStepConflict:
+			if m.hasRuntimeArtifacts() {
+				text = "Tab focus  Refresh / Re-check  Exit / Back  b status  q quit"
+			} else {
+				text = "Tab focus  Continue to Setup  Exit / Back  b status  q quit"
+			}
 		case screens.InitWizardStepConfig:
 			if m.mcpMode == screens.MCPModeAdd {
 				text = "Tab focus  ↑/↓  Space/Enter  Add MCP  b status  q quit"
@@ -407,7 +444,7 @@ func (m Model) renderFooter() string {
 				text = "Tab focus  PgUp/PgDn scroll  Back  Apply config  b status  q quit"
 			}
 		default:
-			text = "Tab focus  ↑/↓ fields  ←/→ edit name  Enter Next  r reset  b status  q quit"
+			text = "Tab focus  ↑/↓ fields  ←/→ mode  Space/Enter select  r reset  b status  q quit"
 		}
 	case RouteConfigure:
 		if m.mcpMode == screens.MCPModeAdd {

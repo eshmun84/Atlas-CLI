@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -38,14 +39,6 @@ const (
 	InitModeExisting InitMode = "existing"
 )
 
-// InitDecision is the in-memory runtime artifact gate choice.
-type InitDecision string
-
-const (
-	InitDecisionInitialize InitDecision = "initialize"
-	InitDecisionCancel     InitDecision = "cancel"
-)
-
 // Model is the sidebar shell Bubble Tea model.
 type Model struct {
 	width  int
@@ -59,7 +52,6 @@ type Model struct {
 	initField           int
 	initWizardStep      int
 	initModeConfirmed   InitMode
-	initDecision        InitDecision
 	initHydrated        bool
 	initReviewPlan      initplan.MaterializationPlan
 	initReviewMessage   string
@@ -157,7 +149,6 @@ func NewModel(opts Options) Model {
 		initField:         screens.InitFieldName,
 		initWizardStep:    screens.InitWizardStepProject,
 		initModeConfirmed: InitModeExisting,
-		initDecision:      InitDecisionInitialize,
 		recommendedMode:   InitModeExisting,
 		nameInput:         newTextInput("project name"),
 		mcpDraft:          config.DefaultMCPDraft(),
@@ -215,7 +206,6 @@ func (m Model) SidebarIndex() int                       { return m.sidebarIndex 
 func (m Model) ContentOffset() int                      { return m.contentOffset }
 func (m Model) Focus() Focus                            { return m.focus }
 func (m Model) InitModeConfirmed() InitMode             { return m.initModeConfirmed }
-func (m Model) InitDecision() InitDecision              { return m.initDecision }
 func (m Model) DraftName() string                       { return m.nameInput.Value() }
 func (m Model) InitField() int                          { return m.initField }
 func (m Model) InitWizardStep() int                     { return m.initWizardStep }
@@ -286,19 +276,32 @@ func (m Model) hasRuntimeArtifacts() bool {
 }
 
 func (m Model) initFields() []int {
-	fields := []int{
+	if m.initWizardStep == screens.InitWizardStepConflict {
+		// Match footer order: Exit / Back (left), primary action (right).
+		if m.hasRuntimeArtifacts() {
+			return []int{
+				screens.InitFieldConflictExit,
+				screens.InitFieldConflictRefresh,
+			}
+		}
+		return []int{
+			screens.InitFieldConflictExit,
+			screens.InitFieldConflictContinue,
+		}
+	}
+	return []int{
 		screens.InitFieldName,
 		screens.InitFieldModeNew,
 		screens.InitFieldModeExisting,
+		screens.InitFieldNext,
 	}
-	if m.hasRuntimeArtifacts() {
-		fields = append(fields,
-			screens.InitFieldDecisionInit,
-			screens.InitFieldDecisionCancel,
-		)
+}
+
+func (m Model) preferredModeField() int {
+	if m.initModeConfirmed == InitModeNew {
+		return screens.InitFieldModeNew
 	}
-	fields = append(fields, screens.InitFieldNext)
-	return fields
+	return screens.InitFieldModeExisting
 }
 
 func (m Model) clampInitField(field int) int {
@@ -315,10 +318,12 @@ func (m Model) clampInitField(field int) int {
 }
 
 func modeFromDetected(detected string) InitMode {
-	if detected == "greenfield" {
+	switch detected {
+	case "greenfield", "new":
 		return InitModeNew
+	default:
+		return InitModeExisting
 	}
-	return InitModeExisting
 }
 
 func (m *Model) syncNameInputFocus() {
@@ -460,14 +465,37 @@ func (m Model) projectSetupInput() config.ProjectSetupInput {
 	if name == "" {
 		name = m.detectedName
 	}
+	tools := toolAvailabilityMap(m.discovery.Tools)
 	return config.ProjectSetupInput{
-		ProjectName:      name,
-		ProjectMode:      string(m.initModeConfirmed),
-		ProjectID:        config.PreviewProjectID(name),
-		DefaultRemote:    remote,
-		CursorDetected:   cursor,
-		OpenCodeDetected: opencode,
+		ProjectName:            name,
+		ProjectMode:            string(m.initModeConfirmed),
+		ProjectID:              config.PreviewProjectID(name),
+		DefaultRemote:          remote,
+		CursorDetected:         cursor,
+		OpenCodeDetected:       opencode,
+		ToolGitAvailable:       tools["git"],
+		ToolGHAvailable:        tools["gh"],
+		ToolGlabAvailable:      tools["glab"] || pathToolAvailable("glab"),
+		ToolBitbucketAvailable: tools["bb"] || pathToolAvailable("bb"),
+		ToolOpenSpecAvailable:  tools["openspec"],
+		ToolCursorAvailable:    tools["cursor"],
+		ToolOpenCodeAvailable:  tools["opencode"],
 	}
+}
+
+func toolAvailabilityMap(tools []workspace.ToolInfo) map[string]bool {
+	out := make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		out[tool.Name] = tool.Available
+	}
+	return out
+}
+
+// pathToolAvailable reports PATH presence without executing the binary.
+// Used for optional delivery CLIs that are not part of Doctor RequiredTools.
+func pathToolAvailable(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
 }
 
 func (m *Model) rebuildConfigDraft(mode config.ConfigMode, includeBack, includeNext bool) {

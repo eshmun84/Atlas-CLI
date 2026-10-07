@@ -328,6 +328,7 @@ func assertAllowedConflictPath(rel string) error {
 		".opencode",
 		".agents",
 		".claude",
+		".codex",
 	}
 	for _, prefix := range allowed {
 		if clean == prefix || strings.HasPrefix(clean, prefix+"/") {

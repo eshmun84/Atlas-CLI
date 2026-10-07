@@ -84,15 +84,15 @@ func renderMCPList(view MCPView) string {
 		title += "  " + mcpMuted.Render("[sidebar focus]")
 	}
 	fmt.Fprintln(&b, title)
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("Configure external MCP integrations for Atlas."))
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("No files will be changed in this slice."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("MCP selections record preferences only."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("connected / authenticated / verified = NOT IMPLEMENTED."))
 	fmt.Fprintln(&b)
 
 	if view.Initialized {
-		fmt.Fprintln(&b, "  "+mcpBody.Render("MCP integrations are edited in memory only in this slice."))
+		fmt.Fprintln(&b, "  "+mcpBody.Render("Preferences are persisted to .atlas/config.yaml on Apply — not connected."))
 	} else {
 		fmt.Fprintln(&b, "  "+mcpBody.Render("Atlas is not initialized yet."))
-		fmt.Fprintln(&b, "  "+mcpBody.Render("MCP configuration is available as a preview only."))
+		fmt.Fprintln(&b, "  "+mcpBody.Render("MCP preferences are draft-only until Init Apply."))
 	}
 	fmt.Fprintln(&b)
 	fmt.Fprint(&b, renderMCPListBody(view))
@@ -170,7 +170,7 @@ func renderMCPAdd(view MCPView) string {
 		title += "  " + mcpMuted.Render("[sidebar focus]")
 	}
 	fmt.Fprintln(&b, title)
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("No files will be changed in this slice."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("Preference only — not connected or authenticated."))
 	fmt.Fprintln(&b)
 	fmt.Fprint(&b, renderMCPAddFields(view))
 	return strings.TrimRight(b.String(), "\n")
@@ -197,7 +197,7 @@ func renderMCPAddFields(view MCPView) string {
 
 	fmt.Fprintln(&b, mcpSection.Render("Command or URL"))
 	writeMCPTextField(&b, view.ConnectionView, "(optional, not validated)", view.ContentFocused && view.AddFocus == MCPFocusConn)
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("Command or URL is not validated in this slice."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("Command or URL is not validated. Connection is NOT IMPLEMENTED."))
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, mcpSection.Render("Arguments"))
@@ -209,8 +209,8 @@ func renderMCPAddFields(view MCPView) string {
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, mcpSection.Render("Notes"))
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("No credentials are stored in this slice."))
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("This custom MCP is kept in memory only."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("No credentials are stored. Authenticated / verified = NOT IMPLEMENTED."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("This custom MCP is preference recorded until Apply persists config.yaml."))
 	if view.Error != "" {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "  "+mcpFail.Render(view.Error))

@@ -30,9 +30,10 @@ The only normal console output is: atlas --version
 These are not Atlas CLI commands.
 
 ` + helpHead.Render("Init wizard") + `
-  Step 1  Project Setup
+  Preflight  Runtime conflict block (manual cleanup required; Refresh or Exit only)
+  Step 1  Project Setup (New / Existing; no GitFlow ownership)
   Step 2  Initial Configuration
-            Governance · Adapters · Source Control · Memory · Context · MCP
+            Governance · Adapters · Delivery · MCP
   Step 3  Review / Materialization Plan (Apply writes .atlas/ + compact AGENTS/adapter projections)
 
 ` + helpHead.Render("Runtime Repair") + `

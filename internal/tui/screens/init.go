@@ -38,31 +38,39 @@ const (
 	InitFieldName = iota
 	InitFieldModeNew
 	InitFieldModeExisting
-	InitFieldDecisionInit
-	InitFieldDecisionCancel
+	InitFieldConflictRefresh
+	InitFieldConflictExit
+	InitFieldConflictContinue
 	InitFieldNext
 )
 
 // Init wizard steps.
 const (
-	InitWizardStepProject = 1
-	InitWizardStepConfig  = 2
-	InitWizardStepReview  = 3
+	InitWizardStepConflict = 0
+	InitWizardStepProject  = 1
+	InitWizardStepConfig   = 2
+	InitWizardStepReview   = 3
 )
 
 // InitView is the in-memory Init / Setup wizard draft for Step 1.
 type InitView struct {
-	RootPath        string
-	DetectedName    string
-	DetectedMode    string
-	RecommendedMode string
-	DraftName       string
-	NameInputView   string
-	ModeConfirmed   string
-	Decision        string
-	Artifacts       []string
-	ActiveField     int
-	ContentFocused  bool
+	RootPath       string
+	DetectedName   string
+	DetectedMode   string
+	AtlasState     string
+	DraftName      string
+	NameInputView  string
+	ModeConfirmed  string
+	ActiveField    int
+	ContentFocused bool
+}
+
+// InitConflictView is the blocking runtime-conflict preflight before Project Setup.
+type InitConflictView struct {
+	RootPath       string
+	Artifacts      []string
+	ActiveField    int
+	ContentFocused bool
 }
 
 // InitPlan renders Init / Setup Step 1 — Project Setup.
@@ -78,51 +86,101 @@ func InitPlan(view InitView) string {
 	fmt.Fprintln(&b, title)
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, initSection.Render("Project Identity"))
+	fmt.Fprintln(&b, initSection.Render("Project Name"))
 	writeNameField(&b, view)
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, initSection.Render("Project Detection"))
-	fmt.Fprintf(&b, "  Root: %s\n", view.RootPath)
-	fmt.Fprintf(&b, "  Inferred name: %s\n", view.DetectedName)
-	fmt.Fprintf(&b, "  Detected mode: %s\n", view.DetectedMode)
-	fmt.Fprintf(&b, "  Recommended mode: %s\n\n", recommendedLabel(view.RecommendedMode))
-
 	fmt.Fprintln(&b, initSection.Render("Project Mode"))
-	writeInitOption(&b, view, InitFieldModeNew, "New project", view.ModeConfirmed == "new")
-	writeInitOption(&b, view, InitFieldModeExisting, "Existing project", view.ModeConfirmed == "existing")
+	fmt.Fprintln(&b, "  "+initMuted.Render("←/→ focus · Space/Enter select · Atlas does not own GitFlow."))
+	writeInitModeOptions(&b, view,
+		initModeChoice{InitFieldModeNew, "New Project", view.ModeConfirmed == "new"},
+		initModeChoice{InitFieldModeExisting, "Existing Project", view.ModeConfirmed == "existing"},
+	)
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, initSection.Render("Runtime Artifacts"))
-	if len(view.Artifacts) == 0 {
-		fmt.Fprintln(&b, "  "+initMuted.Render("No existing runtime/adaptor artifacts detected."))
-		fmt.Fprintln(&b, "  "+initMuted.Render("Atlas can initialize normally."))
-	} else {
-		fmt.Fprintln(&b, "  "+initWarn.Render("Existing runtime/adaptor artifacts detected:"))
-		for _, path := range view.Artifacts {
-			fmt.Fprintf(&b, "    - %s\n", path)
-		}
-		fmt.Fprintln(&b, "  "+initWarn.Render("Atlas will not merge existing agent/adaptor structures."))
-		fmt.Fprintln(&b, "  "+initWarn.Render("Existing runtime artifacts will require backup-and-replace if init is later applied."))
-		fmt.Fprintln(&b, "  "+initMuted.Render("No backup or replacement happens in this slice."))
-		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, initSection.Render("Initialization Decision"))
-		writeInitOption(&b, view, InitFieldDecisionInit, "Initialize Atlas — backup and replace runtime artifacts", view.Decision == "initialize")
-		writeInitOption(&b, view, InitFieldDecisionCancel, "Do not initialize Atlas", view.Decision == "cancel")
-	}
-	fmt.Fprintln(&b)
-
-	if len(view.Artifacts) > 0 && view.Decision == "cancel" {
-		fmt.Fprintln(&b, "  "+initWarn.Render("Initialization canceled — no files would be changed."))
-	} else {
-		fmt.Fprintln(&b, "  "+initMuted.Render("No files will be changed in this slice."))
-	}
+	fmt.Fprintln(&b, "  "+initMuted.Render("No files are written until Review → Apply."))
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func writeNameField(b *strings.Builder, view InitView) {
-	fmt.Fprintln(b, "  "+initLabel.Render("Project name:"))
+// InitConflict renders the blocking runtime artifact conflict preflight.
+func InitConflict(view InitConflictView) string {
+	var b strings.Builder
 
+	if len(view.Artifacts) == 0 {
+		title := initTitle.Render("Init / Setup") + "  " + initOK.Render("Ready")
+		if view.ContentFocused {
+			title += "  " + initFocus.Render("[content focus]")
+		} else {
+			title += "  " + initMuted.Render("[sidebar focus]")
+		}
+		fmt.Fprintln(&b, title)
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, initOK.Render("No runtime conflicts detected."))
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "  "+initMuted.Render("Continue to Setup enters Project Setup. Exit / Back leaves without changes."))
+		return strings.TrimRight(b.String(), "\n")
+	}
+
+	title := initTitle.Render("Init / Setup") + "  " + initWarn.Render("Runtime conflict")
+	if view.ContentFocused {
+		title += "  " + initFocus.Render("[content focus]")
+	} else {
+		title += "  " + initMuted.Render("[sidebar focus]")
+	}
+	fmt.Fprintln(&b, title)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, initSection.Render("Blocking warning"))
+	fmt.Fprintln(&b, "  "+initWarn.Render("Conflicting runtime surfaces were detected in this project."))
+	fmt.Fprintln(&b, "  "+initWarn.Render("Atlas Init cannot continue until the project is cleaned manually."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("Refresh / Re-check only re-scans the project. It does not delete, move, backup, or write files."))
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, initSection.Render("Detected conflicts"))
+	fmt.Fprintf(&b, "  Root: %s\n", view.RootPath)
+	for _, path := range view.Artifacts {
+		fmt.Fprintf(&b, "  - %s\n", path)
+	}
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, initSection.Render("Manual cleanup steps"))
+	fmt.Fprintln(&b, "  1. Review the detected files/directories.")
+	fmt.Fprintln(&b, "  2. Move them outside the project or back them up manually.")
+	fmt.Fprintln(&b, "  3. Use Refresh / Re-check after the project is clean.")
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "  "+initMuted.Render("Allowed actions: Refresh / Re-check, or Exit / Back."))
+	return strings.TrimRight(b.String(), "\n")
+}
+
+type initModeChoice struct {
+	field     int
+	label     string
+	confirmed bool
+}
+
+func writeInitModeOptions(b *strings.Builder, view InitView, choices ...initModeChoice) {
+	parts := make([]string, 0, len(choices))
+	for _, choice := range choices {
+		mark := "[ ]"
+		if choice.confirmed {
+			mark = "[x]"
+		}
+		line := mark + " " + choice.label
+		focused := view.ContentFocused && view.ActiveField == choice.field
+		switch {
+		case focused:
+			parts = append(parts, initSelected.Render("› "+line+" "))
+		case choice.confirmed:
+			parts = append(parts, initOK.Render(line))
+		default:
+			parts = append(parts, initOption.Render(line))
+		}
+	}
+	fmt.Fprintf(b, "  %s\n", strings.Join(parts, "  "))
+}
+
+func writeNameField(b *strings.Builder, view InitView) {
 	value := strings.TrimSpace(view.NameInputView)
 	if value == "" {
 		value = view.DraftName
@@ -140,28 +198,5 @@ func writeNameField(b *strings.Builder, view InitView) {
 			continue
 		}
 		fmt.Fprintf(b, "  %s\n", line)
-	}
-}
-
-func writeInitOption(b *strings.Builder, view InitView, field int, label string, confirmed bool) {
-	mark := "  " + label
-	if confirmed {
-		mark = "✓ " + label
-	}
-	if view.ContentFocused && view.ActiveField == field {
-		fmt.Fprintf(b, "  %s\n", initSelected.Render("› "+mark+" "))
-		return
-	}
-	fmt.Fprintf(b, "  %s\n", initOption.Render("  "+mark))
-}
-
-func recommendedLabel(mode string) string {
-	switch mode {
-	case "new":
-		return "New project"
-	case "existing":
-		return "Existing project"
-	default:
-		return mode
 	}
 }

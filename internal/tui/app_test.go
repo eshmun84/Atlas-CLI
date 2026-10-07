@@ -106,9 +106,7 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 		"Sections",
 		"Governance",
 		"Adapters",
-		"Source Control",
-		"Memory",
-		"Context",
+		"Delivery",
 		"MCP",
 		"Project:",
 		"[ Close ]",
@@ -119,9 +117,14 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 			t.Fatalf("configure missing %q:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"[ Next ]", "Runtime entrypoint", "Skills / Registry", "Project Stack"} {
+	for _, banned := range []string{"[ Next ]", "Runtime entrypoint", "Skills / Registry", "Project Stack", "Memory", "Development &", "CodeGraph"} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("configure unexpected %q:\n%s", banned, view)
+		}
+	}
+	for _, section := range cfg.ConfigDraft().SelectorSections() {
+		if section.Key == "context" || section.Key == "memory" {
+			t.Fatalf("configure must not expose %s section", section.Key)
 		}
 	}
 	if _, ok := cfg.ConfigDraft().FieldByKey("runtime.entrypoint"); ok {
@@ -994,7 +997,7 @@ func TestShellViews(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module demo\n\ngo 1.22\n\nrequire github.com/charmbracelet/bubbletea v1.0.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# agents"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("demo\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1177,12 +1180,9 @@ func TestRuntimeRepairTUIApplyAndNoAutoMutation(t *testing.T) {
 	}
 }
 
-func TestInitFocusNameModeDecision(t *testing.T) {
+func TestInitFocusNameModeKeyboard(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# agents"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1194,8 +1194,11 @@ func TestInitFocusNameModeDecision(t *testing.T) {
 	if m.Focus() != tui.FocusSidebar {
 		t.Fatalf("initial focus = %v", m.Focus())
 	}
-	if strings.Contains(m.View(), "Auto-detect") {
-		t.Fatal("Auto-detect must not be selectable")
+	if m.InitWizardStep() != screens.InitWizardStepProject {
+		t.Fatalf("step = %d, want project setup", m.InitWizardStep())
+	}
+	if strings.Contains(m.View(), "Auto-detect") || strings.Contains(m.View(), "Project Detection") {
+		t.Fatal("detection block must not be visible")
 	}
 	if m.InitModeConfirmed() != tui.InitModeExisting {
 		t.Fatalf("recommended confirmed mode = %q, want existing", m.InitModeConfirmed())
@@ -1230,39 +1233,63 @@ func TestInitFocusNameModeDecision(t *testing.T) {
 		t.Fatalf("inline edit failed: %q", name)
 	}
 
-	m = mustModel(m.Update(key("down"))) // mode new
+	// Down enters Project Mode as one field (preselected Existing).
+	m = mustModel(m.Update(key("down")))
+	if m.InitField() != screens.InitFieldModeExisting {
+		t.Fatalf("down from name = %d, want mode existing", m.InitField())
+	}
+	// Up/down must not move between horizontal mode options.
+	m = mustModel(m.Update(key("down")))
+	if m.InitField() != screens.InitFieldNext {
+		t.Fatalf("down from mode = %d, want Next (not peer mode)", m.InitField())
+	}
+	m = mustModel(m.Update(key("up")))
+	if m.InitField() != screens.InitFieldModeExisting {
+		t.Fatalf("up from Next = %d, want mode existing", m.InitField())
+	}
+	m = mustModel(m.Update(key("up")))
+	if m.InitField() != screens.InitFieldName {
+		t.Fatalf("up from mode = %d, want name", m.InitField())
+	}
+	m = mustModel(m.Update(key("down")))
+
+	m = mustModel(m.Update(key("left"))) // focus New; do not select yet
+	if m.InitField() != screens.InitFieldModeNew {
+		t.Fatalf("left focus = %d, want mode new", m.InitField())
+	}
+	if m.InitModeConfirmed() != tui.InitModeExisting {
+		t.Fatalf("left must not change mode yet, got %q", m.InitModeConfirmed())
+	}
+	m = mustModel(m.Update(key("enter")))
+	if m.InitModeConfirmed() != tui.InitModeNew {
+		t.Fatalf("enter should select focused mode new, got %q", m.InitModeConfirmed())
+	}
+
+	m = mustModel(m.Update(key("right"))) // focus existing; do not select yet
+	if m.InitField() != screens.InitFieldModeExisting {
+		t.Fatalf("right focus = %d, want mode existing", m.InitField())
+	}
+	if m.InitModeConfirmed() != tui.InitModeNew {
+		t.Fatalf("right must not change mode yet, got %q", m.InitModeConfirmed())
+	}
+	m = mustModel(m.Update(key(" ")))
+	if m.InitModeConfirmed() != tui.InitModeExisting {
+		t.Fatalf("space should select focused mode existing, got %q", m.InitModeConfirmed())
+	}
+	m = mustModel(m.Update(key("left")))
 	m = mustModel(m.Update(key("enter")))
 	if m.InitModeConfirmed() != tui.InitModeNew {
 		t.Fatalf("mode = %q, want new", m.InitModeConfirmed())
 	}
 
-	m = mustModel(m.Update(key("down"))) // mode existing
-	m = mustModel(m.Update(key("enter")))
-	if m.InitModeConfirmed() != tui.InitModeExisting {
-		t.Fatalf("mode = %q, want existing", m.InitModeConfirmed())
-	}
-
-	// Move to cancel decision when artifacts exist.
-	for m.InitField() != screens.InitFieldDecisionCancel {
-		prev := m.InitField()
-		m = mustModel(m.Update(key("down")))
-		if m.InitField() == prev {
-			t.Fatalf("could not reach cancel field, stuck at %d", prev)
-		}
-	}
-	m = mustModel(m.Update(key("enter")))
-	if m.InitDecision() != tui.InitDecisionCancel {
-		t.Fatalf("decision = %q, want cancel", m.InitDecision())
-	}
-	m = mustModel(m.Update(key("home")))
-	m = mustModel(m.Update(key("end")))
-	if !strings.Contains(m.View(), "Initialization canceled") {
-		t.Fatalf("missing canceled message:\n%s", m.View())
+	view := m.View()
+	if !strings.Contains(view, "[x] New Project") || !strings.Contains(view, "[ ] Existing Project") {
+		t.Fatalf("mode markers missing:\n%s", view)
 	}
 
 	m = mustModel(m.Update(key("r")))
-	if m.DraftName() != baseName || m.InitModeConfirmed() != tui.InitModeExisting || m.InitDecision() != tui.InitDecisionInitialize {
-		t.Fatalf("reset failed: name=%q mode=%q decision=%q", m.DraftName(), m.InitModeConfirmed(), m.InitDecision())
+	if m.DraftName() != baseName || m.InitModeConfirmed() != tui.InitModeExisting {
+		t.Fatalf("reset failed: name=%q mode=%q", m.DraftName(), m.InitModeConfirmed())
 	}
 	assertNoMutation(t, root)
 
@@ -1289,8 +1316,10 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	view := m.View()
 	for _, want := range []string{
 		"Step 1 — Project Setup",
-		"No existing runtime/adaptor artifacts detected.",
-		"Atlas can initialize normally.",
+		"Project Name",
+		"Project Mode",
+		"[x] Existing Project",
+		"[ ] New Project",
 		"Next",
 	} {
 		if !strings.Contains(view, want) {
@@ -1298,10 +1327,17 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		}
 	}
 	for _, banned := range []string{
+		"Project Identity",
+		"Project Detection",
+		"Project name:",
+		"Runtime artifact conflict gate",
 		"Do not initialize Atlas",
-		"Initialize Atlas — backup and replace",
-		"Initialization Decision",
+		"Accept backup/quarantine and continue Init",
+		"Backup / quarantine acceptance",
+		"Recommended mode",
 		"Plan Preview",
+		"(x) Existing Project",
+		"( ) New Project",
 	} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("unexpected %q:\n%s", banned, view)
@@ -1327,9 +1363,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		"Sections",
 		"Governance",
 		"Adapters",
-		"Source Control",
-		"Memory",
-		"Context",
+		"Delivery",
 		"MCP",
 		"[ Back ]",
 		"[ Next ]",
@@ -1351,17 +1385,23 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	for _, banned := range []string{
 		"Project Stack", "Skills / Registry", "Tech / Libraries",
 		"Generic AGENTS.md", "Runtime entrypoint", "Governed basic", "Review only",
+		"Branch strategy", "Recommended mode", "Memory", "Development &", "CodeGraph",
 	} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("unexpected %q:\n%s", banned, view)
 		}
 	}
 	selector := m.ConfigDraft().SelectorSections()
-	if len(selector) != 6 {
-		t.Fatalf("selector sections = %d, want 6", len(selector))
+	if len(selector) != 4 {
+		t.Fatalf("selector sections = %d, want 4", len(selector))
 	}
-	if selector[4].Key != "context" || selector[5].Key != "mcp" {
+	if selector[3].Key != "mcp" {
 		t.Fatalf("sections = %#v", selector)
+	}
+	for _, section := range selector {
+		if section.Key == "context" || section.Title == "Context" {
+			t.Fatal("Init must not expose Context section")
+		}
 	}
 	if strings.Contains(view, "Plan Preview") {
 		t.Fatal("step 2 must not show Plan Preview")
@@ -1434,59 +1474,60 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		t.Fatal("space should toggle testing_required")
 	}
 
-	// Adapters: multiselect only on Space/Enter.
+	// Adapters: Cursor/OpenCode only; unavailable rows stay disabled.
 	m = mustModel(m.Update(key("left")))
 	m = gotoConfigSection(t, m, "adapters")
 	m = mustModel(m.Update(key("enter")))
-	adaptersBefore, _ := m.ConfigDraft().FieldByKey("adapters.selected")
+	adaptersView := m.View()
+	for _, want := range []string{"Cursor", "OpenCode", "Available"} {
+		if !strings.Contains(adaptersView, want) && !strings.Contains(adaptersView, "Not available") {
+			t.Fatalf("adapters missing availability copy:\n%s", adaptersView)
+		}
+	}
+	for _, banned := range []string{"Claude", "Codex"} {
+		if strings.Contains(adaptersView, banned) {
+			t.Fatalf("adapters unexpected %q:\n%s", banned, adaptersView)
+		}
+	}
+	adaptersField, _ := m.ConfigDraft().FieldByKey("adapters.selected")
+	adaptersBefore := adaptersField.Value
 	m = mustModel(m.Update(key("down")))
 	adaptersMid, _ := m.ConfigDraft().FieldByKey("adapters.selected")
-	if adaptersMid.Value != adaptersBefore.Value {
-		t.Fatalf("arrow mutated adapters %q -> %q", adaptersBefore.Value, adaptersMid.Value)
+	if adaptersMid.Value != adaptersBefore {
+		t.Fatalf("arrow mutated adapters %q -> %q", adaptersBefore, adaptersMid.Value)
 	}
+	// Focus first available adapter if any; otherwise Enter is a no-op on disabled rows.
+	m = mustModel(m.Update(key("up")))
 	m = mustModel(m.Update(key("enter")))
 	adaptersAfter, _ := m.ConfigDraft().FieldByKey("adapters.selected")
-	if adaptersAfter.Value == adaptersBefore.Value {
-		t.Fatalf("expected adapter multiselect change, still %q", adaptersAfter.Value)
+	if !adaptersField.OptionDisabled("cursor") {
+		if adaptersAfter.Value == adaptersBefore {
+			t.Fatalf("expected available adapter toggle, still %q", adaptersAfter.Value)
+		}
+	} else if adaptersAfter.Value != adaptersBefore {
+		t.Fatalf("disabled adapter must not toggle, got %q", adaptersAfter.Value)
 	}
 
-	// Source Control: mode/branch/storage only on Space/Enter.
+	// Delivery: platform cycles on Space/Enter; versioned unlocks only for GitHub.
 	m = mustModel(m.Update(key("left")))
 	m = gotoConfigSection(t, m, "source_control")
 	m = mustModel(m.Update(key("enter")))
+	if !strings.Contains(m.View(), "Delivery") || strings.Contains(m.View(), "Tools") {
+		t.Fatalf("delivery screen unexpected:\n%s", m.View())
+	}
 	modeBefore, _ := m.ConfigDraft().FieldByKey("source_control.mode")
 	m = mustModel(m.Update(key("down")))
 	modeMid, _ := m.ConfigDraft().FieldByKey("source_control.mode")
 	if modeMid.Value != modeBefore.Value {
-		t.Fatalf("arrow mutated source control mode")
+		t.Fatalf("arrow mutated delivery platform")
 	}
-	m = mustModel(m.Update(key("enter")))
-	modeAfter, _ := m.ConfigDraft().FieldByKey("source_control.mode")
-	if modeAfter.Value == modeBefore.Value {
-		t.Fatalf("enter should change source control mode")
-	}
-
-	for {
-		field, ok := screens.ActiveField(m.ConfigDraft(), m.ConfigSectionIndex(), m.ConfigFieldIndex())
-		if ok && field.Key == "source_control.branch_strategy" {
-			break
-		}
-		prevField, prevOpt := m.ConfigFieldIndex(), m.ConfigOptionIndex()
-		m = mustModel(m.Update(key("down")))
-		if m.ConfigFieldIndex() == prevField && m.ConfigOptionIndex() == prevOpt {
-			t.Fatal("could not reach branch strategy")
-		}
-	}
-	branchBefore, _ := m.ConfigDraft().FieldByKey("source_control.branch_strategy")
+	// Cycle none -> git_local -> git_github
+	m = mustModel(m.Update(key("enter"))) // git_local
 	m = mustModel(m.Update(key("down")))
-	branchMid, _ := m.ConfigDraft().FieldByKey("source_control.branch_strategy")
-	if branchMid.Value != branchBefore.Value {
-		t.Fatal("arrow mutated branch strategy")
-	}
-	m = mustModel(m.Update(key("enter")))
-	branchAfter, _ := m.ConfigDraft().FieldByKey("source_control.branch_strategy")
-	if branchAfter.Value == branchBefore.Value {
-		t.Fatal("enter should change branch strategy")
+	m = mustModel(m.Update(key("enter"))) // git_github
+	modeAfter, _ := m.ConfigDraft().FieldByKey("source_control.mode")
+	if modeAfter.Value != "git_github" {
+		t.Fatalf("delivery platform = %q, want git_github", modeAfter.Value)
 	}
 
 	for {
@@ -1497,7 +1538,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		prevField, prevOpt := m.ConfigFieldIndex(), m.ConfigOptionIndex()
 		m = mustModel(m.Update(key("down")))
 		if m.ConfigFieldIndex() == prevField && m.ConfigOptionIndex() == prevOpt {
-			t.Fatal("could not reach Atlas governance files field")
+			t.Fatal("could not reach governance files field")
 		}
 	}
 	m = mustModel(m.Update(key("down"))) // Versioned focus
@@ -1511,53 +1552,15 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		t.Fatalf("governance files = %q, want versioned", storage.Value)
 	}
 
-	// Memory strategy only on Space/Enter; persists across navigate.
-	m = mustModel(m.Update(key("left")))
-	m = gotoConfigSection(t, m, "memory")
-	m = mustModel(m.Update(key("enter")))
+	// Memory and Context are not Init setup sections.
+	for _, section := range m.ConfigDraft().SelectorSections() {
+		if section.Key == "memory" || section.Key == "context" {
+			t.Fatalf("%s must not appear in Init selector", section.Key)
+		}
+	}
 	mem, _ := m.ConfigDraft().FieldByKey("memory.strategy")
 	if mem.Value != "sqlite_plus_context_capsule" {
-		t.Fatalf("default memory = %q", mem.Value)
-	}
-	m = mustModel(m.Update(key("down"))) // Context Capsule focus
-	mem, _ = m.ConfigDraft().FieldByKey("memory.strategy")
-	if mem.Value != "sqlite_plus_context_capsule" {
-		t.Fatalf("arrow mutated memory to %q", mem.Value)
-	}
-	m = mustModel(m.Update(key("up"))) // SQLite focus
-	m = mustModel(m.Update(key("enter")))
-	mem, _ = m.ConfigDraft().FieldByKey("memory.strategy")
-	if mem.Value != "sqlite" {
-		t.Fatalf("memory = %q, want sqlite", mem.Value)
-	}
-	m = mustModel(m.Update(key("left")))
-	m = gotoConfigSection(t, m, "adapters")
-	m = gotoConfigSection(t, m, "memory")
-	memBack, _ := m.ConfigDraft().FieldByKey("memory.strategy")
-	if memBack.Value != "sqlite" {
-		t.Fatalf("memory strategy lost after navigate, got %q", memBack.Value)
-	}
-
-	// Context Graph is a single checkbox; default enabled; Space/Enter toggles.
-	m = mustModel(m.Update(key("left")))
-	m = gotoConfigSection(t, m, "context")
-	m = mustModel(m.Update(key("enter")))
-	graph, _ := m.ConfigDraft().FieldByKey("context.graph.enabled")
-	if graph.Value != "true" {
-		t.Fatalf("default context graph = %q", graph.Value)
-	}
-	if !strings.Contains(m.View(), "[x] Enable Context Graph") {
-		t.Fatalf("context checkbox missing:\n%s", m.View())
-	}
-	m = mustModel(m.Update(key("enter")))
-	graph, _ = m.ConfigDraft().FieldByKey("context.graph.enabled")
-	if graph.Value != "false" {
-		t.Fatalf("context graph after toggle = %q", graph.Value)
-	}
-	m = mustModel(m.Update(key("enter"))) // re-enable for later review expectations
-	graph, _ = m.ConfigDraft().FieldByKey("context.graph.enabled")
-	if graph.Value != "true" {
-		t.Fatalf("context graph re-enabled = %q", graph.Value)
+		t.Fatalf("default memory strategy = %q", mem.Value)
 	}
 
 	// Locked project.name cannot change.
@@ -1575,7 +1578,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	view = m.View()
 	for _, want := range []string{
 		"Review / Materialization Plan",
-		"Apply writes .atlas/ config and compact runtime gateway files.",
+		"Apply is the only mutation step",
 		"[ Back ]",
 		"[ Apply config ]",
 	} {
@@ -1609,6 +1612,9 @@ func sectionIndexOf(m tui.Model, key string) int {
 
 func gotoInitStep2(t *testing.T, m tui.Model) tui.Model {
 	t.Helper()
+	if m.InitWizardStep() == screens.InitWizardStepConflict {
+		t.Fatal("runtime conflicts block Init; clear artifacts before Project Setup")
+	}
 	if m.Focus() != tui.FocusContent {
 		m = mustModel(m.Update(key("tab")))
 	}
@@ -1707,36 +1713,39 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		"Mode: Existing project",
 		"Workflow: SDD",
 		"Spec engine: OpenSpec",
-		"Adapters: none",
-		"Source control: None",
-		"Branch strategy: Manual",
-		"Atlas governance files: Local only",
-		"Memory strategy: SQLite + Context Capsule",
-		"Context Graph: Enabled",
-		"MCP integrations: 0 configured",
+		"Selected: none selected",
+		"Platform: None",
+		"Governance files: Local only",
+		"Assisted operations: Disabled",
+		"MCP preferences: 0 recorded",
 		".atlas/config.yaml",
 		".atlas/local.yaml",
 		".atlas/state.yaml",
 		".atlas/assets.lock.yaml",
 		".atlas/backups/",
 		"AGENTS.md",
-		"No existing runtime artifacts detected.",
-		"No backups required.",
-		"No existing runtime files need replacement.",
+		"No conflicting runtime surfaces detected.",
+		"No Atlas-managed backups required",
 		"Existing project source files are preserved.",
 		"README.md is preserved",
-		"Git history is not modified.",
-		"No commits are created.",
-		"No branches are created.",
-		"No remote operations are performed.",
+		"Init performs no Git operations.",
+		"No repository, branch, commit, push, pull request, merge or remote operation",
+		"Repository creation requires explicit request.",
+		"Runtime conflicts block Init and require manual cleanup",
+		"Atlas Context Graph is not available in this slice.",
 		"Secrets and credentials are not stored.",
-		"Apply writes .atlas/ config and compact runtime gateway files.",
-		"create/update this slice",
+		"Apply is the only mutation step",
+		"create/update on Apply",
 		"[ Back ]",
 		"[ Apply config ]",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("review missing %q:\n%s", want, view)
+		}
+	}
+	for _, banned := range []string{"Memory:", "Context Economy:", "CodeGraph", "Development & Delivery"} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("review unexpected %q:\n%s", banned, view)
 		}
 	}
 	if strings.Contains(view, "planned for later") {
@@ -1784,75 +1793,138 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 	}
 }
 
-func TestInitReviewArtifactsAndAdapters(t *testing.T) {
+func TestInitEmptyProjectPreselectsNewMode(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# agents"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
 		Discover: workspace.Discover,
 	})
-	m = gotoInitStep2(t, m)
-	m = gotoConfigSection(t, m, "adapters")
-	m = mustModel(m.Update(key("enter")))
-	m = mustModel(m.Update(key("enter")))
-	m = gotoInitReview(t, m)
-	_, view := reviewVisibleText(t, m)
+	if m.InitWizardStep() != screens.InitWizardStepProject {
+		t.Fatalf("step = %d, want project", m.InitWizardStep())
+	}
+	if m.InitModeConfirmed() != tui.InitModeNew {
+		t.Fatalf("mode = %q, want new", m.InitModeConfirmed())
+	}
+	view := m.View()
 	for _, want := range []string{
-		"Existing runtime artifacts detected:",
-		"AGENTS.md",
-		".atlas/backups/<timestamp>/",
-		".atlas/backups/<timestamp>/AGENTS.md",
-		"Atlas will replace runtime targets after backup.",
-		".cursor/rules/atlas.mdc",
-		"Adapters: Cursor",
+		"Step 1 — Project Setup",
+		"Project Name",
+		"[x] New Project",
+		"[ ] Existing Project",
 	} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("artifact review missing %q:\n%s", want, view)
+			t.Fatalf("missing %q:\n%s", want, view)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, ".atlas")); !os.IsNotExist(err) {
-		t.Fatalf(".atlas must not be created, stat err = %v", err)
-	}
-
-	m = mustModel(m.Update(key("right")))
-	m = mustModel(m.Update(key("enter")))
-	if !m.InitApplied() {
-		t.Fatal("expected apply")
-	}
-	assertAtlasConfigPersisted(t, root)
-	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(agents), "<!-- ATLAS:BASE:BEGIN -->") {
-		t.Fatalf("AGENTS.md not materialized:\n%s", agents)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".cursor", "rules", "atlas.mdc")); err != nil {
-		t.Fatalf("cursor rule missing: %v", err)
-	}
-	entries, err := os.ReadDir(filepath.Join(root, ".atlas", "backups"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("expected one backup timestamp dir, entries=%v", entries)
-	}
-	backupAgents, err := os.ReadFile(filepath.Join(root, ".atlas", "backups", entries[0].Name(), "AGENTS.md"))
-	if err != nil || string(backupAgents) != "# agents" {
-		t.Fatalf("backup AGENTS.md = %q err=%v", backupAgents, err)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".atlas", "backups", entries[0].Name(), "manifest.json")); err != nil {
-		t.Fatalf("manifest missing: %v", err)
+	for _, banned := range []string{
+		"Project Identity",
+		"Project Detection",
+		"Project name:",
+		"Runtime artifact conflict gate",
+		"Detected signals",
+		"(x) New Project",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
 	}
 }
 
-func TestInitCancelDoesNotOpenReview(t *testing.T) {
+func TestInitConflictBlocksUntilCleared(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# agents"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := loadWorkspace(t, tui.Options{
+		Route:    tui.RouteInitPlan,
+		Getwd:    func() (string, error) { return root, nil },
+		Discover: workspace.Discover,
+	})
+	if m.InitWizardStep() != screens.InitWizardStepConflict {
+		t.Fatalf("step = %d, want conflict preflight", m.InitWizardStep())
+	}
+	view := m.View()
+	for _, want := range []string{
+		"Runtime conflict",
+		"Blocking warning",
+		"AGENTS.md",
+		"Manual cleanup steps",
+		"Refresh / Re-check",
+		"Exit / Back",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	for _, banned := range []string{
+		"Step 1 — Project Setup",
+		"Project Mode",
+		"Accept backup/quarantine",
+		"Step 2 —",
+		"Governance",
+		"Continue to Setup",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q while blocked:\n%s", banned, view)
+		}
+	}
+
+	m = mustModel(m.Update(key("tab")))
+	if m.InitField() != screens.InitFieldConflictRefresh {
+		t.Fatalf("field = %d, want refresh", m.InitField())
+	}
+	// Refresh while conflict remains keeps the preflight (read-only re-scan).
+	updated, cmd := m.Update(key("enter"))
+	m = applyCmd(t, updated.(tui.Model), cmd)
+	if m.InitWizardStep() != screens.InitWizardStepConflict {
+		t.Fatalf("refresh with conflict opened step %d", m.InitWizardStep())
+	}
+	if !strings.Contains(m.View(), "AGENTS.md") {
+		t.Fatalf("refresh should still list conflict:\n%s", m.View())
+	}
+	assertNoMutation(t, root)
+
+	if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	updated, cmd = m.Update(key("enter"))
+	m = applyCmd(t, updated.(tui.Model), cmd)
+	if m.InitWizardStep() != screens.InitWizardStepConflict {
+		t.Fatalf("clean re-check should stay on preflight, got %d", m.InitWizardStep())
+	}
+	if m.InitField() != screens.InitFieldConflictContinue {
+		t.Fatalf("field = %d, want continue", m.InitField())
+	}
+	view = m.View()
+	for _, want := range []string{
+		"No runtime conflicts detected.",
+		"Continue to Setup",
+		"Exit / Back",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("clean state missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Blocking warning") || strings.Contains(view, "AGENTS.md") {
+		t.Fatalf("clean state still blocking:\n%s", view)
+	}
+	assertNoMutation(t, root)
+
+	m = mustModel(m.Update(key("enter")))
+	if m.InitWizardStep() != screens.InitWizardStepProject {
+		t.Fatalf("Continue should open project setup, got %d", m.InitWizardStep())
+	}
+	if !strings.Contains(m.View(), "Step 1 — Project Setup") {
+		t.Fatalf("expected project setup after Continue:\n%s", m.View())
+	}
+	assertNoMutation(t, root)
+}
+
+func TestInitCursorConflictBlocks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".cursor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	m := loadWorkspace(t, tui.Options{
@@ -1860,25 +1932,39 @@ func TestInitCancelDoesNotOpenReview(t *testing.T) {
 		Getwd:    func() (string, error) { return root, nil },
 		Discover: workspace.Discover,
 	})
-	m = mustModel(m.Update(key("tab")))
-	for m.InitField() != screens.InitFieldDecisionCancel {
-		prev := m.InitField()
-		m = mustModel(m.Update(key("down")))
-		if m.InitField() == prev {
-			t.Fatal("could not reach cancel")
+	if m.InitWizardStep() != screens.InitWizardStepConflict {
+		t.Fatalf("step = %d, want conflict preflight", m.InitWizardStep())
+	}
+	view := m.View()
+	if !strings.Contains(view, ".cursor") {
+		t.Fatalf("missing .cursor conflict:\n%s", view)
+	}
+	for _, banned := range []string{
+		"Accept backup/quarantine",
+		"Backup / quarantine acceptance",
+		"Project Mode",
+		"Step 2 —",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
 		}
 	}
-	m = mustModel(m.Update(key("enter")))
-	m = gotoInitStep2(t, m)
-	m = gotoInitFooterAction(t, m, true)
-	m = mustModel(m.Update(key("enter")))
-	if m.InitWizardStep() != screens.InitWizardStepConfig {
-		t.Fatalf("canceled init opened step %d", m.InitWizardStep())
+	m = mustModel(m.Update(key("tab")))
+	if m.InitField() != screens.InitFieldConflictRefresh {
+		t.Fatalf("field = %d, want refresh", m.InitField())
 	}
-	if strings.Contains(m.View(), "Step 3 — Review") {
-		t.Fatalf("canceled init must not open review:\n%s", m.View())
+	m = mustModel(m.Update(key("up")))
+	if m.InitField() != screens.InitFieldConflictExit {
+		t.Fatalf("field = %d, want exit", m.InitField())
+	}
+	m = mustModel(m.Update(key("enter")))
+	if m.Route() != tui.RouteStatus {
+		t.Fatalf("exit route = %s, want Status", m.Route())
 	}
 	assertNoMutation(t, root)
+	if _, err := os.Stat(filepath.Join(root, ".atlas")); !os.IsNotExist(err) {
+		t.Fatalf(".atlas must not be created, stat err = %v", err)
+	}
 }
 
 func TestInitReviewSummarizesSessionMCP(t *testing.T) {
@@ -1902,12 +1988,12 @@ func TestInitReviewSummarizesSessionMCP(t *testing.T) {
 	m = gotoInitReview(t, m)
 	_, view := reviewVisibleText(t, m)
 	for _, want := range []string{
-		"MCP integrations: 1 configured",
+		"MCP preferences: 1 recorded",
 		"Jira Main",
 		"kind: custom",
 		"transport: stdio",
-		"status: will persist in .atlas/config.yaml",
-		"No MCP credentials, connections, or validation are implemented",
+		"preference recorded (not connected / not implemented)",
+		"connected/authenticated/verified NOT",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("mcp review missing %q:\n%s", want, view)
@@ -1937,14 +2023,14 @@ func TestInitReviewListsSelectedBuiltins(t *testing.T) {
 	m = gotoInitReview(t, m)
 	_, view := reviewVisibleText(t, m)
 	for _, want := range []string{
-		"MCP integrations: 3 configured",
+		"MCP preferences: 3 recorded",
 		"- Jira",
 		"- Context7",
 		"- Chrome DevTools",
 		"kind: built-in",
 		"enabled: true",
-		"status: will persist in .atlas/config.yaml",
-		"No MCP credentials, connections, or validation are implemented",
+		"preference recorded (not connected / not implemented)",
+		"connected/authenticated/verified NOT",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("builtin review missing %q:\n%s", want, view)
@@ -2319,16 +2405,11 @@ func assertInitWizardView(t *testing.T, view string) {
 	t.Helper()
 	for _, want := range []string{
 		"Step 1 — Project Setup",
-		"Project Identity",
-		"Project name:",
-		"Project Detection",
+		"Project Name",
 		"Project Mode",
-		"New project",
-		"Existing project",
-		"Runtime Artifacts",
-		"Initialize Atlas — backup and replace",
-		"Do not initialize Atlas",
-		"No files will be changed in this slice.",
+		"[ ] New Project",
+		"[x] Existing Project",
+		"No files are written until Review → Apply.",
 		"[ Next ]",
 		"Tab focus",
 	} {
@@ -2336,11 +2417,22 @@ func assertInitWizardView(t *testing.T, view string) {
 			t.Fatalf("missing %q in init view:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "Auto-detect") {
-		t.Fatalf("Auto-detect must not appear:\n%s", view)
-	}
-	if strings.Contains(view, "Plan Preview") {
-		t.Fatalf("step 1 must not show Plan Preview:\n%s", view)
+	for _, banned := range []string{
+		"Auto-detect",
+		"Project Identity",
+		"Project Detection",
+		"Project name:",
+		"Runtime artifact conflict gate",
+		"Accept backup/quarantine and continue Init",
+		"Do not initialize Atlas",
+		"Recommended mode",
+		"Plan Preview",
+		"( ) New Project",
+		"(x) Existing Project",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
 	}
 	for _, line := range strings.Split(view, "\n") {
 		if strings.TrimSpace(line) == "Action" {
@@ -2395,6 +2487,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyRight}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
+	case " ", "space":
+		return tea.KeyMsg{Type: tea.KeySpace}
 	case "tab":
 		return tea.KeyMsg{Type: tea.KeyTab}
 	case "backspace":

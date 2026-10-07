@@ -14,11 +14,14 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 	t.Parallel()
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:      "Atlas-CLI",
-		ProjectMode:      "new",
-		CursorDetected:   true,
-		OpenCodeDetected: true,
+		ProjectName:           "Atlas-CLI",
+		ProjectMode:           "new",
+		ToolCursorAvailable:   true,
+		ToolOpenCodeAvailable: true,
 	})
+	if !draft.ToggleMulti("adapters.selected", "cursor") || !draft.ToggleMulti("adapters.selected", "opencode") {
+		t.Fatal("expected adapter selection")
+	}
 	plan := initplan.BuildReview(initplan.ReviewInput{
 		Draft: draft,
 		MCP:   config.EmptyMCPDraft(),
@@ -39,20 +42,14 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 	if plan.Adapters != "Cursor, OpenCode" {
 		t.Fatalf("adapters = %q", plan.Adapters)
 	}
-	if plan.SourceControl != "None" {
-		t.Fatalf("source control = %q", plan.SourceControl)
+	if plan.DeliveryPlatform != "None" {
+		t.Fatalf("delivery platform = %q", plan.DeliveryPlatform)
 	}
-	if plan.BranchStrategy != "Manual" {
-		t.Fatalf("branch = %q", plan.BranchStrategy)
+	if plan.DeliveryAssistance != "Disabled" {
+		t.Fatalf("delivery assistance = %q", plan.DeliveryAssistance)
 	}
 	if plan.GovernanceStorage != "Local only" {
 		t.Fatalf("governance = %q", plan.GovernanceStorage)
-	}
-	if plan.MemoryStrategy != "SQLite + Context Capsule" {
-		t.Fatalf("memory = %q", plan.MemoryStrategy)
-	}
-	if plan.ContextGraph != "Enabled" {
-		t.Fatalf("context graph = %q", plan.ContextGraph)
 	}
 	if plan.MCPCount != 0 {
 		t.Fatalf("mcp count = %d", plan.MCPCount)
@@ -69,30 +66,30 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 	if len(plan.Backups) != 0 || len(plan.Replacements) != 0 {
 		t.Fatalf("unexpected backups/replacements: %#v %#v", plan.Backups, plan.Replacements)
 	}
+	if !strings.Contains(plan.GitSafetyStatement, "No repository, branch, commit, push, pull request, merge or remote operation") {
+		t.Fatalf("git safety = %q", plan.GitSafetyStatement)
+	}
+	if len(plan.DeliveryPolicy) < 6 {
+		t.Fatalf("delivery policy = %#v", plan.DeliveryPolicy)
+	}
 	if !stringsContainsAll(plan, []string{
 		"Existing project source files are preserved.",
-		"README.md is preserved unless future explicit README integration is enabled.",
-		"Git history is not modified.",
-		"No commits are created.",
-		"No branches are created.",
-		"No remote operations are performed.",
+		plan.GitSafetyStatement,
 		"Secrets and credentials are not stored.",
-		"Developer-owned non-Atlas agents under .cursor/agents/ and .opencode/agents/ are left untouched.",
-		"Skills are registry-first and are not copied into .cursor/skills or .opencode/skills.",
+		"Claude Code and Codex adapters are not materialized.",
+		"Apply is the only mutation step. Status and Doctor remain read-only.",
 		"Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files.",
 		"Apply creates/updates Atlas Home (ATLAS_HOME or ~/.atlas) and mirrors bundled Atlas-owned assets.",
-		"AGENTS.md is the project authority; Atlas agents are cataloged in .atlas/agent-registry.md with Home source paths.",
-		"Skills remain registry-first; this slice does not vendor skills into adapter skill folders.",
-		"Context Graph is a preference/context aid only; no graph engine, database, embeddings, index, capsules, or packs.",
-		"Cursor/OpenCode entrypoints point at AGENTS.md and atlas-orchestrator; they must not bypass AGENTS.md.",
-		"Existing Atlas-managed runtime targets are backed up under .atlas/backups/<timestamp>/ before replacement.",
-		"CLAUDE.md, GEMINI.md, .agents/, .claude/, README.md, and .gitignore are not materialized.",
-		"No Git operations are performed.",
+		"Runtime conflicts block Init and require manual cleanup in this slice.",
+		"Init performs no Git operations.",
 	}) {
 		t.Fatalf("missing preserve/warning copy: %#v %#v", plan.Preservations, plan.Warnings)
 	}
-	if !strings.Contains(plan.GovernanceNote, "stay local") {
+	if !strings.Contains(plan.GovernanceNote, "Local only") {
 		t.Fatalf("governance note = %q", plan.GovernanceNote)
+	}
+	if len(plan.HomeWrites) == 0 {
+		t.Fatal("expected Atlas Home writes in plan")
 	}
 
 	wantCreates := []string{
@@ -118,7 +115,7 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 			}
 			continue
 		}
-		if file.Status != "create/update this slice" {
+		if file.Status != "create/update on Apply" {
 			t.Fatalf("status for %s = %q", file.Path, file.Status)
 		}
 	}
@@ -143,6 +140,9 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 		ProjectMode:    "existing",
 		CursorDetected: true,
 	})
+	if !draft.SelectOption("source_control.mode", "git_github") {
+		t.Fatal("set github")
+	}
 	if !draft.SelectOption("source_control.governance_storage", "versioned") {
 		t.Fatal("set versioned")
 	}
@@ -174,7 +174,7 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 	if plan.MCPEntries[1].Name != "Jira Main" || plan.MCPEntries[1].Kind != "custom" || plan.MCPEntries[1].Transport != "stdio" {
 		t.Fatalf("custom mcp = %#v", plan.MCPEntries[1])
 	}
-	if plan.MCPEntries[0].Status != "will persist in .atlas/config.yaml" || plan.MCPEntries[1].Status != "will persist in .atlas/config.yaml" {
+	if !strings.Contains(plan.MCPEntries[0].Status, "preference recorded") || !strings.Contains(plan.MCPEntries[1].Status, "preference recorded") {
 		t.Fatalf("mcp status = %#v", plan.MCPEntries)
 	}
 	if plan.GovernanceNote == "" || plan.GovernanceStorage != "Versioned" {

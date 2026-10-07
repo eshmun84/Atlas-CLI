@@ -23,29 +23,33 @@ type ReviewInput struct {
 // MaterializationPlan is a typed preview of init materialization.
 // It never writes files.
 type MaterializationPlan struct {
-	ProjectName       string
-	ProjectMode       string
-	ProjectModeLabel  string
-	Workflow          string
-	SpecEngine        string
-	Adapters          string
-	SourceControl     string
-	BranchStrategy    string
-	GovernanceStorage string
-	MemoryStrategy    string
-	ContextGraph      string
-	MCPCount          int
-	MCPEntries        []MCPPlanEntry
-	Creates           []PlannedFile
-	ExistingArtifacts []string
-	Backups           []PlannedBackup
-	Replacements      []PlannedReplacement
-	Preservations     []PlannedPreservation
-	GovernanceNote    string
-	Warnings          []PlanWarning
-	Blockers          []PlanBlocker
-	PreviewOnly       bool
-	ConfigApplyOnly   bool
+	ProjectName        string
+	ProjectMode        string
+	ProjectModeLabel   string
+	Workflow           string
+	SpecEngine         string
+	TestingRequired    string
+	ReviewRequired     string
+	EvidenceRequired   string
+	Adapters           string
+	DeliveryPlatform   string
+	DeliveryAssistance string
+	GovernanceStorage  string
+	MCPCount           int
+	MCPEntries         []MCPPlanEntry
+	Creates            []PlannedFile
+	HomeWrites         []PlannedFile
+	ExistingArtifacts  []string
+	Backups            []PlannedBackup
+	Replacements       []PlannedReplacement
+	Preservations      []PlannedPreservation
+	GovernanceNote     string
+	DeliveryPolicy     []string
+	Warnings           []PlanWarning
+	Blockers           []PlanBlocker
+	PreviewOnly        bool
+	ConfigApplyOnly    bool
+	GitSafetyStatement string
 }
 
 // PlannedFile is one file or directory Atlas would create or update.
@@ -96,27 +100,38 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 	draft := in.Draft
 	adaptersValue := fieldValue(draft, "adapters.selected")
 	storage := fieldValue(draft, "source_control.governance_storage")
+	platform := fieldValue(draft, "source_control.mode")
 
 	plan := MaterializationPlan{
-		ProjectName:       draft.ProjectName(),
-		ProjectMode:       draft.ProjectMode(),
-		ProjectModeLabel:  draft.ProjectModeLabel(),
-		Workflow:          fieldLabel(draft, "governance.default_workflow"),
-		SpecEngine:        fieldLabel(draft, "governance.spec_engine"),
-		Adapters:          adaptersDisplay(adaptersValue),
-		SourceControl:     fieldLabel(draft, "source_control.mode"),
-		BranchStrategy:    fieldLabel(draft, "source_control.branch_strategy"),
-		GovernanceStorage: fieldLabel(draft, "source_control.governance_storage"),
-		MemoryStrategy:    fieldLabel(draft, "memory.strategy"),
-		ContextGraph:      contextGraphLabel(draft),
-		MCPCount:          in.MCP.ConfiguredCount(),
-		MCPEntries:        mcpEntries(in.MCP),
-		ExistingArtifacts: append([]string(nil), in.Artifacts...),
-		PreviewOnly:       false,
-		ConfigApplyOnly:   false,
+		ProjectName:        draft.ProjectName(),
+		ProjectMode:        draft.ProjectMode(),
+		ProjectModeLabel:   draft.ProjectModeLabel(),
+		Workflow:           fieldLabel(draft, "governance.default_workflow"),
+		SpecEngine:         fieldLabel(draft, "governance.spec_engine"),
+		TestingRequired:    yesNoLabel(fieldValue(draft, "governance.testing_required")),
+		ReviewRequired:     yesNoLabel(fieldValue(draft, "governance.review_required")),
+		EvidenceRequired:   yesNoLabel(fieldValue(draft, "governance.evidence_required")),
+		Adapters:           adaptersDisplay(adaptersValue),
+		DeliveryPlatform:   fieldLabel(draft, "source_control.mode"),
+		DeliveryAssistance: deliveryAssistLabel(fieldValue(draft, "source_control.delivery_assist")),
+		GovernanceStorage:  fieldLabel(draft, "source_control.governance_storage"),
+		MCPCount:           in.MCP.ConfiguredCount(),
+		MCPEntries:         mcpEntries(in.MCP),
+		ExistingArtifacts:  append([]string(nil), in.Artifacts...),
+		DeliveryPolicy: []string{
+			"Repository creation requires explicit request.",
+			"Branch creation requires explicit request.",
+			"Commit requires explicit request.",
+			"Push requires explicit request.",
+			"Pull request requires explicit request.",
+			"Merge requires explicit request.",
+		},
+		PreviewOnly:        false,
+		ConfigApplyOnly:    false,
+		GitSafetyStatement: "No repository, branch, commit, push, pull request, merge or remote operation will be performed.",
 	}
 
-	const status = "create/update this slice"
+	const status = "create/update on Apply"
 	plan.Creates = []PlannedFile{
 		{Path: config.FileConfig, Kind: "atlas", Status: status},
 		{Path: config.FileLocal, Kind: "atlas", Status: status},
@@ -127,6 +142,9 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Path: config.FileSDDOpenSpecContract, Kind: "atlas", Status: status},
 		{Path: config.DirBackups + "/", Kind: "atlas", Status: "create if needed"},
 		{Path: config.FileAgentsMD, Kind: "runtime", Status: status},
+	}
+	plan.HomeWrites = []PlannedFile{
+		{Path: "Atlas Home (ATLAS_HOME or ~/.atlas)", Kind: "home", Status: "ensure + mirror bundled assets on Apply"},
 	}
 	if config.ChipSelected(adaptersValue, "cursor") {
 		plan.Creates = append(plan.Creates, PlannedFile{
@@ -181,32 +199,35 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 	plan.Preservations = []PlannedPreservation{
 		{Statement: "Existing project source files are preserved."},
 		{Statement: "README.md is preserved unless future explicit README integration is enabled."},
-		{Statement: "Git history is not modified."},
-		{Statement: "No commits are created."},
-		{Statement: "No branches are created."},
-		{Statement: "No remote operations are performed."},
+		{Statement: plan.GitSafetyStatement},
 		{Statement: "Secrets and credentials are not stored."},
 		{Statement: "Developer-owned non-Atlas agents under .cursor/agents/ and .opencode/agents/ are left untouched."},
 		{Statement: "Skills are registry-first and are not copied into .cursor/skills or .opencode/skills."},
+		{Statement: "Claude Code and Codex adapters are not materialized."},
 	}
 
-	if storage == "versioned" {
-		plan.GovernanceNote = "Atlas governance files may be versioned according to explicit Atlas policy."
+	if platform == config.SourceControlGitGitHub && storage == "versioned" {
+		plan.GovernanceNote = "Atlas governance files may be versioned according to explicit Atlas policy (GitHub selected). No Git operations run during Init."
 	} else {
-		plan.GovernanceNote = "Atlas governance files will stay local where appropriate and will be ignored by Git during future materialization."
+		plan.GovernanceNote = "Atlas governance files stay Local only. Versioning requires a supported delivery platform (GitHub)."
 	}
 
 	plan.Warnings = []PlanWarning{
+		{Message: "Apply is the only mutation step. Status and Doctor remain read-only."},
 		{Message: "Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files."},
 		{Message: "Apply creates/updates Atlas Home (ATLAS_HOME or ~/.atlas) and mirrors bundled Atlas-owned assets."},
-		{Message: "AGENTS.md is the project authority; Atlas agents are cataloged in .atlas/agent-registry.md with Home source paths."},
-		{Message: "Skills remain registry-first; this slice does not vendor skills into adapter skill folders."},
-		{Message: "Context Graph is a preference/context aid only; no graph engine, database, embeddings, index, capsules, or packs."},
-		{Message: "Cursor/OpenCode entrypoints point at AGENTS.md and atlas-orchestrator; they must not bypass AGENTS.md."},
-		{Message: "Existing Atlas-managed runtime targets are backed up under .atlas/backups/<timestamp>/ before replacement."},
-		{Message: "CLAUDE.md, GEMINI.md, .agents/, .claude/, README.md, and .gitignore are not materialized."},
-		{Message: "No Git operations are performed."},
+		{Message: "Runtime conflicts block Init and require manual cleanup in this slice."},
+		{Message: "MCP selections are preference recorded only — not connected, authenticated, or verified."},
+		{Message: "Atlas Context Graph is not available in this slice."},
+		{Message: "Init performs no Git operations."},
+		{Message: plan.GitSafetyStatement},
 		{Message: "Secrets and credentials are not stored."},
+	}
+
+	if len(in.Artifacts) > 0 {
+		plan.Warnings = append(plan.Warnings, PlanWarning{
+			Message: "Conflicting runtime surfaces remain listed; Init Setup should not be reached until they are removed manually.",
+		})
 	}
 
 	return plan
@@ -254,13 +275,6 @@ func fileExists(root, rel string) bool {
 	return err == nil
 }
 
-func contextGraphLabel(draft config.ConfigDraft) string {
-	if strings.EqualFold(strings.TrimSpace(fieldValue(draft, "context.graph.enabled")), "false") {
-		return "Disabled"
-	}
-	return "Enabled"
-}
-
 func fieldValue(draft config.ConfigDraft, key string) string {
 	field, ok := draft.FieldByKey(key)
 	if !ok {
@@ -280,13 +294,27 @@ func fieldLabel(draft config.ConfigDraft, key string) string {
 func adaptersDisplay(value string) string {
 	parts := config.SplitChips(value)
 	if len(parts) == 0 {
-		return "none"
+		return "none selected"
 	}
 	labels := make([]string, 0, len(parts))
 	for _, part := range parts {
 		labels = append(labels, config.OptionLabel(part))
 	}
 	return strings.Join(labels, ", ")
+}
+
+func yesNoLabel(v string) string {
+	if strings.EqualFold(strings.TrimSpace(v), "true") {
+		return "Yes"
+	}
+	return "No"
+}
+
+func deliveryAssistLabel(v string) string {
+	if strings.EqualFold(strings.TrimSpace(v), "true") {
+		return "Enabled"
+	}
+	return "Disabled"
 }
 
 func mcpEntries(draft config.MCPDraft) []MCPPlanEntry {
@@ -299,7 +327,7 @@ func mcpEntries(draft config.MCPDraft) []MCPPlanEntry {
 			Name:    item.Name,
 			Kind:    "built-in",
 			Enabled: true,
-			Status:  "will persist in .atlas/config.yaml",
+			Status:  "preference recorded (not connected / not implemented)",
 		})
 	}
 	for _, server := range draft.CustomServers {
@@ -308,7 +336,7 @@ func mcpEntries(draft config.MCPDraft) []MCPPlanEntry {
 			Kind:      "custom",
 			Transport: server.Transport.TransportLabel(),
 			Enabled:   server.Enabled,
-			Status:    "will persist in .atlas/config.yaml",
+			Status:    "preference recorded (not connected / not implemented)",
 		})
 	}
 	if len(out) == 0 {

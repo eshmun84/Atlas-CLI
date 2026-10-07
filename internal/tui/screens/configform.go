@@ -287,9 +287,14 @@ func renderSectionDetail(view ConfigFormView, sections []config.ConfigSection, s
 		case config.FieldTypeBool:
 			focused := fieldsFocused && fi == fieldIdx
 			checked := strings.EqualFold(field.Value, "true")
-			fmt.Fprintln(&b, "  "+renderCheckRow(field.Label, checked, focused, editable))
-			if field.Description != "" {
-				fmt.Fprintln(&b, "    "+cfgFormMuted.Render(field.Description))
+			if field.Key == "source_control.delivery_assist" {
+				fmt.Fprintln(&b, cfgFormBody.Render(field.Label))
+				fmt.Fprintln(&b, "  "+renderCheckRow("Enabled", checked, focused, editable))
+			} else {
+				fmt.Fprintln(&b, "  "+renderCheckRow(field.Label, checked, focused, editable))
+				if field.Description != "" {
+					fmt.Fprintln(&b, "    "+cfgFormMuted.Render(field.Description))
+				}
 			}
 			if note := mutabilityNote(mut); note != "" {
 				fmt.Fprintln(&b, "    "+renderMutNote(mut, note))
@@ -301,14 +306,18 @@ func renderSectionDetail(view ConfigFormView, sections []config.ConfigSection, s
 			if value == "" {
 				value = "—"
 			}
-			fmt.Fprintln(&b, "  "+cfgFormBody.Render(value))
+			for _, line := range strings.Split(value, "\n") {
+				fmt.Fprintln(&b, "  "+cfgFormBody.Render(line))
+			}
 			if field.Description != "" {
 				fmt.Fprintln(&b, "  "+cfgFormMuted.Render(field.Description))
 			}
 			fmt.Fprintln(&b)
 		default:
-			fmt.Fprintln(&b, cfgFormBody.Render(field.Label))
-			if field.Description != "" && (field.Key == "source_control.governance_storage" || field.Key == "adapters.selected") {
+			if field.Label != "" {
+				fmt.Fprintln(&b, cfgFormBody.Render(field.Label))
+			}
+			if field.Description != "" && strings.HasPrefix(field.Key, "governance.") {
 				fmt.Fprintln(&b, "  "+cfgFormMuted.Render(field.Description))
 			}
 			if note := mutabilityNote(mut); note != "" {
@@ -318,7 +327,7 @@ func renderSectionDetail(view ConfigFormView, sections []config.ConfigSection, s
 			for oi, opt := range opts {
 				focused := fieldsFocused && fi == fieldIdx && oi == optionIdx
 				checked := optionSelected(field, opt)
-				fmt.Fprintln(&b, "  "+renderCheckRow(opt.Label, checked, focused, editable))
+				fmt.Fprintln(&b, "  "+renderCheckRow(opt.Label, checked, focused, editable && !opt.Disabled))
 			}
 			fmt.Fprintln(&b)
 		}

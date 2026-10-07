@@ -38,7 +38,7 @@ func RenderReview(view ReviewView) string {
 			fmt.Fprintln(&b, "  "+initWarn.Render(view.ApplyMessage))
 		}
 	} else {
-		fmt.Fprintln(&b, "  "+initMuted.Render("Apply writes .atlas/ config and compact runtime gateway files."))
+		fmt.Fprintln(&b, "  "+initMuted.Render("Apply is the only mutation step. Status and Doctor remain read-only."))
 		if view.ApplyMessage != "" {
 			fmt.Fprintln(&b, "  "+initWarn.Render(view.ApplyMessage))
 		}
@@ -49,19 +49,22 @@ func RenderReview(view ReviewView) string {
 	fmt.Fprintln(&b, initLabel.Render("Project:"))
 	fmt.Fprintf(&b, "  - Name: %s\n", plan.ProjectName)
 	fmt.Fprintf(&b, "  - Mode: %s\n", plan.ProjectModeLabel)
-	fmt.Fprintln(&b, initLabel.Render("Configuration:"))
+	fmt.Fprintln(&b, initLabel.Render("Governance:"))
 	fmt.Fprintf(&b, "  - Workflow: %s\n", plan.Workflow)
 	fmt.Fprintf(&b, "  - Spec engine: %s\n", plan.SpecEngine)
-	fmt.Fprintf(&b, "  - Adapters: %s\n", plan.Adapters)
-	fmt.Fprintf(&b, "  - Source control: %s\n", plan.SourceControl)
-	fmt.Fprintf(&b, "  - Branch strategy: %s\n", plan.BranchStrategy)
-	fmt.Fprintf(&b, "  - Atlas governance files: %s\n", plan.GovernanceStorage)
-	fmt.Fprintf(&b, "  - Memory strategy: %s\n", plan.MemoryStrategy)
-	fmt.Fprintf(&b, "  - Context Graph: %s\n", plan.ContextGraph)
-	fmt.Fprintf(&b, "  - MCP integrations: %d configured\n", plan.MCPCount)
+	fmt.Fprintf(&b, "  - Testing required: %s\n", plan.TestingRequired)
+	fmt.Fprintf(&b, "  - Review required: %s\n", plan.ReviewRequired)
+	fmt.Fprintf(&b, "  - Evidence required: %s\n", plan.EvidenceRequired)
+	fmt.Fprintln(&b, initLabel.Render("Adapters:"))
+	fmt.Fprintf(&b, "  - Selected: %s\n", plan.Adapters)
+	fmt.Fprintln(&b, initLabel.Render("Delivery:"))
+	fmt.Fprintf(&b, "  - Platform: %s\n", plan.DeliveryPlatform)
+	fmt.Fprintf(&b, "  - Governance files: %s\n", plan.GovernanceStorage)
+	fmt.Fprintf(&b, "  - Assisted operations: %s\n", plan.DeliveryAssistance)
+	fmt.Fprintf(&b, "  - MCP preferences: %d recorded\n", plan.MCPCount)
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, initSection.Render("Files Atlas would create"))
+	fmt.Fprintln(&b, initSection.Render("Planned project writes"))
 	for _, file := range plan.Creates {
 		status := file.Status
 		if status == "" {
@@ -71,41 +74,42 @@ func RenderReview(view ReviewView) string {
 	}
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, initSection.Render("Existing artifacts detected"))
-	if len(plan.ExistingArtifacts) == 0 {
-		fmt.Fprintln(&b, "  "+initMuted.Render("No existing runtime artifacts detected."))
+	fmt.Fprintln(&b, initSection.Render("Planned Atlas Home writes"))
+	if len(plan.HomeWrites) == 0 {
+		fmt.Fprintln(&b, "  "+initMuted.Render("none"))
 	} else {
-		fmt.Fprintln(&b, "  Existing runtime artifacts detected:")
-		for _, path := range plan.ExistingArtifacts {
-			fmt.Fprintf(&b, "  - %s\n", path)
+		for _, file := range plan.HomeWrites {
+			fmt.Fprintf(&b, "  - %s (%s)\n", file.Path, file.Status)
 		}
-		fmt.Fprintln(&b, "  "+initMuted.Render("Atlas backs up Atlas-managed runtime targets before replacing them."))
 	}
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, initSection.Render("Files Atlas would backup"))
+	fmt.Fprintln(&b, initSection.Render("Runtime conflicts"))
+	if len(plan.ExistingArtifacts) == 0 {
+		fmt.Fprintln(&b, "  "+initMuted.Render("No conflicting runtime surfaces detected."))
+	} else {
+		fmt.Fprintln(&b, "  "+initWarn.Render("Conflicts were listed at Init preflight; this slice requires manual cleanup before Setup."))
+		for _, path := range plan.ExistingArtifacts {
+			fmt.Fprintf(&b, "  - %s\n", path)
+		}
+	}
 	if len(plan.Backups) == 0 {
-		fmt.Fprintln(&b, "  "+initMuted.Render("No backups required."))
+		fmt.Fprintln(&b, "  "+initMuted.Render("No Atlas-managed backups required for current selection."))
 	} else {
 		fmt.Fprintf(&b, "  Backup root: %s\n", initplan.BackupPlaceholderDir())
 		for _, backup := range plan.Backups {
 			fmt.Fprintf(&b, "  - %s\n", backup.Path)
 		}
 	}
-	fmt.Fprintln(&b)
-
-	fmt.Fprintln(&b, initSection.Render("Files Atlas would replace"))
-	if len(plan.Replacements) == 0 {
-		fmt.Fprintln(&b, "  "+initMuted.Render("No existing runtime files need replacement."))
-	} else {
-		fmt.Fprintln(&b, "  Atlas will replace runtime targets after backup.")
+	if len(plan.Replacements) > 0 {
+		fmt.Fprintln(&b, "  Replace after backup:")
 		for _, repl := range plan.Replacements {
 			fmt.Fprintf(&b, "  - %s\n", repl.Path)
 		}
 	}
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, initSection.Render("Files Atlas would preserve"))
+	fmt.Fprintln(&b, initSection.Render("Preservations"))
 	for _, item := range plan.Preservations {
 		fmt.Fprintf(&b, "  - %s\n", item.Statement)
 	}
@@ -117,7 +121,7 @@ func RenderReview(view ReviewView) string {
 
 	fmt.Fprintln(&b, initSection.Render("MCP integrations"))
 	if len(plan.MCPEntries) == 0 {
-		fmt.Fprintln(&b, "  - none configured")
+		fmt.Fprintln(&b, "  - none (preference recorded: none)")
 	} else {
 		for _, entry := range plan.MCPEntries {
 			fmt.Fprintf(&b, "  - %s\n", entry.Name)
@@ -129,7 +133,15 @@ func RenderReview(view ReviewView) string {
 			fmt.Fprintf(&b, "    status: %s\n", entry.Status)
 		}
 	}
-	fmt.Fprintln(&b, "  "+initMuted.Render("No MCP credentials, connections, or validation are implemented in this slice."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("MCP: preference recorded · configured in config.yaml · connected/authenticated/verified NOT IMPLEMENTED."))
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, initSection.Render("Git / delivery policy"))
+	fmt.Fprintln(&b, "  "+initOK.Render("Init performs no Git operations."))
+	for _, line := range plan.DeliveryPolicy {
+		fmt.Fprintf(&b, "  - %s\n", line)
+	}
+	fmt.Fprintln(&b, "  "+initOK.Render(plan.GitSafetyStatement))
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, initSection.Render("Warnings / blockers"))
@@ -140,7 +152,7 @@ func RenderReview(view ReviewView) string {
 		if view.Applied {
 			fmt.Fprintln(&b, "  "+initMuted.Render("No blockers."))
 		} else {
-			fmt.Fprintln(&b, "  "+initMuted.Render("No blockers. Apply config writes .atlas/ files and selected runtime gateway projections."))
+			fmt.Fprintln(&b, "  "+initMuted.Render("No blockers. Apply writes .atlas/ files and selected runtime gateway projections."))
 		}
 	} else {
 		for _, blocker := range plan.Blockers {

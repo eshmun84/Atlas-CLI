@@ -45,9 +45,6 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	if !draft.SelectOption("source_control.mode", "git_github") {
 		t.Fatal("source control")
 	}
-	if !draft.SelectOption("source_control.branch_strategy", "main_develop") {
-		t.Fatal("branch")
-	}
 	mcp := config.EmptyMCPDraft()
 	if !mcp.ToggleBuiltin(0) {
 		t.Fatal("jira")

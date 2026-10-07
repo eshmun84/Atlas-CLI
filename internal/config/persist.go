@@ -407,6 +407,7 @@ func ApplyProjectDocument(draft *ConfigDraft, doc ProjectDocument) {
 	setDraftValue(draft, "source_control.delivery_assist", boolText(doc.SourceControl.DeliveryAssist))
 	setDraftValue(draft, "memory.strategy", doc.Memory.Strategy)
 	setDraftValue(draft, "context.graph.enabled", boolText(doc.ContextGraphEnabled()))
+	SyncDevelopmentDelivery(draft)
 }
 
 func setDraftValue(draft *ConfigDraft, key, value string) {

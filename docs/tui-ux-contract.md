@@ -86,6 +86,18 @@ Sections, in order:
 
 Doctor remains read-only and never repairs.
 
+## Init Setup (Slice 25)
+
+Init configures governed runtime, adapters, governance, and delivery assistance. It does not imply Atlas owns GitFlow or repository lifecycle.
+
+- Project Setup: Project Name + New vs Existing (no Recommended mode); Project Mode uses `[x]` / `[ ]` markers like the rest of Init.
+- Runtime conflicts (AGENTS.md, AGENT.md, CLAUDE.md, GEMINI.md, `.cursor/`, `.opencode/`, `.claude/`, `.agents/`, `.codex/`) show a blocking preflight before Project Setup. Refresh / Re-check is read-only rescan only. While conflicts remain, Exit / Back is the other action. After a clean re-check, Continue to Setup enters Project Setup — no silent overwrite or Init-time backup/quarantine.
+- Adapters: Cursor and OpenCode only; Available when the runtime tool is on PATH; unavailable rows are visible but disabled.
+- Delivery: Platform, Governance files, Assisted operations only. Versioned only when GitHub is selected. No tools diagnostics or Git ops on this screen.
+- Memory is not an Init choice (always-on Atlas-managed memory).
+- Context is not an Init choice in Slice 25: no CodeGraph option, no Atlas Context Graph setup, no Context Economy decision (Context Economy remains a separate explicit flow).
+- Review → Apply summarizes choices and carries the no-Git Init policy. Status and Doctor remain read-only.
+
 ## Out of scope for this contract
 
-Init Setup full rework, storage migration, CodeGraph, real MCP materialization, marketplace, Skills v1, Git automation, new CLI commands.
+Full Atlas Home storage migration, CodeGraph, real MCP materialization, marketplace, Skills v1, Git automation, new CLI commands.

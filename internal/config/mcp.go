@@ -237,7 +237,7 @@ func nextCustomMCPID(draft MCPDraft) string {
 func StatusLabel(status string) string {
 	switch status {
 	case MCPStatusInMemoryOnly:
-		return "in memory only"
+		return "preference recorded"
 	default:
 		return "not configured"
 	}

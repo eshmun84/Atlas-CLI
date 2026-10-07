@@ -109,17 +109,29 @@ func (m *Model) applyInitDiscovery(plan initplan.Plan) {
 		m.nameInput.SetValue(m.detectedName)
 		m.nameInput.CursorEnd()
 		m.initModeConfirmed = m.recommendedMode
-		m.initDecision = InitDecisionInitialize
-		m.initWizardStep = screens.InitWizardStepProject
 		m.initReviewMessage = ""
-		m.initField = screens.InitFieldName
 		m.initHydrated = true
 		m.initApplied = false
-	}
-	if !m.hasRuntimeArtifacts() && m.initDecision == InitDecisionCancel {
-		m.initDecision = InitDecisionInitialize
+		m.enterInitPreflightOrProject()
+	} else if m.hasRuntimeArtifacts() {
+		// Conflicts always force the blocking preflight; never stay in normal Init.
+		m.initWizardStep = screens.InitWizardStepConflict
+		m.initField = screens.InitFieldConflictRefresh
+	} else if m.initWizardStep == screens.InitWizardStepConflict {
+		// Clean re-check stays on the preflight with Continue; do not auto-enter Setup.
+		m.initField = screens.InitFieldConflictContinue
 	}
 	m.syncNameInputFocus()
+}
+
+func (m *Model) enterInitPreflightOrProject() {
+	if m.hasRuntimeArtifacts() {
+		m.initWizardStep = screens.InitWizardStepConflict
+		m.initField = screens.InitFieldConflictRefresh
+		return
+	}
+	m.initWizardStep = screens.InitWizardStepProject
+	m.initField = screens.InitFieldName
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -147,7 +159,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if (m.route == RouteInitPlan || m.route == RouteConfigure || m.route == RouteRuntimeRepair || m.route == RouteContextEconomy) && msg.String() == "tab" {
 		if m.focus == FocusSidebar {
 			m.focus = FocusContent
-			if m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepProject {
+			if m.route == RouteInitPlan && (m.initWizardStep == screens.InitWizardStepProject || m.initWizardStep == screens.InitWizardStepConflict) {
 				m.initField = m.clampInitField(m.initField)
 			}
 			if m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepReview {
@@ -212,45 +224,61 @@ func (m Model) handleInitContentKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.initWizardStep == screens.InitWizardStepReview {
 		return m.handleInitReviewKey(msg)
 	}
+	if m.initWizardStep == screens.InitWizardStepConflict {
+		return m.handleInitConflictKey(msg)
+	}
 	return m.handleInitStep1Key(msg)
+}
+
+func (m Model) handleInitConflictKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	fields := m.initFields()
+	m.initField = m.clampInitField(m.initField)
+
+	switch msg.String() {
+	case "up", "k", "left":
+		m.initField = moveInitVertical(m.initField, fields, -1, 0)
+		return m, nil
+	case "down", "j", "right":
+		m.initField = moveInitVertical(m.initField, fields, 1, 0)
+		return m, nil
+	case "enter", " ", "space":
+		return m.activateInitField()
+	case "pgup", "pgdown", "home", "end":
+		return m.scroll(msg.String()), nil
+	case "r":
+		return m.refreshInitDiscovery()
+	}
+	return m, nil
 }
 
 func (m Model) handleInitStep1Key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	fields := m.initFields()
-	fieldIndex := 0
-	for i, f := range fields {
-		if f == m.initField {
-			fieldIndex = i
-			break
-		}
-	}
+	m.initField = m.clampInitField(m.initField)
 
 	switch msg.String() {
 	case "up":
-		if fieldIndex > 0 {
-			m.initField = fields[fieldIndex-1]
-			m.syncNameInputFocus()
-		}
+		m.initField = moveInitVertical(m.initField, fields, -1, m.preferredModeField())
+		m.syncNameInputFocus()
 		return m, nil
 	case "down":
-		if fieldIndex < len(fields)-1 {
-			m.initField = fields[fieldIndex+1]
-			m.syncNameInputFocus()
-		}
+		m.initField = moveInitVertical(m.initField, fields, 1, m.preferredModeField())
+		m.syncNameInputFocus()
 		return m, nil
 	case "k", "j":
 		if m.initField != screens.InitFieldName {
-			if msg.String() == "k" && fieldIndex > 0 {
-				m.initField = fields[fieldIndex-1]
+			delta := 1
+			if msg.String() == "k" {
+				delta = -1
 			}
-			if msg.String() == "j" && fieldIndex < len(fields)-1 {
-				m.initField = fields[fieldIndex+1]
-			}
+			m.initField = moveInitVertical(m.initField, fields, delta, m.preferredModeField())
 			m.syncNameInputFocus()
 			return m, nil
 		}
-	case "enter":
-		return m.activateInitField(), nil
+	case "enter", " ", "space":
+		if m.initField == screens.InitFieldName && (msg.String() == " " || msg.String() == "space") {
+			break // let the name input receive space
+		}
+		return m.activateInitField()
 	case "r":
 		if m.initField == screens.InitFieldName {
 			break
@@ -258,7 +286,6 @@ func (m Model) handleInitStep1Key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.nameInput.SetValue(m.detectedName)
 		m.nameInput.CursorEnd()
 		m.initModeConfirmed = m.recommendedMode
-		m.initDecision = InitDecisionInitialize
 		m.initField = screens.InitFieldName
 		m.syncNameInputFocus()
 		m = m.rebuildInitPlan()
@@ -269,6 +296,20 @@ func (m Model) handleInitStep1Key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.initField != screens.InitFieldName {
 			return m.scroll(msg.String()), nil
 		}
+	case "left", "right":
+		if m.initField == screens.InitFieldName {
+			break // name input handles cursor movement
+		}
+		// Horizontal peer groups: move focus only; Space/Enter confirms.
+		delta := 1
+		if msg.String() == "left" {
+			delta = -1
+		}
+		if next, ok := moveInitPeerFocus(m.initField, fields, delta); ok {
+			m.initField = next
+			m.syncNameInputFocus()
+		}
+		return m, nil
 	}
 
 	if m.initField == screens.InitFieldName {
@@ -278,11 +319,102 @@ func (m Model) handleInitStep1Key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	switch msg.String() {
-	case "left", "right":
-		return m.activateInitField(), nil
-	}
 	return m, nil
+}
+
+// initPeerGroup returns mutually exclusive option peers for horizontal focus movement.
+func initPeerGroup(field int) []int {
+	switch field {
+	case screens.InitFieldModeNew, screens.InitFieldModeExisting:
+		return []int{screens.InitFieldModeNew, screens.InitFieldModeExisting}
+	default:
+		return nil
+	}
+}
+
+func moveInitPeerFocus(current int, visible []int, delta int) (int, bool) {
+	group := initPeerGroup(current)
+	if len(group) < 2 {
+		return current, false
+	}
+	peers := make([]int, 0, len(group))
+	for _, candidate := range group {
+		for _, field := range visible {
+			if field == candidate {
+				peers = append(peers, candidate)
+				break
+			}
+		}
+	}
+	if len(peers) < 2 {
+		return current, false
+	}
+	idx := -1
+	for i, peer := range peers {
+		if peer == current {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return current, false
+	}
+	next := idx + delta
+	if next < 0 || next >= len(peers) {
+		return current, false
+	}
+	return peers[next], true
+}
+
+// moveInitVertical moves between form fields. Horizontal peer options count as one field.
+func moveInitVertical(current int, fields []int, delta, preferredPeer int) int {
+	if len(fields) == 0 || delta == 0 {
+		return current
+	}
+	idx := -1
+	for i, field := range fields {
+		if field == current {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return fields[0]
+	}
+
+	startGroup := initPeerGroup(current)
+	for i := idx + delta; i >= 0 && i < len(fields); i += delta {
+		candidate := fields[i]
+		if len(startGroup) > 0 && containsInt(startGroup, candidate) {
+			continue
+		}
+		if group := initPeerGroup(candidate); len(group) > 1 {
+			if preferredPeer != 0 && containsInt(group, preferredPeer) && containsInt(fields, preferredPeer) {
+				return preferredPeer
+			}
+			return firstVisiblePeer(group, fields)
+		}
+		return candidate
+	}
+	return current
+}
+
+func firstVisiblePeer(group, visible []int) int {
+	for _, candidate := range group {
+		if containsInt(visible, candidate) {
+			return candidate
+		}
+	}
+	return group[0]
+}
+
+func containsInt(values []int, want int) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) handleConfigFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -455,13 +587,20 @@ func (m Model) activateConfigSelector() (tea.Model, tea.Cmd) {
 			if m.configOptionIdx < 0 || m.configOptionIdx >= len(opts) {
 				return m, nil
 			}
+			if opts[m.configOptionIdx].Disabled {
+				return m, nil
+			}
 			m.configDraft.SelectOption(field.Key, opts[m.configOptionIdx].Value)
 		case config.FieldTypeMulti:
 			opts := field.VisibleOptions()
 			if m.configOptionIdx < 0 || m.configOptionIdx >= len(opts) {
 				return m, nil
 			}
-			m.configDraft.ToggleMulti(field.Key, opts[m.configOptionIdx].Value)
+			opt := opts[m.configOptionIdx]
+			if opt.Disabled && !config.ChipSelected(field.Value, opt.Value) {
+				return m, nil
+			}
+			m.configDraft.ToggleMulti(field.Key, opt.Value)
 		}
 		return m, nil
 	case screens.ConfigPanelFooter:
@@ -478,8 +617,13 @@ func (m Model) activateConfigFooter() (tea.Model, tea.Cmd) {
 			m.configureNotice = ""
 			return m.setRoute(DefaultRoute)
 		}
-		m.initWizardStep = screens.InitWizardStepProject
-		m.initField = screens.InitFieldNext
+		if m.hasRuntimeArtifacts() {
+			m.initWizardStep = screens.InitWizardStepConflict
+			m.initField = screens.InitFieldConflictRefresh
+		} else {
+			m.initWizardStep = screens.InitWizardStepProject
+			m.initField = screens.InitFieldNext
+		}
 		m.contentOffset = 0
 		m.syncNameInputFocus()
 		return m, nil
@@ -487,7 +631,11 @@ func (m Model) activateConfigFooter() (tea.Model, tea.Cmd) {
 		if m.route == RouteConfigure {
 			return m.applyConfigureChanges()
 		}
-		if m.initDecision == InitDecisionCancel && m.hasRuntimeArtifacts() {
+		if m.hasRuntimeArtifacts() {
+			m.initWizardStep = screens.InitWizardStepConflict
+			m.initField = screens.InitFieldConflictRefresh
+			m.contentOffset = 0
+			m.syncNameInputFocus()
 			return m, nil
 		}
 		m.enterInitReview()
@@ -752,25 +900,49 @@ func (m Model) applyInitConfig() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) activateInitField() Model {
+func (m Model) activateInitField() (tea.Model, tea.Cmd) {
 	switch m.initField {
 	case screens.InitFieldModeNew:
 		m.initModeConfirmed = InitModeNew
 	case screens.InitFieldModeExisting:
 		m.initModeConfirmed = InitModeExisting
-	case screens.InitFieldDecisionInit:
-		m.initDecision = InitDecisionInitialize
-	case screens.InitFieldDecisionCancel:
-		m.initDecision = InitDecisionCancel
+	case screens.InitFieldConflictRefresh:
+		return m.refreshInitDiscovery()
+	case screens.InitFieldConflictExit:
+		return m.setRoute(DefaultRoute)
+	case screens.InitFieldConflictContinue:
+		if m.hasRuntimeArtifacts() {
+			m.initField = screens.InitFieldConflictRefresh
+			return m, nil
+		}
+		m.initWizardStep = screens.InitWizardStepProject
+		m.initField = screens.InitFieldName
+		m.contentOffset = 0
+		m.syncNameInputFocus()
+		return m, nil
 	case screens.InitFieldNext:
+		if m.hasRuntimeArtifacts() {
+			m.initWizardStep = screens.InitWizardStepConflict
+			m.initField = screens.InitFieldConflictRefresh
+			m.contentOffset = 0
+			m.syncNameInputFocus()
+			return m, nil
+		}
 		m.initWizardStep = screens.InitWizardStepConfig
 		m.rebuildConfigDraft(config.ConfigModeInit, true, true)
 		m.contentOffset = 0
 		m.syncNameInputFocus()
-		return m
+		return m, nil
 	}
 	m = m.rebuildInitPlan()
-	return m
+	return m, nil
+}
+
+// refreshInitDiscovery re-scans the workspace read-only. It never mutates files.
+func (m Model) refreshInitDiscovery() (tea.Model, tea.Cmd) {
+	m.ready = false
+	m.contentOffset = 0
+	return m, m.loadCmd()
 }
 
 func (m Model) handleErrorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -803,9 +975,14 @@ func (m Model) setRoute(route Route) (Model, tea.Cmd) {
 	m.mcpAddError = ""
 	m.mcpNotice = ""
 	if route == RouteInitPlan {
-		m.initWizardStep = screens.InitWizardStepProject
 		m.initReviewMessage = ""
 		m.initApplied = false
+		if m.ready && m.initHydrated {
+			m.enterInitPreflightOrProject()
+		} else {
+			m.initWizardStep = screens.InitWizardStepProject
+			m.initField = screens.InitFieldName
+		}
 	}
 	if route == RouteRuntimeRepair {
 		m.repairApplied = false
