@@ -81,6 +81,7 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 		"Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files.",
 		"Apply creates/updates Atlas Home (ATLAS_HOME or ~/.atlas) and mirrors bundled Atlas-owned assets.",
 		"Runtime conflicts block Init and require manual cleanup in this slice.",
+		"Context Economy v0 is a separate explicit flow. CodeGraph and Atlas Context Graph are NOT IMPLEMENTED.",
 		"Init performs no Git operations.",
 	}) {
 		t.Fatalf("missing preserve/warning copy: %#v %#v", plan.Preservations, plan.Warnings)
@@ -231,6 +232,43 @@ func assertNoAtlasOrAgents(t *testing.T, root string) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
 		t.Fatalf("AGENTS.md should not exist, stat err = %v", err)
+	}
+}
+
+func TestBuildReview_DocsScaffoldProjectWrite(t *testing.T) {
+	t.Parallel()
+
+	off := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: "demo",
+		ProjectMode: "existing",
+	})
+	offPlan := initplan.BuildReview(initplan.ReviewInput{Draft: off, MCP: config.EmptyMCPDraft()})
+	for _, file := range offPlan.Creates {
+		if file.Path == config.FileProjectDocsREADME {
+			t.Fatal("docs scaffold must be off by default in Review")
+		}
+	}
+
+	on := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:  "demo",
+		ProjectMode:  "existing",
+		DocsScaffold: true,
+	})
+	onPlan := initplan.BuildReview(initplan.ReviewInput{Draft: on, MCP: config.EmptyMCPDraft()})
+	found := false
+	for _, file := range onPlan.Creates {
+		if file.Path == config.FileProjectDocsREADME {
+			found = true
+			if file.Kind != "project-docs" {
+				t.Fatalf("docs kind = %q, want project-docs", file.Kind)
+			}
+			if !strings.Contains(file.Status, "create once") {
+				t.Fatalf("docs status = %q", file.Status)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected docs scaffold in project writes: %#v", onPlan.Creates)
 	}
 }
 

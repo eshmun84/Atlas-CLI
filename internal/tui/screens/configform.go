@@ -165,7 +165,13 @@ func RenderConfigForm(view ConfigFormView) string {
 	projectLine := fmt.Sprintf("Project: %s · %s", view.Draft.ProjectName(), view.Draft.ProjectModeLabel())
 	fmt.Fprintln(&b, "  "+cfgFormBody.Render(projectLine))
 	if view.FooterNote != "" {
-		fmt.Fprintln(&b, "  "+cfgFormMuted.Render(view.FooterNote))
+		for _, line := range strings.Split(view.FooterNote, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			fmt.Fprintln(&b, "  "+cfgFormMuted.Render(line))
+		}
 	}
 	fmt.Fprintln(&b)
 

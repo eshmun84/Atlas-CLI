@@ -176,6 +176,7 @@ func (m Model) rawContent() string {
 			DraftName:      m.nameInput.Value(),
 			NameInputView:  m.nameInput.View(),
 			ModeConfirmed:  string(m.initModeConfirmed),
+			DocsScaffold:   m.initDocsScaffold,
 			ActiveField:    m.initField,
 			ContentFocused: m.focus == FocusContent,
 		})
@@ -183,7 +184,7 @@ func (m Model) rawContent() string {
 		if len(m.configDraft.Sections) == 0 {
 			return screens.ConfigureFallback(m.discovery.Atlas.State, m.discovery.Atlas.ConfigPath)
 		}
-		note := config.ConfigureApplyFooterNote
+		note := config.FormatConfigureFooterNote(m.configDraft)
 		if m.configureNotice != "" {
 			note = m.configureNotice
 		}

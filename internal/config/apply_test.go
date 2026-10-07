@@ -464,8 +464,18 @@ func TestPersistConfigure_WritesConfigOnly(t *testing.T) {
 	}
 	mcp.ToggleCustom(0)
 
-	if err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: draft, MCP: mcp}); err != nil {
+	result, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: draft, MCP: mcp})
+	if err != nil {
 		t.Fatalf("persist: %v", err)
+	}
+	if !strings.Contains(result.Notice, "Configuration changes are saved to .atlas/config.yaml.") {
+		t.Fatalf("notice = %q", result.Notice)
+	}
+	if !strings.Contains(result.Notice, "Runtime files are not repaired automatically.") {
+		t.Fatalf("missing runtime repair honesty: %q", result.Notice)
+	}
+	if !strings.Contains(result.Notice, "MCP selections record preferences") {
+		t.Fatalf("missing MCP honesty: %q", result.Notice)
 	}
 	doc, err := config.LoadProjectDocument(filepath.Join(root, config.FileConfig))
 	if err != nil {
@@ -483,6 +493,126 @@ func TestPersistConfigure_WritesConfigOnly(t *testing.T) {
 	assertMissing(t, root, ".atlas/state.yaml")
 	assertMissing(t, root, "skills")
 	assertMissing(t, root, ".agents")
+	assertMissing(t, root, config.FileProjectDocsREADME)
+}
+
+func TestPersistConfigure_AdapterChangeRecommendsRepair(t *testing.T) {
+	withTempAtlasHome(t)
+	root := t.TempDir()
+	base := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
+		ProjectName: "demo", ProjectMode: "existing",
+	})
+	if _, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: base, MCP: config.EmptyMCPDraft()}); err != nil {
+		t.Fatal(err)
+	}
+	changed := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
+		ProjectName: "demo", ProjectMode: "existing", ToolCursorAvailable: true,
+	})
+	if !changed.ToggleMulti("adapters.selected", "cursor") {
+		t.Fatal("toggle cursor")
+	}
+	result, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: changed, MCP: config.EmptyMCPDraft()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Impact.RuntimeRepairNeeded || !strings.Contains(result.Notice, "Runtime Repair") {
+		t.Fatalf("expected repair recommendation: %#v notice=%q", result.Impact, result.Notice)
+	}
+	assertMissing(t, root, "AGENTS.md")
+	assertMissing(t, root, ".cursor/rules/atlas.mdc")
+}
+
+func TestFormatConfigureFooterNote_DefaultConfigOnly(t *testing.T) {
+	t.Parallel()
+
+	draft := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
+		ProjectName: "demo",
+		ProjectMode: "existing",
+	})
+	note := config.FormatConfigureFooterNote(draft)
+	for _, want := range []string{
+		"Apply saves .atlas/config.yaml.",
+		"Runtime files are not repaired or rematerialized automatically.",
+		"Context Economy payloads are not updated automatically.",
+		"MCP selections are preference/config only",
+		"Runtime Repair and Update Context are separate flows.",
+	} {
+		if !strings.Contains(note, want) {
+			t.Fatalf("default footer missing %q:\n%s", want, note)
+		}
+	}
+	for _, banned := range []string{
+		"docs/atlas/README.md",
+		"only possible write",
+		"config.yaml only",
+		"writes .atlas/config.yaml only",
+	} {
+		if strings.Contains(note, banned) {
+			t.Fatalf("default footer unexpected %q:\n%s", banned, note)
+		}
+	}
+	// Default meaning: config.yaml is the Apply write; no scaffold create claim.
+	if strings.Contains(note, "may also create") {
+		t.Fatalf("default footer must not claim docs create:\n%s", note)
+	}
+}
+
+func TestFormatConfigureFooterNote_DocsScaffoldSelected(t *testing.T) {
+	t.Parallel()
+
+	draft := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
+		ProjectName: "demo",
+		ProjectMode: "existing",
+	})
+	if !draft.SetValue("project.docs_scaffold", "true") {
+		t.Fatal("enable docs scaffold")
+	}
+	note := config.FormatConfigureFooterNote(draft)
+	for _, want := range []string{
+		"Apply saves .atlas/config.yaml.",
+		"docs/atlas/README.md once",
+		"Runtime files are not repaired or rematerialized automatically.",
+		"Context Economy payloads are not updated automatically.",
+		"MCP selections are preference/config only",
+		"Runtime Repair and Update Context are separate flows.",
+	} {
+		if !strings.Contains(note, want) {
+			t.Fatalf("scaffold footer missing %q:\n%s", want, note)
+		}
+	}
+	for _, banned := range []string{
+		"config.yaml only",
+		"writes .atlas/config.yaml only",
+		"only — not runtime",
+	} {
+		if strings.Contains(note, banned) {
+			t.Fatalf("scaffold footer must not claim config.yaml is the only write (%q):\n%s", banned, note)
+		}
+	}
+}
+
+func TestEnsureProjectDocsScaffold_NoOverwrite(t *testing.T) {
+	root := t.TempDir()
+	created, skipped, err := config.EnsureProjectDocsScaffold(root, true)
+	if err != nil || len(created) != 1 || len(skipped) != 0 {
+		t.Fatalf("first create = %v %v err=%v", created, skipped, err)
+	}
+	path := filepath.Join(root, config.FileProjectDocsREADME)
+	if err := os.WriteFile(path, []byte("keep mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	created, skipped, err = config.EnsureProjectDocsScaffold(root, true)
+	if err != nil || len(created) != 0 || len(skipped) != 1 {
+		t.Fatalf("second = %v %v err=%v", created, skipped, err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "keep mine\n" {
+		t.Fatalf("overwrote docs: %q err=%v", got, err)
+	}
+	created, skipped, err = config.EnsureProjectDocsScaffold(root, false)
+	if err != nil || created != nil || skipped != nil {
+		t.Fatalf("off by default path should no-op: %v %v %v", created, skipped, err)
+	}
 }
 
 func assertMissing(t *testing.T, root, rel string) {

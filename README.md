@@ -16,7 +16,8 @@ Practical Alpha RC: installable locally, validated by `make check` + `make smoke
 - Runtime materialization: composed `AGENTS.md`, Cursor/OpenCode projections, **14 Atlas agents per selected runtime**, registry/manifest/lock, SDD/OpenSpec operational contract
 - Status + Doctor runtime awareness (read-only)
 - Explicit Runtime Repair (Review → Apply) with backup/quarantine of Atlas conflicts
-- Explicit Context Economy update (index / capsule / pack under Atlas Home)
+- Explicit Context Economy v0 update (index / capsule / pack under Atlas Home project storage)
+- Configure Apply is config-only (`.atlas/config.yaml`); Runtime Repair rematerializes runtime files; MCP is preference/config only
 - `atlas --version` as the only normal console output
 
 ### What Atlas does **not** do yet

@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	ApplySuccessTitle        = "Atlas configuration and runtime initialized."
-	ApplySuccessBody         = "Runtime files materialized."
-	ConfigureApplySuccess    = "Configuration changes saved."
-	ConfigureApplyFooterNote = "Close discards unsaved changes. Apply changes writes .atlas/config.yaml."
+	ApplySuccessTitle = "Atlas configuration and runtime initialized."
+	ApplySuccessBody  = "Runtime files materialized."
+	// ConfigureApplySuccess is the short notice title; prefer FormatConfigureNotice for full copy.
+	ConfigureApplySuccess = ConfigureApplySuccessTitle
 )
 
 // Paths Apply must never create, modify, backup, replace, or delete.
@@ -213,36 +213,70 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	}
 	result.Files = append(result.Files, FileState)
 
+	if created, _, docsErr := EnsureProjectDocsScaffold(root, doc.Project.DocsScaffold); docsErr != nil {
+		return ApplyResult{}, fmt.Errorf("apply config: %w", docsErr)
+	} else {
+		result.Files = append(result.Files, created...)
+	}
+
 	return result, nil
 }
 
-// PersistConfigure writes the current draft/MCP state to .atlas/config.yaml only.
-// It does not materialize runtime files and does not store credentials.
-func PersistConfigure(in ApplyInput) error {
+// PersistConfigureResult is the outcome of an explicit Configure Apply.
+type PersistConfigureResult struct {
+	Impact ConfigureImpact
+	Notice string
+}
+
+// PersistConfigure writes the current draft/MCP state to .atlas/config.yaml.
+// It does not rematerialize runtime files and does not store credentials.
+// Optional project docs scaffold may be created once when selected and missing.
+func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 	root := filepath.Clean(strings.TrimSpace(in.Root))
 	if root == "" || root == "." {
-		return fmt.Errorf("persist configure: workspace root is required")
+		return PersistConfigureResult{}, fmt.Errorf("persist configure: workspace root is required")
+	}
+
+	var previous ProjectDocument
+	prevPath := filepath.Join(root, filepath.FromSlash(FileConfig))
+	if prev, err := LoadProjectDocument(prevPath); err == nil {
+		previous = prev
 	}
 
 	doc := BuildProjectDocument(in.Draft, in.MCP)
 	if err := ValidateProjectDocument(doc); err != nil {
-		return fmt.Errorf("persist configure: %w", err)
+		return PersistConfigureResult{}, fmt.Errorf("persist configure: %w", err)
 	}
 	path, err := safeJoinAtlas(root, FileConfig)
 	if err != nil {
-		return err
+		return PersistConfigureResult{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("persist configure: create .atlas: %w", err)
+		return PersistConfigureResult{}, fmt.Errorf("persist configure: create .atlas: %w", err)
 	}
 	data, err := marshalYAML(doc)
 	if err != nil {
-		return fmt.Errorf("persist configure: marshal %s: %w", FileConfig, err)
+		return PersistConfigureResult{}, fmt.Errorf("persist configure: marshal %s: %w", FileConfig, err)
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("persist configure: write %s: %w", FileConfig, err)
+		return PersistConfigureResult{}, fmt.Errorf("persist configure: write %s: %w", FileConfig, err)
 	}
-	return nil
+
+	mcpChanged := previous.MCP.Builtins != doc.MCP.Builtins || len(previous.MCP.Custom) != len(doc.MCP.Custom)
+	impact := AnalyzeConfigureImpact(previous, doc, mcpChanged)
+	created, skipped, docsErr := EnsureProjectDocsScaffold(root, doc.Project.DocsScaffold)
+	if docsErr != nil {
+		return PersistConfigureResult{}, fmt.Errorf("persist configure: %w", docsErr)
+	}
+	impact.DocsCreated = created
+	impact.DocsSkipped = skipped
+	impact.DocsScaffoldSelected = doc.Project.DocsScaffold
+	impact.Lines = impact.NoticeLines()
+
+	return PersistConfigureResult{
+		Impact: impact,
+		Notice: FormatConfigureNotice(impact),
+	}, nil
 }
 
 func validateRuntimeTargets(root string, targets []string) error {

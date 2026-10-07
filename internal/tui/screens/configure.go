@@ -1,6 +1,10 @@
 package screens
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/eshmun84/Atlas-CLI/internal/config"
+)
 
 // ConfigureView renders post-init configuration using ConfigDraft.
 func ConfigureView(view ConfigFormView) string {
@@ -8,7 +12,7 @@ func ConfigureView(view ConfigFormView) string {
 		view.Title = "Configure"
 	}
 	if view.Subtitle == "" {
-		view.Subtitle = "Post-init configuration"
+		view.Subtitle = "Config only — Runtime Repair / Context Economy are separate"
 	}
 	view.ShowBack = true
 	view.ShowNext = true
@@ -19,7 +23,7 @@ func ConfigureView(view ConfigFormView) string {
 		view.NextLabel = "Apply changes"
 	}
 	if view.FooterNote == "" {
-		view.FooterNote = "Close discards unsaved changes. Apply changes writes .atlas/config.yaml."
+		view.FooterNote = config.FormatConfigureFooterNote(view.Draft)
 	}
 	return RenderConfigForm(view)
 }

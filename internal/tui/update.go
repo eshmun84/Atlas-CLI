@@ -286,6 +286,7 @@ func (m Model) handleInitStep1Key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.nameInput.SetValue(m.detectedName)
 		m.nameInput.CursorEnd()
 		m.initModeConfirmed = m.recommendedMode
+		m.initDocsScaffold = false
 		m.initField = screens.InitFieldName
 		m.syncNameInputFocus()
 		m = m.rebuildInitPlan()
@@ -645,15 +646,20 @@ func (m Model) activateConfigFooter() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) applyConfigureChanges() (tea.Model, tea.Cmd) {
-	if err := config.PersistConfigure(config.ApplyInput{
+	result, err := config.PersistConfigure(config.ApplyInput{
 		Root:  m.discovery.RootPath,
 		Draft: m.configDraft,
 		MCP:   m.mcpDraft,
-	}); err != nil {
+	})
+	if err != nil {
 		m.configureNotice = err.Error()
 		return m, nil
 	}
-	m.configureNotice = config.ConfigureApplySuccess
+	m.configureNotice = result.Notice
+	if refreshed, discErr := m.discover(m.discovery.RootPath); discErr == nil {
+		m.discovery = refreshed
+		m.report = doctor.Evaluate(refreshed)
+	}
 	return m, nil
 }
 
@@ -925,6 +931,8 @@ func (m Model) activateInitField() (tea.Model, tea.Cmd) {
 		m.initModeConfirmed = InitModeNew
 	case screens.InitFieldModeExisting:
 		m.initModeConfirmed = InitModeExisting
+	case screens.InitFieldDocsScaffold:
+		m.initDocsScaffold = !m.initDocsScaffold
 	case screens.InitFieldConflictRefresh:
 		return m.refreshInitDiscovery()
 	case screens.InitFieldConflictExit:

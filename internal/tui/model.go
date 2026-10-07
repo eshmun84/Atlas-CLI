@@ -58,6 +58,7 @@ type Model struct {
 	initReviewFooterIdx int
 	initApplied         bool
 	initAcceptHomeReset bool
+	initDocsScaffold    bool
 	nameInput           textinput.Model
 	detectedName        string
 	detectedMode        string
@@ -207,6 +208,7 @@ func (m Model) SidebarIndex() int                       { return m.sidebarIndex 
 func (m Model) ContentOffset() int                      { return m.contentOffset }
 func (m Model) Focus() Focus                            { return m.focus }
 func (m Model) InitModeConfirmed() InitMode             { return m.initModeConfirmed }
+func (m Model) InitDocsScaffold() bool                  { return m.initDocsScaffold }
 func (m Model) DraftName() string                       { return m.nameInput.Value() }
 func (m Model) InitField() int                          { return m.initField }
 func (m Model) InitWizardStep() int                     { return m.initWizardStep }
@@ -294,6 +296,7 @@ func (m Model) initFields() []int {
 		screens.InitFieldName,
 		screens.InitFieldModeNew,
 		screens.InitFieldModeExisting,
+		screens.InitFieldDocsScaffold,
 		screens.InitFieldNext,
 	}
 }
@@ -474,6 +477,7 @@ func (m Model) projectSetupInput() config.ProjectSetupInput {
 		DefaultRemote:          remote,
 		CursorDetected:         cursor,
 		OpenCodeDetected:       opencode,
+		DocsScaffold:           m.initDocsScaffold,
 		ToolGitAvailable:       tools["git"],
 		ToolGHAvailable:        tools["gh"],
 		ToolGlabAvailable:      tools["glab"] || pathToolAvailable("glab"),

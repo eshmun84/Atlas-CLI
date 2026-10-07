@@ -38,6 +38,7 @@ const (
 	InitFieldName = iota
 	InitFieldModeNew
 	InitFieldModeExisting
+	InitFieldDocsScaffold
 	InitFieldConflictRefresh
 	InitFieldConflictExit
 	InitFieldConflictContinue
@@ -61,6 +62,7 @@ type InitView struct {
 	DraftName      string
 	NameInputView  string
 	ModeConfirmed  string
+	DocsScaffold   bool
 	ActiveField    int
 	ContentFocused bool
 }
@@ -96,6 +98,11 @@ func InitPlan(view InitView) string {
 		initModeChoice{InitFieldModeNew, "New Project", view.ModeConfirmed == "new"},
 		initModeChoice{InitFieldModeExisting, "Existing Project", view.ModeConfirmed == "existing"},
 	)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, initSection.Render("Project Docs Scaffold"))
+	writeDocsScaffoldOption(&b, view)
+	fmt.Fprintln(&b, "  "+initMuted.Render("Optional developer-owned docs. Created once; existing docs are not overwritten."))
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, "  "+initMuted.Render("No files are written until Review → Apply."))
@@ -178,6 +185,23 @@ func writeInitModeOptions(b *strings.Builder, view InitView, choices ...initMode
 		}
 	}
 	fmt.Fprintf(b, "  %s\n", strings.Join(parts, "  "))
+}
+
+func writeDocsScaffoldOption(b *strings.Builder, view InitView) {
+	mark := "[ ]"
+	if view.DocsScaffold {
+		mark = "[x]"
+	}
+	line := mark + " Create docs/atlas/README.md"
+	focused := view.ContentFocused && view.ActiveField == InitFieldDocsScaffold
+	switch {
+	case focused:
+		fmt.Fprintln(b, "  "+initSelected.Render("› "+line+" "))
+	case view.DocsScaffold:
+		fmt.Fprintln(b, "  "+initOK.Render(line))
+	default:
+		fmt.Fprintln(b, "  "+initOption.Render(line))
+	}
 }
 
 func writeNameField(b *strings.Builder, view InitView) {

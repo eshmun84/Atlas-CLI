@@ -91,7 +91,7 @@ func writeDoctorMCP(b *strings.Builder, checks []doctor.Check, result workspace.
 	} else {
 		for _, custom := range mcp.Custom {
 			if custom.Enabled {
-				fmt.Fprintf(b, "  %s mcp custom %s: configured · connected NOT IMPLEMENTED\n", docWarn.Render("WARNING"), custom.Name)
+				fmt.Fprintf(b, "  %s mcp custom %s: preference recorded · connected/authenticated/verified NOT IMPLEMENTED\n", docInfo.Render("INFO"), custom.Name)
 			} else {
 				fmt.Fprintf(b, "  %s mcp custom %s: not selected\n", docInfo.Render("INFO"), custom.Name)
 			}
@@ -102,7 +102,7 @@ func writeDoctorMCP(b *strings.Builder, checks []doctor.Check, result workspace.
 
 func writeDoctorMCPLine(b *strings.Builder, name string, enabled bool) {
 	if enabled {
-		fmt.Fprintf(b, "  %s %s: configured · connected NOT IMPLEMENTED\n", docWarn.Render("WARNING"), name)
+		fmt.Fprintf(b, "  %s %s: preference recorded · connected/authenticated/verified NOT IMPLEMENTED\n", docInfo.Render("INFO"), name)
 		return
 	}
 	fmt.Fprintf(b, "  %s %s: not selected\n", docInfo.Render("INFO"), name)
@@ -119,7 +119,7 @@ func doctorSectionFor(name string) string {
 		return "Atlas Configuration"
 	case strings.HasPrefix(name, "atlas home"):
 		return "Atlas Home"
-	case name == "context graph" || name == "context economy":
+	case name == "context graph" || name == "context economy" || name == "codegraph":
 		return "Context"
 	case strings.HasPrefix(name, "adapter") || name == "atlas agents" || name == "agent registry" ||
 		name == "tool cursor" || name == "tool opencode":

@@ -242,6 +242,7 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Statement: "Claude Code and Codex adapters are not materialized."},
 		{Statement: "Atlas Home reset affects only projects/<project-id>/ for this canonical project."},
 		{Statement: "No Git operations. Remotes, branches, and repo files outside Atlas Apply targets stay untouched."},
+		{Statement: "Developer-owned project docs under docs/atlas/ are never overwritten by Runtime Repair."},
 	}
 
 	if platform == config.SourceControlGitGitHub && storage == "versioned" {
@@ -250,16 +251,26 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		plan.GovernanceNote = "Atlas governance files stay Local only. Versioning requires a supported delivery platform (GitHub)."
 	}
 
+	if boolFieldTrue(draft, "project.docs_scaffold") {
+		plan.Creates = append(plan.Creates, PlannedFile{
+			Path:   config.FileProjectDocsREADME,
+			Kind:   "project-docs",
+			Status: "create once if missing (developer-owned; never Runtime Repair)",
+		})
+	}
+
 	plan.Warnings = []PlanWarning{
 		{Message: "Apply is the only mutation step. Status and Doctor remain read-only."},
 		{Message: "Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files."},
 		{Message: "Apply creates/updates Atlas Home (ATLAS_HOME or ~/.atlas) and mirrors bundled Atlas-owned assets."},
+		{Message: "After Init, Configure Apply is config-only — Runtime Repair rematerializes runtime files; Context Economy Update refreshes context."},
 		{Message: "Runtime conflicts block Init and require manual cleanup in this slice."},
-		{Message: "MCP selections are preference recorded only — not connected, authenticated, or verified."},
-		{Message: "Atlas Context Graph is not available in this slice."},
+		{Message: "MCP selections are preference recorded only — not materialized, connected, authenticated, or verified."},
+		{Message: "Context Economy v0 is a separate explicit flow. CodeGraph and Atlas Context Graph are NOT IMPLEMENTED."},
 		{Message: "Init performs no Git operations."},
 		{Message: plan.GitSafetyStatement},
 		{Message: "Secrets and credentials are not stored."},
+		{Message: "Optional project docs scaffold is developer-owned; Runtime Repair never overwrites docs/atlas/."},
 	}
 
 	if len(in.Artifacts) > 0 {
@@ -319,6 +330,15 @@ func fieldValue(draft config.ConfigDraft, key string) string {
 		return ""
 	}
 	return field.Value
+}
+
+func boolFieldTrue(draft config.ConfigDraft, key string) bool {
+	switch strings.ToLower(strings.TrimSpace(fieldValue(draft, key))) {
+	case "true", "1", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func fieldLabel(draft config.ConfigDraft, key string) string {

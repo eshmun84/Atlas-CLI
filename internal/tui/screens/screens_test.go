@@ -55,6 +55,9 @@ func TestInitPlanStep1NoPlanPreview(t *testing.T) {
 		"Project Mode",
 		"[x] Existing Project",
 		"[ ] New Project",
+		"Project Docs Scaffold",
+		"[ ] Create docs/atlas/README.md",
+		"Optional developer-owned docs. Created once; existing docs are not overwritten.",
 		"No files are written until Review → Apply.",
 	} {
 		if !strings.Contains(view, want) {
@@ -65,6 +68,7 @@ func TestInitPlanStep1NoPlanPreview(t *testing.T) {
 		"Project Identity",
 		"Project Detection",
 		"Project name:",
+		"Project Identity From Setup",
 		"Runtime artifact conflict gate",
 		"Accept backup/quarantine and continue Init",
 		"Recommended mode",
@@ -164,7 +168,7 @@ func TestRenderReview(t *testing.T) {
 		"Init performs no Git operations.",
 		"No repository, branch, commit, push, pull request, merge or remote operation",
 		"Runtime conflicts block Init and require manual cleanup",
-		"Atlas Context Graph is not available in this slice.",
+		"Context Economy v0 is a separate explicit flow. CodeGraph and Atlas Context Graph are NOT IMPLEMENTED.",
 		"[content focus]",
 	} {
 		if !strings.Contains(view, want) {
@@ -174,7 +178,6 @@ func TestRenderReview(t *testing.T) {
 	for _, banned := range []string{
 		"Memory:",
 		"Context Economy:",
-		"CodeGraph",
 		"Development & Delivery",
 		"planned for later",
 	} {
@@ -196,7 +199,7 @@ func TestConfigFormFinalSections(t *testing.T) {
 		Title:          "Initial Configuration",
 		Subtitle:       "Step 2 — Initial Configuration",
 		Draft:          draft,
-		SectionIndex:   0,
+		SectionIndex:   0, // Governance
 		FieldIndex:     0,
 		PanelFocus:     screens.ConfigPanelFields,
 		ContentFocused: true,
@@ -395,20 +398,30 @@ func TestConfigureViewFinalSections(t *testing.T) {
 		"Adapters",
 		"Delivery",
 		"MCP",
-		"Close discards unsaved changes. Apply changes writes .atlas/config.yaml.",
+		"Close discards unsaved changes. Apply saves .atlas/config.yaml.",
+		"Runtime files are not repaired or rematerialized automatically.",
+		"Context Economy payloads are not updated automatically.",
+		"Runtime Repair and Update Context are separate flows.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"[ Next ]", "[ Close ]", "Project Stack", "Runtime entrypoint", "Skills / Registry", "Memory", "Development &", "CodeGraph"} {
+	if strings.Contains(view, "writes .atlas/config.yaml only") || strings.Contains(view, "may also create docs/atlas") {
+		t.Fatalf("default Configure footer must stay config-only in meaning:\n%s", view)
+	}
+	for _, banned := range []string{
+		"[ Next ]", "[ Close ]", "Project Stack", "Runtime entrypoint", "Skills / Registry",
+		"Memory", "Development &", "CodeGraph",
+		"Project docs scaffold", "Project Identity", "Create docs/atlas/README.md",
+	} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("unexpected %q:\n%s", banned, view)
 		}
 	}
 	for _, section := range draft.SelectorSections() {
-		if section.Key == "context" {
-			t.Fatal("Configure must not expose Context section")
+		if section.Key == "project" || section.Key == "context" {
+			t.Fatalf("Configure must not expose %s section", section.Key)
 		}
 	}
 	footer := screens.RenderActionFooter(screens.ActionFooterView{
@@ -418,6 +431,42 @@ func TestConfigureViewFinalSections(t *testing.T) {
 	})
 	if !strings.Contains(footer, "[ Close ]") || strings.Contains(footer, "[ Next ]") {
 		t.Fatalf("configure footer should be Close only:\n%s", footer)
+	}
+}
+
+func TestConfigureViewDocsScaffoldFooterHonesty(t *testing.T) {
+	t.Parallel()
+
+	draft := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
+		ProjectName: "demo",
+		ProjectMode: config.ModeExisting,
+	})
+	if !draft.SetValue("project.docs_scaffold", "true") {
+		t.Fatal("enable docs scaffold")
+	}
+	view := screens.ConfigureView(screens.ConfigFormView{
+		Draft: draft,
+		Width: 96,
+	})
+	for _, want := range []string{
+		"Apply saves .atlas/config.yaml.",
+		"docs/atlas/README.md once",
+		"Runtime files are not repaired or rematerialized automatically.",
+		"Context Economy payloads are not updated automatically.",
+		"MCP selections are preference/config only",
+		"Runtime Repair and Update Context are separate flows.",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	for _, banned := range []string{
+		"writes .atlas/config.yaml only",
+		"config.yaml only",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("scaffold footer must not claim config.yaml is the only write (%q):\n%s", banned, view)
+		}
 	}
 }
 

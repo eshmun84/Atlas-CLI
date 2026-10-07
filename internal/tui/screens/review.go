@@ -114,6 +114,13 @@ func RenderReview(view ReviewView) string {
 	}
 	fmt.Fprintln(&b)
 
+	fmt.Fprintln(&b, initSection.Render("Config vs later flows"))
+	fmt.Fprintln(&b, "  "+initMuted.Render("Init Apply writes config and materializes selected runtime files."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("Later Configure Apply is config-only — run Runtime Repair for runtime files."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("Context Economy Update is a separate explicit flow."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("MCP selections are preference/config only until materialization exists."))
+	fmt.Fprintln(&b)
+
 	fmt.Fprintln(&b, initSection.Render("No Git operations"))
 	fmt.Fprintln(&b, "  "+initOK.Render(plan.GitSafetyStatement))
 	fmt.Fprintln(&b)

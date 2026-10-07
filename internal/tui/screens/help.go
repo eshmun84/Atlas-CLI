@@ -31,7 +31,7 @@ These are not Atlas CLI commands.
 
 ` + helpHead.Render("Init wizard") + `
   Preflight  Runtime conflict block (manual cleanup required; Refresh or Exit only)
-  Step 1  Project Setup (New / Existing; no GitFlow ownership)
+  Step 1  Project Setup (Name, New/Existing, optional docs scaffold)
   Step 2  Initial Configuration
             Governance · Adapters · Delivery · MCP
   Step 3  Review / Materialization Plan (Apply writes .atlas/ + compact AGENTS/adapter projections)

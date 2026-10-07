@@ -13,6 +13,8 @@ type ProjectSetupInput struct {
 	DefaultRemote    string
 	CursorDetected   bool
 	OpenCodeDetected bool
+	// DocsScaffold is set on Project Setup (Init Step 1); off by default.
+	DocsScaffold bool
 
 	// Tool availability (LookPath only; never executed).
 	ToolGitAvailable       bool
@@ -86,12 +88,15 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 		Mode: mode,
 		Sections: []ConfigSection{
 			{
+				// Hidden from SelectorSections. Name/mode come from Project Setup;
+				// docs_scaffold is chosen on Project Setup (Init) and persisted for Apply.
 				Key:         "project",
 				Title:       "Project",
-				Description: "Project identity from setup (context only).",
+				Description: "Project identity from setup.",
 				Fields: []ConfigField{
 					field("project.name", "Project name", "", setup.ProjectName, setup.ProjectName, FieldTypeReadonly, nil, FieldReadonly, FieldLocked, true, false),
 					field("project.mode", "Project mode", "", setup.ProjectMode, setup.ProjectMode, FieldTypeReadonly, nil, FieldReadonly, FieldLocked, true, false),
+					field("project.docs_scaffold", "Project docs scaffold", "Optional developer-owned docs. Created once; existing docs are not overwritten.", boolText(setup.DocsScaffold), "false", FieldTypeBool, nil, FieldEditable, FieldEditable, false, false),
 				},
 			},
 			{
@@ -109,7 +114,7 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 			{
 				Key:         "adapters",
 				Title:       "Adapters",
-				Description: "",
+				Description: "Selection is saved to config. Runtime files update only via Init Apply or explicit Runtime Repair — not Configure Apply.",
 				Fields: []ConfigField{
 					adaptersField,
 				},
@@ -127,12 +132,12 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 			{
 				Key:         "mcp",
 				Title:       "MCP",
-				Description: "Preferences only — not connected, authenticated, or verified.",
+				Description: "Preference/config only — not materialized, connected, authenticated, or verified.",
 				Fields:      nil,
 			},
 			{
 				// Hidden from SelectorSections; retained so persist/load keep remote + branch_strategy + memory.
-				// Context is not an Init/Configure decision in Slice 25 (no CodeGraph / Context Graph setup).
+				// Context Economy is a separate explicit flow. CodeGraph and Atlas Context Graph are not Configure choices.
 				Key:         "compat",
 				Title:       "Compatibility",
 				Description: "Internal compatibility fields — not shown in Init/Configure selectors.",
@@ -140,7 +145,7 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 					field("source_control.default_remote", "Default remote", "Not an Init setup decision.", remote, remote, FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 					field("source_control.branch_strategy", "Branch strategy", "Not an Init setup decision. Atlas does not configure GitFlow.", "manual", "manual", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 					field("memory.strategy", "Memory strategy", "Always-on local Atlas-managed memory; not an Init setup choice.", "sqlite_plus_context_capsule", "sqlite_plus_context_capsule", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, true, false),
-					field("context.graph.enabled", "Context Graph preference", "Compatibility preference only; Atlas Context Graph is not available in this slice.", "true", "true", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
+					field("context.graph.enabled", "Atlas Context Graph preference", "Compatibility only. Atlas Context Graph is NOT IMPLEMENTED. Context Economy v0 is the separate file-based flow. CodeGraph is a future external provider, not selectable here.", "true", "true", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 				},
 			},
 		},

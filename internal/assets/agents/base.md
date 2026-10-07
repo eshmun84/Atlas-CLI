@@ -72,4 +72,7 @@ Before broad repository reads, check Context Economy artifacts when present unde
 
 `.atlas/state.yaml` may record only minimal references (`context_economy_*`). Do not expect large context payloads inside the product repo. If capsule/pack/index is missing or stale, say so and recommend an explicit Context Economy update in Atlas TUI. Do not invent capsule/pack contents. Report when capsule/pack was used and when it was not.
 
-Context Graph is a preference/context aid only. Project preference: Context Graph is **{{CONTEXT_GRAPH_STATUS}}** (`context.graph.enabled`). There is no graph engine, database, embeddings index, or semantic search in this slice. Use Context Graph only when Atlas enables or provides it. Do not invent graph context when it is unavailable. Load raw files only when Atlas references and Context Economy surfaces are insufficient for correctness.
+Distinguish context surfaces honestly:
+- **Context Economy v0** — implemented file-based index/capsule/packs under Atlas Home (explicit Update flow).
+- **CodeGraph** — future optional external code-layer provider; not implemented in this slice.
+- **Atlas Context Graph** — future broader graph model; preference only. Project preference: Context Graph is **{{CONTEXT_GRAPH_STATUS}}** (`context.graph.enabled`). There is no graph engine, database, embeddings index, or semantic search in this slice. Do not invent graph or CodeGraph context when unavailable. Load raw files only when Atlas references and Context Economy surfaces are insufficient for correctness.

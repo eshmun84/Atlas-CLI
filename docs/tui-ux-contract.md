@@ -81,16 +81,28 @@ Sections, in order:
 5. **Atlas Runtime** — includes runtime file / marker / lock / contract detail.
 6. **Adapters** — projections and Atlas agent pack health.
 7. **Atlas Home** — path, presence, writability, layout, assets (detail lives here, not as Status primary).
-8. **Context** — Context Graph preference + Context Economy index/capsule/pack state.
-9. **MCP / External Context** — configured vs connected (connected stays `NOT IMPLEMENTED` in Alpha).
+8. **Context** — Context Economy v0 (implemented, file-based) separately from Atlas Context Graph preference (`NOT IMPLEMENTED`) and CodeGraph (`NOT IMPLEMENTED` future provider).
+9. **MCP / External Context** — preference recorded / configured vs connected/authenticated/verified (`NOT IMPLEMENTED` in Alpha).
 
 Doctor remains read-only and never repairs.
+
+## Configure (Slice 27)
+
+- Configure / Init Step 2 sections: Governance, Adapters, Delivery, MCP (no standalone Project screen).
+- Optional **Project Docs Scaffold** is chosen on Init Project Setup only (not repeated on Configure).
+- Configure Apply writes `.atlas/config.yaml` (and may create optional `docs/atlas/README.md` once when selected and missing).
+- Configure Apply does **not** rematerialize runtime files.
+- Adapter/runtime impact requires explicit **Runtime Repair**.
+- Context payload refresh requires explicit **Context Economy** Update.
+- MCP selections are preference/config only until materialization/auth/verification exists.
+- Optional project docs scaffold is developer-owned, off by default, never overwritten by Runtime Repair.
+- Context Economy v0 ≠ CodeGraph ≠ Atlas Context Graph.
 
 ## Init Setup (Slice 25+)
 
 Init configures governed runtime, adapters, governance, and delivery assistance. It does not imply Atlas owns GitFlow or repository lifecycle.
 
-- Project Setup: Project Name + New vs Existing (no Recommended mode); Project Mode uses `[x]` / `[ ]` markers like the rest of Init.
+- Project Setup: Project Name + New vs Existing (no Recommended mode); Project Mode uses `[x]` / `[ ]` markers like the rest of Init; optional Project Docs Scaffold (`[ ] Create docs/atlas/README.md`) below Project Mode.
 - Runtime conflicts (AGENTS.md, AGENT.md, CLAUDE.md, GEMINI.md, `.cursor/`, `.opencode/`, `.claude/`, `.agents/`, `.codex/`) show a blocking preflight before Project Setup. Refresh / Re-check is read-only rescan only. While conflicts remain, Exit / Back is the other action. After a clean re-check, Continue to Setup enters Project Setup — no silent overwrite or Init-time backup/quarantine.
 - Adapters: Cursor and OpenCode only; Available when the runtime tool is on PATH; unavailable rows are visible but disabled.
 - Delivery: Platform, Governance files, Assisted operations only. Versioned only when GitHub is selected. No tools diagnostics or Git ops on this screen.

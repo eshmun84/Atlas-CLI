@@ -20,13 +20,16 @@ func RenderContextEconomy(view ContextEconomyView) string {
 	plan := view.Plan
 	var b strings.Builder
 
-	title := initTitle.Render("Context Economy") + "  " + initMuted.Render("Index · Capsule · Pack")
+	title := initTitle.Render("Context Economy") + "  " + initMuted.Render("v0 · Index · Capsule · Pack")
 	if view.ContentFocused {
 		title += "  " + initFocus.Render("[content focus]")
 	} else {
 		title += "  " + initMuted.Render("[sidebar focus]")
 	}
 	fmt.Fprintln(&b, title)
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "  "+initMuted.Render("Implemented file-based Context Economy v0 under Atlas Home."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("Not CodeGraph. Not Atlas Context Graph (both NOT IMPLEMENTED)."))
 	fmt.Fprintln(&b)
 
 	if view.Applied {
@@ -103,5 +106,6 @@ func RenderContextEconomy(view ContextEconomyView) string {
 	fmt.Fprintln(&b, initMuted.Render("Writes under Atlas Home projects/<id>/context/ plus minimal .atlas/state.yaml refs."))
 	fmt.Fprintln(&b, initMuted.Render("Status/Doctor never create index, capsule, or packs."))
 	fmt.Fprintln(&b, initMuted.Render("Runtime Repair does not delete or rewrite Context Economy payloads."))
+	fmt.Fprintln(&b, initMuted.Render("Configure Apply does not refresh Context Economy — use this explicit Update flow."))
 	return strings.TrimRight(b.String(), "\n")
 }

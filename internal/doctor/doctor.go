@@ -402,9 +402,14 @@ func evaluateRuntime(h workspace.RuntimeHealth) []Check {
 			checks = append(checks, Check{
 				Severity: SeverityPass,
 				Name:     "context graph",
-				Message:  "preference readable (" + pref + "); engine absence expected",
+				Message:  "Atlas Context Graph preference (" + pref + "); engine NOT IMPLEMENTED",
 			})
 		}
+		checks = append(checks, Check{
+			Severity: SeverityPass,
+			Name:     "codegraph",
+			Message:  "NOT IMPLEMENTED (future optional external provider)",
+		})
 	}
 
 	checks = append(checks, evaluateContextEconomy(h)...)
@@ -489,7 +494,7 @@ func evaluateContextEconomy(h workspace.RuntimeHealth) []Check {
 		return []Check{{
 			Severity: SeverityPass,
 			Name:     "context economy",
-			Message:  "present",
+			Message:  "present (v0 file-based under Atlas Home)",
 		}}
 	default:
 		return []Check{{

@@ -516,6 +516,31 @@ func TestApplyRuntimeRepair_DoesNotTouchDeveloperAgents(t *testing.T) {
 	assertDoctorRuntimeReady(t, root)
 }
 
+func TestApplyRuntimeRepair_PreservesProjectDocsScaffold(t *testing.T) {
+	root := materializeProject(t, []string{"cursor"}, true)
+	docsPath := filepath.Join(root, filepath.FromSlash(config.FileProjectDocsREADME))
+	if err := os.MkdirAll(filepath.Dir(docsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(docsPath, []byte("project owned docs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	for _, target := range plan.Targets {
+		if strings.HasPrefix(target.Path, "docs/") {
+			t.Fatalf("repair must not target project docs: %#v", plan.Targets)
+		}
+	}
+	_ = applyRepair(t, root, plan.Signature(), nil)
+	got, err := os.ReadFile(docsPath)
+	if err != nil || string(got) != "project owned docs\n" {
+		t.Fatalf("project docs mutated: %q err=%v", got, err)
+	}
+}
+
 func TestApplyRuntimeRepair_RestoresSDDOpenSpecContract(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
 	external := filepath.Join(root, ".cursor", "agents", "external-helper.md")

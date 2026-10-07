@@ -31,6 +31,13 @@ func TestBuildConfigDraft_VisibleSectionsAndDefaults(t *testing.T) {
 	if selector[2].Title != "Delivery" {
 		t.Fatalf("source_control title = %q, want Delivery", selector[2].Title)
 	}
+	if _, ok := draft.FieldByKey("project.docs_scaffold"); !ok {
+		t.Fatal("project.docs_scaffold must remain in draft for persist")
+	}
+	docs, _ := draft.FieldByKey("project.docs_scaffold")
+	if docs.Value != "false" {
+		t.Fatalf("docs scaffold default = %q, want false", docs.Value)
+	}
 	for _, banned := range []string{"stack", "runtime", "skills", "technologies", "compat", "memory", "context"} {
 		for _, section := range selector {
 			if section.Key == banned {

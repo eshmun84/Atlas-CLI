@@ -34,8 +34,9 @@ type ProjectDocument struct {
 
 // ProjectPersist is the persisted project identity.
 type ProjectPersist struct {
-	Name string `yaml:"name"`
-	Mode string `yaml:"mode"`
+	Name         string `yaml:"name"`
+	Mode         string `yaml:"mode"`
+	DocsScaffold bool   `yaml:"docs_scaffold,omitempty"` // optional developer-owned docs/atlas scaffold
 }
 
 // GovernancePersist is the persisted governance section.
@@ -203,8 +204,9 @@ func BuildProjectDocument(draft ConfigDraft, mcp MCPDraft) ProjectDocument {
 
 	return ProjectDocument{
 		Project: ProjectPersist{
-			Name: draft.ProjectName(),
-			Mode: PersistProjectMode(draft.ProjectMode()),
+			Name:         draft.ProjectName(),
+			Mode:         PersistProjectMode(draft.ProjectMode()),
+			DocsScaffold: boolField(draft, "project.docs_scaffold", false),
 		},
 		Governance: GovernancePersist{
 			Workflow:         fieldValueOr(draft, "governance.default_workflow", WorkflowSDD),
@@ -395,6 +397,7 @@ func ApplyProjectDocument(draft *ConfigDraft, doc ProjectDocument) {
 	}
 	setDraftValue(draft, "project.name", doc.Project.Name)
 	setDraftValue(draft, "project.mode", NormalizeProjectMode(doc.Project.Mode))
+	setDraftValue(draft, "project.docs_scaffold", boolText(doc.Project.DocsScaffold))
 	setDraftValue(draft, "governance.default_workflow", doc.Governance.Workflow)
 	setDraftValue(draft, "governance.spec_engine", doc.Governance.SpecEngine)
 	setDraftValue(draft, "governance.testing_required", boolText(doc.Governance.TestingRequired))

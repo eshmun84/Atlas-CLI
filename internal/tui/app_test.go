@@ -111,10 +111,19 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 		"Project:",
 		"[ Close ]",
 		"[ Apply changes ]",
-		"Close discards unsaved changes. Apply changes writes .atlas/config.yaml.",
+		"Close discards unsaved changes. Apply saves .atlas/config.yaml.",
+		"Runtime Repair and Update Context are separate flows.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("configure missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "writes .atlas/config.yaml only") || strings.Contains(view, "may also create docs/atlas") {
+		t.Fatalf("default Configure footer must stay config-only in meaning:\n%s", view)
+	}
+	for _, banned := range []string{"Project docs scaffold", "Create docs/atlas/README.md", "Project Identity"} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("configure must not show Project screen content %q:\n%s", banned, view)
 		}
 	}
 	for _, banned := range []string{"[ Next ]", "Runtime entrypoint", "Skills / Registry", "Project Stack", "Memory", "Development &", "CodeGraph"} {
@@ -168,7 +177,8 @@ func TestConfigureMCPLoadsAndEditsInMemory(t *testing.T) {
 		"Internal Docs",
 		"[ Add MCP ]",
 		"[ Apply changes ]",
-		"Close discards unsaved changes. Apply changes writes .atlas/config.yaml.",
+		"Close discards unsaved changes. Apply saves .atlas/config.yaml.",
+		"Runtime Repair and Update Context are separate flows.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("configure mcp missing %q:\n%s", want, view)
@@ -334,11 +344,17 @@ func TestConfigureApplyChangesPersistsMCP(t *testing.T) {
 
 	m = gotoInitFooterAction(t, m, true) // Apply changes
 	m = mustModel(m.Update(key("enter")))
-	if m.ConfigureNotice() != "Configuration changes saved." {
+	if !strings.Contains(m.ConfigureNotice(), "Configuration changes are saved to .atlas/config.yaml.") {
 		t.Fatalf("notice = %q", m.ConfigureNotice())
 	}
-	if !strings.Contains(m.View(), "Configuration changes saved.") {
+	if !strings.Contains(m.View(), "Configuration changes are saved to .atlas/config.yaml.") {
 		t.Fatalf("missing saved notice in view:\n%s", m.View())
+	}
+	if !strings.Contains(m.View(), "Runtime files are not repaired automatically.") {
+		t.Fatalf("missing config-only honesty:\n%s", m.View())
+	}
+	if !strings.Contains(m.View(), "MCP selections record preferences") {
+		t.Fatalf("missing MCP honesty:\n%s", m.View())
 	}
 	if !strings.Contains(m.View(), "[ Apply changes ]") || !strings.Contains(m.View(), "[ Close ]") {
 		t.Fatalf("missing configure actions:\n%s", m.View())
@@ -1240,12 +1256,20 @@ func TestInitFocusNameModeKeyboard(t *testing.T) {
 	}
 	// Up/down must not move between horizontal mode options.
 	m = mustModel(m.Update(key("down")))
+	if m.InitField() != screens.InitFieldDocsScaffold {
+		t.Fatalf("down from mode = %d, want docs scaffold", m.InitField())
+	}
+	m = mustModel(m.Update(key("down")))
 	if m.InitField() != screens.InitFieldNext {
-		t.Fatalf("down from mode = %d, want Next (not peer mode)", m.InitField())
+		t.Fatalf("down from docs scaffold = %d, want Next", m.InitField())
+	}
+	m = mustModel(m.Update(key("up")))
+	if m.InitField() != screens.InitFieldDocsScaffold {
+		t.Fatalf("up from Next = %d, want docs scaffold", m.InitField())
 	}
 	m = mustModel(m.Update(key("up")))
 	if m.InitField() != screens.InitFieldModeExisting {
-		t.Fatalf("up from Next = %d, want mode existing", m.InitField())
+		t.Fatalf("up from docs scaffold = %d, want mode existing", m.InitField())
 	}
 	m = mustModel(m.Update(key("up")))
 	if m.InitField() != screens.InitFieldName {
@@ -1286,10 +1310,31 @@ func TestInitFocusNameModeKeyboard(t *testing.T) {
 	if !strings.Contains(view, "[x] New Project") || !strings.Contains(view, "[ ] Existing Project") {
 		t.Fatalf("mode markers missing:\n%s", view)
 	}
+	if !strings.Contains(view, "Project Docs Scaffold") || !strings.Contains(view, "[ ] Create docs/atlas/README.md") {
+		t.Fatalf("docs scaffold missing on Project Setup:\n%s", view)
+	}
+
+	m = mustModel(m.Update(key("down"))) // docs scaffold
+	if m.InitField() != screens.InitFieldDocsScaffold {
+		t.Fatalf("field = %d, want docs scaffold", m.InitField())
+	}
+	if m.InitDocsScaffold() {
+		t.Fatal("docs scaffold must be off by default")
+	}
+	m = mustModel(m.Update(key("enter")))
+	if !m.InitDocsScaffold() {
+		t.Fatal("enter should enable docs scaffold")
+	}
+	if !strings.Contains(m.View(), "[x] Create docs/atlas/README.md") {
+		t.Fatalf("docs scaffold not marked selected:\n%s", m.View())
+	}
 
 	m = mustModel(m.Update(key("r")))
 	if m.DraftName() != baseName || m.InitModeConfirmed() != tui.InitModeExisting {
 		t.Fatalf("reset failed: name=%q mode=%q", m.DraftName(), m.InitModeConfirmed())
+	}
+	if m.InitDocsScaffold() {
+		t.Fatal("reset must clear docs scaffold")
 	}
 	assertNoMutation(t, root)
 
@@ -1320,6 +1365,8 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		"Project Mode",
 		"[x] Existing Project",
 		"[ ] New Project",
+		"Project Docs Scaffold",
+		"[ ] Create docs/atlas/README.md",
 		"Next",
 	} {
 		if !strings.Contains(view, want) {
@@ -1330,6 +1377,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		"Project Identity",
 		"Project Detection",
 		"Project name:",
+		"Project Identity From Setup",
 		"Runtime artifact conflict gate",
 		"Do not initialize Atlas",
 		"Accept backup/quarantine and continue Init",
@@ -1395,7 +1443,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	if len(selector) != 4 {
 		t.Fatalf("selector sections = %d, want 4", len(selector))
 	}
-	if selector[3].Key != "mcp" {
+	if selector[0].Key != "governance" || selector[3].Key != "mcp" {
 		t.Fatalf("sections = %#v", selector)
 	}
 	for _, section := range selector {
@@ -1409,6 +1457,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	assertActionNearFooter(t, view)
 
 	// Governance: arrows never mutate; Space/Enter selects Spec engine.
+	m = gotoConfigSection(t, m, "governance")
 	m = mustModel(m.Update(key("enter")))
 	workflow, _ := m.ConfigDraft().FieldByKey("governance.default_workflow")
 	if workflow.Value != "sdd" {
@@ -1684,11 +1733,20 @@ func gotoInitReview(t *testing.T, m tui.Model) tui.Model {
 
 func reviewVisibleText(t *testing.T, m tui.Model) (tui.Model, string) {
 	t.Helper()
-	top := m.View()
-	m = mustModel(m.Update(key("end")))
-	bottom := m.View()
+	var pages []string
+	seen := map[string]struct{}{}
 	m = mustModel(m.Update(key("home")))
-	return m, top + "\n" + bottom
+	for i := 0; i < 40; i++ {
+		page := m.View()
+		if _, ok := seen[page]; ok {
+			break
+		}
+		seen[page] = struct{}{}
+		pages = append(pages, page)
+		m = mustModel(m.Update(key("pgdown")))
+	}
+	m = mustModel(m.Update(key("home")))
+	return m, strings.Join(pages, "\n")
 }
 
 func TestInitReviewPlanContentAndApply(t *testing.T) {
@@ -1734,7 +1792,9 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		"No repository, branch, commit, push, pull request, merge or remote operation",
 		"Repository creation requires explicit request.",
 		"Runtime conflicts block Init and require manual cleanup",
-		"Atlas Context Graph is not available in this slice.",
+		"Context Economy v0 is a separate explicit flow",
+		"CodeGraph and Atlas Context Graph are NOT",
+		"IMPLEMENTED",
 		"Secrets and credentials are not stored.",
 		"Apply is the only mutation step",
 		"create/update on Apply",
@@ -1745,7 +1805,7 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 			t.Fatalf("review missing %q:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"Memory:", "Context Economy:", "CodeGraph", "Development & Delivery"} {
+	for _, banned := range []string{"Memory:", "Context Economy:", "Development & Delivery"} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("review unexpected %q:\n%s", banned, view)
 		}

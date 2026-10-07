@@ -191,11 +191,11 @@ func writeStatusMCP(b *strings.Builder, result workspace.DiscoveryResult) {
 		fmt.Fprintf(b, "  Custom MCP: %s\n", statusNo.Render("none"))
 	} else {
 		for _, custom := range mcp.Custom {
-			state := "configured"
+			state := "preference recorded"
 			if !custom.Enabled {
 				state = "not selected"
 			}
-			fmt.Fprintf(b, "  Custom %s: %s · %s\n", custom.Name, statusYes.Render(state), statusInfo.Render("connected NOT IMPLEMENTED"))
+			fmt.Fprintf(b, "  Custom %s: %s · %s\n", custom.Name, statusYes.Render(state), statusInfo.Render("connected/authenticated/verified NOT IMPLEMENTED"))
 		}
 	}
 	fmt.Fprintf(b, "  Credentials / auth: %s\n", statusInfo.Render("NOT IMPLEMENTED"))
@@ -262,7 +262,7 @@ func statusResultStyle(report doctor.Report) lipgloss.Style {
 
 func writeMCPBuiltin(b *strings.Builder, name string, enabled bool) {
 	if enabled {
-		fmt.Fprintf(b, "  %s: %s · %s\n", name, statusYes.Render("configured"), statusInfo.Render("connected NOT IMPLEMENTED"))
+		fmt.Fprintf(b, "  %s: %s · %s\n", name, statusYes.Render("preference recorded"), statusInfo.Render("connected/authenticated/verified NOT IMPLEMENTED"))
 		return
 	}
 	fmt.Fprintf(b, "  %s: %s\n", name, statusNo.Render("not selected"))

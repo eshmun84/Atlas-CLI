@@ -298,7 +298,8 @@ func TestEvaluate_ContextGraphEnabledWithoutEngineIsPass(t *testing.T) {
 	rt.ContextGraphEnabled = true
 
 	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
-	assertHas(t, report, doctor.SeverityPass, "context graph", "preference readable (enabled); engine absence expected")
+	assertHas(t, report, doctor.SeverityPass, "context graph", "Atlas Context Graph preference (enabled); engine NOT IMPLEMENTED")
+	assertHas(t, report, doctor.SeverityPass, "codegraph", "NOT IMPLEMENTED (future optional external provider)")
 	for _, check := range report.Checks {
 		if check.Name == "context graph" && check.Severity != doctor.SeverityPass {
 			t.Fatalf("context graph must not warn/fail: %#v", check)
