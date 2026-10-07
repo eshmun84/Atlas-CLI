@@ -66,7 +66,7 @@ Sections, in order:
 5. **Adapters** — selected adapters and high-level projection health (`selected` / `materialized` / `missing` / `NOT SELECTED` for inactive adapters).
 6. **Governance Tools** — workflow/spec-engine preferences and OpenSpec CLI availability (`NOT IMPLEMENTED` where Atlas does not run OpenSpec).
 7. **MCP / External Context** — configured MCP entries as preferences only; connection/auth remain `NOT IMPLEMENTED`.
-8. **Health** — compact PASS/WARNING/ERROR rollup, Atlas Home presence (not path-primary), Context Economy state, suggested next action.
+8. **Health** — PASS/WARNING/ERROR counts and result label from the same `doctor.Evaluate` summary as Doctor, optional compact “Needs attention” list (top warnings/errors only), Atlas Home presence (not path-primary), Context Economy state, suggested next action. Status must not show a clean PASS when Doctor has warnings or errors.
 
 Status must **not** list full runtime artifact inventories (those belong in Doctor / Runtime Repair).
 

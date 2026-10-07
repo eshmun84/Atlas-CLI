@@ -1,11 +1,16 @@
 package screens_test
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
@@ -476,5 +481,163 @@ func TestStatusEmptyRemoteIsNone(t *testing.T) {
 	}
 	if strings.Contains(view, "Default remote: unknown") || strings.Contains(view, "Remote URL: unknown") {
 		t.Fatalf("empty git remote fields must display as none:\n%s", view)
+	}
+}
+
+func TestStatusHealthMatchesDoctorReport(t *testing.T) {
+	t.Parallel()
+
+	result := workspace.DiscoveryResult{
+		RootPath: "/tmp/existing-demo",
+		Git: workspace.GitInfo{
+			IsRepo:        true,
+			CurrentBranch: "main",
+		},
+		Files: workspace.FileInfo{HasReadme: true},
+		Atlas: workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
+		Runtime: workspace.RuntimeHealth{
+			ConfigExists: false,
+			Home: home.Status{
+				Path:           "/tmp/atlas-home-incomplete",
+				Exists:         true,
+				Writable:       true,
+				LayoutComplete: false,
+				MissingAssets:  []string{"agents/base.md", "contracts/sdd-openspec.md"},
+			},
+		},
+		Tools: []workspace.ToolInfo{
+			{Name: "git", Available: true},
+			{Name: "openspec", Available: false},
+		},
+	}
+	report := doctor.Evaluate(result)
+	pass, warn, fail := report.Counts()
+	if warn == 0 {
+		t.Fatalf("fixture must produce doctor warnings; report=%#v", report.Checks)
+	}
+
+	status := stripANSI(screens.StatusWithReport(result, report))
+	docView := stripANSI(screens.Doctor(report, result))
+
+	statusPass, statusWarn, statusFail := parseHealthCounts(t, status)
+	docPass, docWarn, docFail := parseHealthCounts(t, docView)
+	if statusPass != pass || statusWarn != warn || statusFail != fail {
+		t.Fatalf("status counts=%d/%d/%d want doctor %d/%d/%d\n%s", statusPass, statusWarn, statusFail, pass, warn, fail, status)
+	}
+	if docPass != pass || docWarn != warn || docFail != fail {
+		t.Fatalf("doctor view counts=%d/%d/%d want %d/%d/%d\n%s", docPass, docWarn, docFail, pass, warn, fail, docView)
+	}
+	if statusWarn == 0 {
+		t.Fatalf("status must not show WARNING 0 when doctor has warnings:\n%s", status)
+	}
+	if !strings.Contains(status, report.ResultLabel()) {
+		t.Fatalf("status missing result label %q:\n%s", report.ResultLabel(), status)
+	}
+	if report.ResultLabel() != "ready with warnings" {
+		t.Fatalf("result label = %q, want ready with warnings", report.ResultLabel())
+	}
+	if !strings.Contains(status, "Needs attention:") {
+		t.Fatalf("status missing compact Needs attention list:\n%s", status)
+	}
+	// Status stays executive: no full Doctor section dump.
+	if strings.Contains(status, "Overall Health") {
+		t.Fatalf("status must not duplicate Doctor Overall Health section:\n%s", status)
+	}
+}
+
+func TestStatusHealthMatchesDoctorLiveWorkspace(t *testing.T) {
+	t.Setenv("ATLAS_HOME", t.TempDir()) // missing/incomplete home; never touch ~/.atlas
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotTree(t, root)
+
+	result, err := workspace.Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := doctor.Evaluate(result)
+	_, warn, _ := report.Counts()
+	if warn == 0 {
+		t.Fatalf("uninitialized existing project should warn; checks=%#v", report.Checks)
+	}
+
+	status := stripANSI(screens.Status(result))
+	docView := stripANSI(screens.Doctor(report, result))
+	statusPass, statusWarn, statusFail := parseHealthCounts(t, status)
+	docPass, docWarn, docFail := parseHealthCounts(t, docView)
+	if statusPass != docPass || statusWarn != docWarn || statusFail != docFail {
+		t.Fatalf("status=%d/%d/%d doctor=%d/%d/%d", statusPass, statusWarn, statusFail, docPass, docWarn, docFail)
+	}
+	if statusWarn == 0 {
+		t.Fatal("status WARNING count must mirror doctor warnings")
+	}
+	if !strings.Contains(status, "ready with warnings") {
+		t.Fatalf("status missing ready with warnings:\n%s", status)
+	}
+	assertTreeUnchanged(t, root, before)
+}
+
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string {
+	return ansiEscape.ReplaceAllString(s, "")
+}
+
+func parseHealthCounts(t *testing.T, view string) (pass, warn, fail int) {
+	t.Helper()
+	// Status: "PASS: N   WARNING: N   ERROR: N"
+	// Doctor: "PASS: N" / "WARNING: N" / "ERROR: N" on separate lines.
+	re := regexp.MustCompile(`PASS:\s*(\d+)[\s\S]*?WARNING:\s*(\d+)[\s\S]*?ERROR:\s*(\d+)`)
+	m := re.FindStringSubmatch(view)
+	if len(m) != 4 {
+		t.Fatalf("could not parse health counts from view:\n%s", view)
+	}
+	pass, _ = strconv.Atoi(m[1])
+	warn, _ = strconv.Atoi(m[2])
+	fail, _ = strconv.Atoi(m[3])
+	return pass, warn, fail
+}
+
+func snapshotTree(t *testing.T, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			out[rel+"/"] = "dir"
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		out[rel] = string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func assertTreeUnchanged(t *testing.T, root string, before map[string]string) {
+	t.Helper()
+	after := snapshotTree(t, root)
+	if len(before) != len(after) {
+		t.Fatalf("tree size changed: before=%d after=%d", len(before), len(after))
+	}
+	for path, content := range before {
+		if after[path] != content {
+			t.Fatalf("mutated %s", path)
+		}
 	}
 }

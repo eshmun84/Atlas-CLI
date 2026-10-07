@@ -198,7 +198,8 @@ func (m Model) rawContent() string {
 			MCP:            m.mcpView(),
 		})
 	case RouteStatus:
-		return screens.Status(m.discovery)
+		// Use the same doctor.Report snapshot as Doctor so Health counts match.
+		return screens.StatusWithReport(m.discovery, m.report)
 	case RouteDoctor:
 		return screens.Doctor(m.report, m.discovery)
 	case RouteRuntimeRepair:

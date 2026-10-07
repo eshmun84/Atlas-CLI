@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
+	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
@@ -22,10 +23,19 @@ var (
 )
 
 // Status renders the read-only executive project overview (default landing).
+// Health counts are derived from doctor.Evaluate so they match Doctor.
 func Status(result workspace.DiscoveryResult) string {
+	return StatusWithReport(result, doctor.Evaluate(result))
+}
+
+// StatusWithReport renders Status using an existing diagnostics report.
+// Callers (TUI shell) should pass the same report snapshot shown on Doctor.
+// If report has no checks, Status falls back to doctor.Evaluate(result).
+func StatusWithReport(result workspace.DiscoveryResult, report doctor.Report) string {
+	if len(report.Checks) == 0 {
+		report = doctor.Evaluate(result)
+	}
 	var b strings.Builder
-	rt := result.Runtime
-	doc := rt.Document
 
 	fmt.Fprintln(&b, statusHead.Render("Atlas Status"))
 	fmt.Fprintln(&b, statusNo.Render("Executive overview · read-only"))
@@ -38,7 +48,7 @@ func Status(result workspace.DiscoveryResult) string {
 	writeStatusAdapters(&b, result)
 	writeStatusGovernance(&b, result)
 	writeStatusMCP(&b, result)
-	writeStatusHealth(&b, result, doc.Project.Name != "")
+	writeStatusHealth(&b, result, report)
 
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -192,18 +202,62 @@ func writeStatusMCP(b *strings.Builder, result workspace.DiscoveryResult) {
 	fmt.Fprintln(b)
 }
 
-func writeStatusHealth(b *strings.Builder, result workspace.DiscoveryResult, _ bool) {
+func writeStatusHealth(b *strings.Builder, result workspace.DiscoveryResult, report doctor.Report) {
 	rt := result.Runtime
+	pass, warn, errn := report.Counts()
 	fmt.Fprintln(b, statusHead.Render("Health"))
-	pass, warn, errn := statusHealthCounts(result)
 	fmt.Fprintf(b, "  PASS: %s   WARNING: %s   ERROR: %s\n",
 		statusYes.Render(fmt.Sprintf("%d", pass)),
 		statusWarn.Render(fmt.Sprintf("%d", warn)),
 		statusFail.Render(fmt.Sprintf("%d", errn)),
 	)
+	fmt.Fprintf(b, "  Result: %s\n", statusResultStyle(report).Render(report.ResultLabel()))
+	if attention := statusNeedsAttention(report, 5); len(attention) > 0 {
+		fmt.Fprintln(b, "  Needs attention:")
+		for _, line := range attention {
+			fmt.Fprintf(b, "    - %s\n", line)
+		}
+	}
 	fmt.Fprintf(b, "  Atlas Home: %s\n", homePresenceLabel(rt))
 	fmt.Fprintf(b, "  Context Economy: %s\n", contextEconomyStatus(rt))
 	fmt.Fprintf(b, "  Suggested next action: %s\n", statusAct.Render(suggestedAction(result)))
+}
+
+// statusNeedsAttention returns a compact list of WARNING/ERROR findings for Status.
+// Full diagnostic detail stays on Doctor.
+func statusNeedsAttention(report doctor.Report, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	var out []string
+	for _, check := range report.Checks {
+		switch check.Severity {
+		case doctor.SeverityWarn, doctor.SeverityFail:
+			label := "WARNING"
+			style := statusWarn
+			if check.Severity == doctor.SeverityFail {
+				label = "ERROR"
+				style = statusFail
+			}
+			out = append(out, style.Render(label)+" "+check.Name+": "+check.Message)
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func statusResultStyle(report doctor.Report) lipgloss.Style {
+	_, warnings, failed := report.Counts()
+	switch {
+	case failed > 0:
+		return statusFail
+	case warnings > 0:
+		return statusWarn
+	default:
+		return statusYes
+	}
 }
 
 func writeMCPBuiltin(b *strings.Builder, name string, enabled bool) {
@@ -386,33 +440,6 @@ func homePresenceLabel(rt workspace.RuntimeHealth) string {
 	default:
 		return statusYes.Render("present")
 	}
-}
-
-func statusHealthCounts(result workspace.DiscoveryResult) (pass, warn, errn int) {
-	rt := result.Runtime
-	if result.RootPath != "" {
-		pass++
-	}
-	if result.Git.IsRepo {
-		pass++
-	} else {
-		warn++
-	}
-	if rt.Initialized && rt.ConfigLoads && rt.RuntimeMaterialized && rt.AgentsExists && rt.AgentsMarkers.Complete() {
-		pass++
-	} else if rt.Initialized {
-		if !rt.ConfigLoads || (rt.RuntimeMaterialized && !rt.AgentsExists) {
-			errn++
-		} else {
-			warn++
-		}
-	}
-	if rt.Home.Exists {
-		pass++
-	} else if rt.Initialized {
-		warn++
-	}
-	return pass, warn, errn
 }
 
 func displayOrDash(v string) string {

@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/tui"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
@@ -1002,6 +1003,11 @@ func TestShellViews(t *testing.T) {
 	})
 	assertShell(t, status.View(), "Atlas Status")
 	assertGlobalTopGap(t, status.View())
+	discovered, err := workspace.Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusContent := screens.Status(discovered)
 	for _, want := range []string{
 		"Workspace",
 		"Atlas Runtime",
@@ -1011,12 +1017,13 @@ func TestShellViews(t *testing.T) {
 		"Governance Tools",
 		"MCP / External Context",
 		"Health",
+		"Result:",
 		"Suggested next action",
 		"Bubble Tea",
 		"go toolchain",
 	} {
-		if !strings.Contains(status.View(), want) {
-			t.Fatalf("status missing %q:\n%s", want, status.View())
+		if !strings.Contains(statusContent, want) {
+			t.Fatalf("status missing %q:\n%s", want, statusContent)
 		}
 	}
 	assertNoMutation(t, root)
@@ -1032,9 +1039,10 @@ func TestShellViews(t *testing.T) {
 		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
 	})
 	assertShell(t, doc.View(), "Atlas Doctor")
+	doctorContent := screens.Doctor(doctor.Evaluate(discovered), discovered)
 	for _, want := range []string{"Overall Health", "WARNING", "Atlas Runtime", "Adapters"} {
-		if !strings.Contains(doc.View(), want) {
-			t.Fatalf("doctor missing %q:\n%s", want, doc.View())
+		if !strings.Contains(doctorContent, want) {
+			t.Fatalf("doctor missing %q:\n%s", want, doctorContent)
 		}
 	}
 	assertNoMutation(t, root)
