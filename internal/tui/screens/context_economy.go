@@ -28,8 +28,8 @@ func RenderContextEconomy(view ContextEconomyView) string {
 	}
 	fmt.Fprintln(&b, title)
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "  "+initMuted.Render("Implemented file-based Context Economy v0 under Atlas Home."))
-	fmt.Fprintln(&b, "  "+initMuted.Render("Not CodeGraph. Not Atlas Context Graph (both NOT IMPLEMENTED)."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("Context Economy v0: implemented, file-based, explicit Update under Atlas Home."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("CodeGraph and Atlas Context Graph: NOT IMPLEMENTED."))
 	fmt.Fprintln(&b)
 
 	if view.Applied {

@@ -55,19 +55,13 @@ const FileProjectDocsREADME = "docs/atlas/README.md"
 // ProjectDocsScaffoldContent is the template written once when scaffold is selected.
 const ProjectDocsScaffoldContent = `# Project documentation (Atlas scaffold)
 
-This folder is **project-owned** documentation. It is versionable with your repository.
+This folder is **project-owned**, versionable documentation.
 
-Atlas will **not** overwrite these files during Runtime Repair or normal Configure Apply
-(except the first optional create when this scaffold is selected and the file is missing).
+Atlas will **not** overwrite it during Runtime Repair. Configure Apply creates
+docs/atlas/README.md only once when selected and missing.
 
-Use this space for:
-- architecture notes
-- decisions and ADRs
-- delivery / verification evidence
-- onboarding notes for contributors
-
-Atlas framework docs stay in the Atlas CLI repository. Do not expect Atlas to dump
-framework documentation into this project.
+Add architecture notes, decisions, delivery evidence, or onboarding notes here.
+Atlas framework docs stay in the Atlas CLI repository — they are not dumped into projects.
 `
 
 // ConfigureImpact summarizes what Configure Apply did and what still needs explicit flows.

@@ -12,7 +12,7 @@ func ConfigureView(view ConfigFormView) string {
 		view.Title = "Configure"
 	}
 	if view.Subtitle == "" {
-		view.Subtitle = "Config only — Runtime Repair / Context Economy are separate"
+		view.Subtitle = "Saves config.yaml — Runtime Repair / Context Economy are separate"
 	}
 	view.ShowBack = true
 	view.ShowNext = true

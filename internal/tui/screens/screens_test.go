@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
@@ -381,6 +382,35 @@ func TestConfigFormFinalSections(t *testing.T) {
 	}
 }
 
+func TestContextEconomyWordingHonesty(t *testing.T) {
+	t.Parallel()
+
+	view := screens.RenderContextEconomy(screens.ContextEconomyView{
+		Plan: atlascontext.UpdatePlan{
+			Blocked:  true,
+			Blockers: []string{"project not initialized"},
+		},
+		ContentFocused: true,
+	})
+	for _, want := range []string{
+		"Context Economy v0: implemented, file-based, explicit Update under Atlas Home.",
+		"CodeGraph and Atlas Context Graph: NOT IMPLEMENTED.",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	for _, banned := range []string{
+		"Context Economy is the Atlas Context Graph",
+		"CodeGraph enabled",
+		"graph engine ready",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
+	}
+}
+
 func TestConfigureViewFinalSections(t *testing.T) {
 	t.Parallel()
 
@@ -394,6 +424,7 @@ func TestConfigureViewFinalSections(t *testing.T) {
 	})
 	for _, want := range []string{
 		"Configure",
+		"Saves config.yaml — Runtime Repair / Context Economy are separate",
 		"Governance",
 		"Adapters",
 		"Delivery",

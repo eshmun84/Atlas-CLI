@@ -53,11 +53,17 @@ func TestRenderAgentsMD_BaseOnly(t *testing.T) {
 		"## 9. Review and Verification",
 		"## 10. Context Economy",
 		"Demo",
-		"Context Graph is **enabled**",
+		"context.graph.enabled` = **enabled**",
+		"Context Economy v0",
+		"CodeGraph",
+		"not implemented",
 		"Do not add `Co-Authored-By`",
 		"Do not invent missing project facts",
 		"explicit human request",
 	)
+	if n := strings.Count(got, "# Atlas Project Runtime Contract"); n != 1 {
+		t.Fatalf("expected exactly one document H1, got %d\n%s", n, got)
+	}
 	assertNotContains(t, got,
 		config.AdapterBlockBegin("cursor"),
 		config.AdapterBlockBegin("opencode"),
@@ -93,7 +99,7 @@ func TestRenderAgentsMD_OpenCodeOnly(t *testing.T) {
 		config.AdapterBlockBegin("opencode"),
 		config.AdapterBlockEnd("opencode"),
 		"## OpenCode Adapter Guidance",
-		"Context Graph is **disabled**",
+		"context.graph.enabled` = **disabled**",
 		"Delegated work produces evidence",
 	)
 	assertNotContains(t, got,

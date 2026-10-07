@@ -172,6 +172,7 @@ func RenderAgentsMD(projectName string, contextGraphEnabled bool, selected []str
 	baseBody = applyAgentsPlaceholders(baseBody, name, graphStatus)
 
 	var b strings.Builder
+	// Single document H1 outside markers; BASE asset body must not repeat the H1.
 	fmt.Fprintf(&b, "# Atlas Project Runtime Contract\n\n")
 	fmt.Fprintf(&b, "%s\n%s\n%s\n\n", AgentsBaseBegin, strings.TrimSpace(baseBody), AgentsBaseEnd)
 

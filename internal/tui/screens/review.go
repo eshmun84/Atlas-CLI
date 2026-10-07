@@ -162,7 +162,7 @@ func RenderReview(view ReviewView) string {
 
 	fmt.Fprintln(&b, initSection.Render("MCP integrations"))
 	if len(plan.MCPEntries) == 0 {
-		fmt.Fprintln(&b, "  - none (preference recorded: none)")
+		fmt.Fprintln(&b, "  - none")
 	} else {
 		for _, entry := range plan.MCPEntries {
 			fmt.Fprintf(&b, "  - %s\n", entry.Name)

@@ -90,6 +90,7 @@ Doctor remains read-only and never repairs.
 
 - Configure / Init Step 2 sections: Governance, Adapters, Delivery, MCP (no standalone Project screen).
 - Optional **Project Docs Scaffold** is chosen on Init Project Setup only (not repeated on Configure).
+- Configure subtitle: saves `config.yaml` — Runtime Repair / Context Economy are separate.
 - Configure Apply writes `.atlas/config.yaml` (and may create optional `docs/atlas/README.md` once when selected and missing).
 - Configure Apply does **not** rematerialize runtime files.
 - Adapter/runtime impact requires explicit **Runtime Repair**.

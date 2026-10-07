@@ -1,5 +1,3 @@
-# Atlas Project Runtime Contract
-
 This file is the authoritative project runtime contract for **{{PROJECT_NAME}}**.
 Atlas generates and maintains the BASE and ADAPTER sections. Humans own the USER section.
 
@@ -73,6 +71,6 @@ Before broad repository reads, check Context Economy artifacts when present unde
 `.atlas/state.yaml` may record only minimal references (`context_economy_*`). Do not expect large context payloads inside the product repo. If capsule/pack/index is missing or stale, say so and recommend an explicit Context Economy update in Atlas TUI. Do not invent capsule/pack contents. Report when capsule/pack was used and when it was not.
 
 Distinguish context surfaces honestly:
-- **Context Economy v0** — implemented file-based index/capsule/packs under Atlas Home (explicit Update flow).
-- **CodeGraph** — future optional external code-layer provider; not implemented in this slice.
-- **Atlas Context Graph** — future broader graph model; preference only. Project preference: Context Graph is **{{CONTEXT_GRAPH_STATUS}}** (`context.graph.enabled`). There is no graph engine, database, embeddings index, or semantic search in this slice. Do not invent graph or CodeGraph context when unavailable. Load raw files only when Atlas references and Context Economy surfaces are insufficient for correctness.
+- **Context Economy v0** — implemented, file-based index/capsule/packs under Atlas Home. Refresh only via the explicit Context Economy Update flow.
+- **CodeGraph** — future optional external code-layer provider; not implemented.
+- **Atlas Context Graph** — future broader graph model; not implemented. Config may record a compatibility preference (`context.graph.enabled` = **{{CONTEXT_GRAPH_STATUS}}**), but there is no graph engine, database, embeddings index, or semantic search. Do not invent graph or CodeGraph context. Prefer Context Economy surfaces, then targeted files.
