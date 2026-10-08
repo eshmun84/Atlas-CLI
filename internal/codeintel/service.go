@@ -105,6 +105,7 @@ func (s *Service) DefaultStatus(ctx context.Context, project Project) (ProjectSt
 
 // Snapshot builds a Status/Doctor-friendly summary for the default provider.
 // Never fails Atlas: provider errors become StateError snapshots.
+// Read-only: never builds, never writes metadata, never creates Atlas Home.
 func (s *Service) Snapshot(ctx context.Context, project Project) Snapshot {
 	if s == nil || s.DefaultID() == "" {
 		return Snapshot{
@@ -133,17 +134,15 @@ func (s *Service) Snapshot(ctx context.Context, project Project) Snapshot {
 		return snap
 	}
 	st, err := s.Status(ctx, id, project)
-	snap := Snapshot{
-		Applicable:      true,
-		Provider:        st.Provider,
-		State:           st.State,
-		Version:         st.Version,
-		Executable:      st.Executable,
-		Message:         st.Message,
-		StorageDir:      st.StorageDir,
-		GraphPresent:    st.GraphPresent,
-		MetadataPresent: st.MetadataPresent,
+	if err != nil && st.State == "" {
+		return Snapshot{
+			Applicable: true,
+			Provider:   id,
+			State:      StateError,
+			Message:    err.Error(),
+		}
 	}
+	snap := EnrichSnapshot(project, st)
 	if err != nil && snap.Message == "" {
 		snap.Message = err.Error()
 	}

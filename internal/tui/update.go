@@ -1,14 +1,20 @@
 package tui
 
 import (
+	stdcontext "context"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/eshmun84/Atlas-CLI/internal/codeintel"
+	"github.com/eshmun84/Atlas-CLI/internal/codeintel/codegraph"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 )
@@ -51,6 +57,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.report = msg.report
 		m.repairPlan = msg.repairPlan
 		m.contextPlan = msg.contextPlan
+		m.codeIntelPlan = msg.codeIntelPlan
 		m.sidebarIndex = indexForRoute(m.Sidebar(), m.route)
 		if m.route == RouteInitPlan {
 			m.applyInitDiscovery(msg.plan)
@@ -87,6 +94,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				)
 			}
 			m.contextSignature = m.contextPlan.Signature()
+		}
+		if m.route == RouteCodeIntelRefresh {
+			m.codeIntelApplied = false
+			m.codeIntelMessage = ""
+			m.codeIntelFooterIdx = 0
+			m.codeIntelOutcome = codeintel.RefreshOutcome{}
+			if m.codeIntelPlan.Mode == "" && !m.codeIntelPlan.Blocked && !m.codeIntelPlan.Noop {
+				m.codeIntelPlan = buildCodeIntelPlan(m.discovery, m.codeIntelFull)
+			}
 		}
 		m.ready = true
 		m.contentOffset = 0
@@ -156,7 +172,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.setRoute(DefaultRoute)
 	}
 
-	if (m.route == RouteInitPlan || m.route == RouteConfigure || m.route == RouteRuntimeRepair || m.route == RouteContextEconomy) && msg.String() == "tab" {
+	if (m.route == RouteInitPlan || m.route == RouteConfigure || m.route == RouteRuntimeRepair || m.route == RouteContextEconomy || m.route == RouteCodeIntelRefresh) && msg.String() == "tab" {
 		if m.focus == FocusSidebar {
 			m.focus = FocusContent
 			if m.route == RouteInitPlan && (m.initWizardStep == screens.InitWizardStepProject || m.initWizardStep == screens.InitWizardStepConflict) {
@@ -168,7 +184,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.route == RouteConfigure && m.configPanel == "" {
 				m.configPanel = screens.ConfigPanelSections
 			}
-			if m.route == RouteRuntimeRepair || m.route == RouteContextEconomy {
+			if m.route == RouteRuntimeRepair || m.route == RouteContextEconomy || m.route == RouteCodeIntelRefresh {
 				m.configPanel = screens.ConfigPanelFooter
 			}
 		} else {
@@ -192,6 +208,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.focus == FocusContent && m.route == RouteContextEconomy {
 		return m.handleContextEconomyKey(msg)
+	}
+	if m.focus == FocusContent && m.route == RouteCodeIntelRefresh {
+		return m.handleCodeIntelKey(msg)
 	}
 
 	items := m.Sidebar()
@@ -1028,6 +1047,12 @@ func (m Model) setRoute(route Route) (Model, tea.Cmd) {
 			m.contextObjective = atlascontext.DefaultPackObjective
 		}
 	}
+	if route == RouteCodeIntelRefresh {
+		m.codeIntelApplied = false
+		m.codeIntelMessage = ""
+		m.codeIntelFooterIdx = 0
+		m.codeIntelOutcome = codeintel.RefreshOutcome{}
+	}
 	m.syncNameInputFocus()
 	m.loadErr = nil
 	m.contentOffset = 0
@@ -1076,6 +1101,7 @@ func (m Model) loadCmd() tea.Cmd {
 	getwd := m.getwd
 	discover := m.discover
 	route := m.route
+	codeIntelFull := m.codeIntelFull
 	return func() tea.Msg {
 		root, err := getwd()
 		if err != nil {
@@ -1106,7 +1132,97 @@ func (m Model) loadCmd() tea.Cmd {
 				result.Runtime.State,
 				atlascontext.DefaultPackObjective,
 			)
+		case RouteCodeIntelRefresh:
+			msg.codeIntelPlan = buildCodeIntelPlan(result, codeIntelFull)
 		}
 		return msg
 	}
+}
+
+func (m Model) handleCodeIntelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	canApply := !m.codeIntelApplied && m.codeIntelPlan.NeedsApply()
+	switch msg.String() {
+	case "pgup", "pgdown", "home", "end":
+		return m.scroll(msg.String()), nil
+	}
+	if !canApply {
+		switch msg.String() {
+		case "enter", " ", "space":
+			return m.setRoute(DefaultRoute)
+		}
+		return m, nil
+	}
+	switch msg.String() {
+	case "left", "h", "up", "k":
+		m.codeIntelFooterIdx = 0
+		return m, nil
+	case "right", "l", "down", "j":
+		m.codeIntelFooterIdx = 1
+		return m, nil
+	case "enter", " ", "space":
+		if m.codeIntelFooterIdx <= 0 {
+			return m.setRoute(DefaultRoute)
+		}
+		return m.applyCodeIntelRefresh()
+	}
+	return m, nil
+}
+
+func (m Model) applyCodeIntelRefresh() (tea.Model, tea.Cmd) {
+	root := m.discovery.RootPath
+	name := ""
+	if m.discovery.Atlas.Initialized() {
+		name = m.discovery.Atlas.Config.Project.Name
+	}
+	svc := codeintel.NewService(codegraph.New())
+	ctx, cancel := stdcontext.WithTimeout(stdcontext.Background(), 3*time.Minute)
+	defer cancel()
+	outcome, err := svc.Refresh(ctx, codeintel.RefreshOptions{
+		Root:        root,
+		ProjectName: name,
+		HomePath:    m.discovery.Runtime.Home.Path,
+		ForceFull:   m.codeIntelFull,
+	})
+	m.codeIntelOutcome = outcome
+	if err != nil {
+		m.codeIntelMessage = err.Error()
+		m.codeIntelPlan = buildCodeIntelPlan(m.discovery, m.codeIntelFull)
+		return m, nil
+	}
+	m.codeIntelApplied = true
+	m.codeIntelMessage = outcome.Message
+	m.codeIntelFooterIdx = 0
+	if refreshed, discErr := m.discover(root); discErr == nil {
+		m.discovery = refreshed
+		m.codeIntelPlan = buildCodeIntelPlan(refreshed, m.codeIntelFull)
+		m.report = doctor.Evaluate(refreshed)
+	}
+	return m, nil
+}
+
+func buildCodeIntelPlan(disc inspect.Inspection, forceFull bool) codeintel.RefreshPlan {
+	snap := disc.Runtime.CodeIntelligence
+	name := ""
+	if disc.Atlas.Initialized() {
+		name = disc.Atlas.Config.Project.Name
+	}
+	projectID := ""
+	if id, err := home.ProjectID(disc.RootPath, name); err == nil {
+		projectID = id
+	}
+	project := codeintel.Project{
+		Root:     disc.RootPath,
+		ID:       projectID,
+		HomePath: disc.Runtime.Home.Path,
+	}
+	fp := ""
+	if computed, err := codeintel.ComputeSourceFingerprint(disc.RootPath); err == nil {
+		fp = computed.Value
+	}
+	// Prefer enriching from live snapshot already on discovery when possible.
+	if snap.GraphDBPath == "" && project.HomePath != "" && project.ID != "" {
+		snap.GraphDBPath = codeintel.GraphDBPath(project.HomePath, project.ID, codeintel.ProviderCodeGraph)
+		snap.MetadataPath = codeintel.MetadataPath(project.HomePath, project.ID, codeintel.ProviderCodeGraph)
+	}
+	return codeintel.BuildRefreshPlan(snap, project, forceFull, fp)
 }

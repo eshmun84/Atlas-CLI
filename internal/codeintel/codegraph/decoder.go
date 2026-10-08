@@ -37,3 +37,33 @@ func stderrMessage(stderr []byte) string {
 	}
 	return msg
 }
+
+func decodeStatsTotals(stdout []byte) (nodes, files int, err error) {
+	text := strings.TrimSpace(string(stdout))
+	if text == "" {
+		return 0, 0, fmt.Errorf("%w: empty stats stdout", ErrInvalidJSON)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(text), &raw); err != nil {
+		return 0, 0, fmt.Errorf("%w: %v", ErrInvalidJSON, err)
+	}
+	nodes = nestedTotal(raw, "nodes")
+	files = nestedTotal(raw, "files")
+	return nodes, files, nil
+}
+
+func nestedTotal(raw map[string]any, key string) int {
+	v, ok := raw[key]
+	if !ok {
+		return 0
+	}
+	switch t := v.(type) {
+	case float64:
+		return int(t)
+	case map[string]any:
+		if total, ok := t["total"].(float64); ok {
+			return int(total)
+		}
+	}
+	return 0
+}

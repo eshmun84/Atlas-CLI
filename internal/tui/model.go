@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/eshmun84/Atlas-CLI/internal/codeintel"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
@@ -21,6 +22,7 @@ import (
 type Options struct {
 	Route          Route
 	UnknownCommand string
+	CodeIntelFull  bool
 	Getwd          func() (string, error)
 	Discover       func(string) (inspect.Inspection, error)
 }
@@ -110,6 +112,13 @@ type Model struct {
 	contextSignature string
 	contextObjective string
 
+	codeIntelFull      bool
+	codeIntelPlan      codeintel.RefreshPlan
+	codeIntelOutcome   codeintel.RefreshOutcome
+	codeIntelMessage   string
+	codeIntelFooterIdx int
+	codeIntelApplied   bool
+
 	loadErr  error
 	ready    bool
 	quitting bool
@@ -119,12 +128,13 @@ type Model struct {
 }
 
 type loadedMsg struct {
-	plan        initplan.Plan
-	discovery   inspect.Inspection
-	report      doctor.Report
-	repairPlan  runtime.RuntimeRepairPlan
-	contextPlan atlascontext.UpdatePlan
-	err         error
+	plan          initplan.Plan
+	discovery     inspect.Inspection
+	report        doctor.Report
+	repairPlan    runtime.RuntimeRepairPlan
+	contextPlan   atlascontext.UpdatePlan
+	codeIntelPlan codeintel.RefreshPlan
+	err           error
 }
 
 // NewModel builds a TUI model for the given options.
@@ -143,13 +153,14 @@ func NewModel(opts Options) Model {
 		route = DefaultRoute
 	}
 
-	items := SidebarItems(false, false, false)
+	items := SidebarItems(false, false, false, false)
 	return Model{
 		width:             MinWidth,
 		height:            MinHeight,
 		route:             route,
 		sidebarIndex:      indexForRoute(items, route),
 		focus:             FocusSidebar,
+		codeIntelFull:     opts.CodeIntelFull,
 		initField:         screens.InitFieldName,
 		initWizardStep:    screens.InitWizardStepProject,
 		initModeConfirmed: InitModeExisting,
@@ -187,7 +198,7 @@ func newTextInput(placeholder string) textinput.Model {
 
 func validRoute(route Route) bool {
 	switch route {
-	case RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteContextEconomy, RouteHelp, RouteError:
+	case RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteContextEconomy, RouteCodeIntelRefresh, RouteHelp, RouteError:
 		return true
 	default:
 		return false
@@ -196,7 +207,7 @@ func validRoute(route Route) bool {
 
 func needsWorkspace(route Route) bool {
 	switch route {
-	case RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteContextEconomy:
+	case RouteInitPlan, RouteConfigure, RouteStatus, RouteDoctor, RouteRuntimeRepair, RouteContextEconomy, RouteCodeIntelRefresh:
 		return true
 	default:
 		return false
@@ -257,7 +268,12 @@ func (m Model) editingTextInput() bool {
 func (m Model) Initialized() bool { return m.discovery.Atlas.Initialized() }
 
 func (m Model) Sidebar() []SidebarItem {
-	return SidebarItems(m.Initialized(), runtime.ShowRuntimeRepair(m.discovery.RootPath, m.discovery.Atlas, m.discovery.Runtime), m.Initialized())
+	return SidebarItems(
+		m.Initialized(),
+		runtime.ShowRuntimeRepair(m.discovery.RootPath, m.discovery.Atlas, m.discovery.Runtime),
+		m.Initialized(),
+		m.Initialized(),
+	)
 }
 
 func (m Model) ProjectName() string {

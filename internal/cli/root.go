@@ -28,6 +28,7 @@ func Execute(stdout, stderr io.Writer, args []string) error {
 		err := RunTUI(tui.Options{
 			Route:          action.Route,
 			UnknownCommand: action.UnknownCommand,
+			CodeIntelFull:  action.CodeIntelFull,
 		})
 		if err != nil {
 			return err

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/codeintel"
 )
@@ -81,6 +82,62 @@ func (a *Adapter) Probe(ctx context.Context) (codeintel.Capability, error) {
 	cap.Capabilities = []string{ProbedCapabilityVersion}
 	cap.Message = CompatibilityMessage(version)
 	return cap, nil
+}
+
+// Refresh runs codegraph build (+ stats verification) against Atlas-owned DB.
+// Does not write Atlas metadata.json (owned by codeintel.Service.Refresh).
+func (a *Adapter) Refresh(ctx context.Context, req codeintel.RefreshRequest) (codeintel.RefreshResult, error) {
+	look := a.LookPath
+	if look == nil {
+		look = exec.LookPath
+	}
+	runner := a.Runner
+	if runner == nil {
+		runner = ExecRunner{Timeout: 2 * time.Minute}
+	}
+
+	path, err := look(ExecutableName)
+	if err != nil || strings.TrimSpace(path) == "" {
+		return codeintel.RefreshResult{}, fmt.Errorf("codegraph: executable not found on PATH")
+	}
+
+	mode := req.Mode
+	var args []string
+	switch mode {
+	case codeintel.RefreshModeFull:
+		args = FullBuildArgs(req.Root, req.DBPath)
+	case codeintel.RefreshModeIncremental, codeintel.RefreshModeInitial, "":
+		mode = codeintel.RefreshModeIncremental
+		args = BuildArgs(req.Root, req.DBPath)
+	default:
+		return codeintel.RefreshResult{}, fmt.Errorf("codegraph: unsupported refresh mode %q", mode)
+	}
+
+	buildResult, runErr := runner.Run(ctx, path, args)
+	if runErr != nil {
+		return codeintel.RefreshResult{}, fmt.Errorf("codegraph: build: %s", normalizeRunError(runErr, buildResult.Stderr))
+	}
+	if !fileExists(req.DBPath) {
+		return codeintel.RefreshResult{}, fmt.Errorf("codegraph: build finished but graph.db missing at %s", req.DBPath)
+	}
+
+	statsResult, statsErr := runner.Run(ctx, path, StatsArgs(req.DBPath))
+	if statsErr != nil {
+		return codeintel.RefreshResult{}, fmt.Errorf("codegraph: stats: %s", normalizeRunError(statsErr, statsResult.Stderr))
+	}
+	nodes, files, err := decodeStatsTotals(statsResult.Stdout)
+	if err != nil {
+		return codeintel.RefreshResult{}, err
+	}
+	if nodes <= 0 || files <= 0 {
+		return codeintel.RefreshResult{}, fmt.Errorf("codegraph: stats verification failed: nodes=%d files=%d", nodes, files)
+	}
+	return codeintel.RefreshResult{
+		Mode:       mode,
+		Message:    fmt.Sprintf("codegraph %s: nodes=%d files=%d", mode, nodes, files),
+		NodesTotal: nodes,
+		FilesTotal: files,
+	}, nil
 }
 
 // Status reports provider availability plus read-only Atlas Home graph presence.

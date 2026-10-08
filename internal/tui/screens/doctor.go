@@ -122,7 +122,7 @@ func doctorSectionFor(name string) string {
 		return "Atlas Home"
 	case name == "context graph" || name == "context economy":
 		return "Context"
-	case name == "code intelligence" || name == "codegraph":
+	case name == "code intelligence" || name == "codegraph" || strings.HasPrefix(name, "codegraph "):
 		return "Code Intelligence"
 	case strings.HasPrefix(name, "adapter") || name == "atlas agents" || name == "agent registry" ||
 		name == "tool cursor" || name == "tool opencode":

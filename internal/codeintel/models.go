@@ -10,7 +10,7 @@ const (
 	ProviderCodeGraph ProviderID = "codegraph"
 )
 
-// State is the provider lifecycle state owned by Atlas.
+// State is the Atlas-owned provider / lifecycle state.
 type State string
 
 const (
@@ -23,7 +23,30 @@ const (
 	StateError        State = "error"
 )
 
-// Project identifies a workspace for provider Status checks.
+// Freshness is Atlas-owned graph freshness relative to source fingerprint.
+type Freshness string
+
+const (
+	FreshnessMissing Freshness = "missing"
+	FreshnessReady   Freshness = "ready"
+	FreshnessStale   Freshness = "stale"
+	FreshnessError   Freshness = "error"
+)
+
+// RefreshMode is how a mutating refresh executed (or would execute).
+type RefreshMode string
+
+const (
+	RefreshModeNoop        RefreshMode = "noop"
+	RefreshModeInitial     RefreshMode = "initial"
+	RefreshModeIncremental RefreshMode = "incremental"
+	RefreshModeFull        RefreshMode = "full"
+)
+
+// MetadataSchemaVersion is the Atlas-owned metadata.json schema.
+const MetadataSchemaVersion = 1
+
+// Project identifies a workspace for provider Status / Refresh.
 // Paths are inputs only; Probe/Status never create them.
 type Project struct {
 	Root     string
@@ -32,8 +55,6 @@ type Project struct {
 }
 
 // Capability is the Atlas-owned probe result for one provider.
-// Capabilities lists only features actually verified during Probe, never a
-// static wishlist of expected provider commands/flags.
 type Capability struct {
 	Provider     ProviderID
 	State        State
@@ -55,20 +76,23 @@ type ProjectStatus struct {
 	MetadataPresent bool
 }
 
-// Metadata is Atlas-owned provider metadata for a future explicit build/update
-// lifecycle. Slice 31 defines the shape only; Probe/Status never write it.
+// Metadata is Atlas-owned provider metadata written only by explicit refresh.
 type Metadata struct {
-	Provider        string `json:"provider"`
-	ProviderVersion string `json:"provider_version,omitempty"`
-	ProjectIdentity string `json:"project_identity,omitempty"`
-	SourceRevision  string `json:"source_revision,omitempty"`
-	BuiltAt         string `json:"built_at,omitempty"`
-	Freshness       string `json:"freshness,omitempty"`
+	SchemaVersion       int    `json:"schemaVersion"`
+	Provider            string `json:"provider"`
+	ProviderVersion     string `json:"providerVersion,omitempty"`
+	ProjectID           string `json:"projectID"`
+	ProjectRootIdentity string `json:"projectRootIdentity,omitempty"`
+	GraphDBPath         string `json:"graphDBPath,omitempty"`
+	RefreshedAt         string `json:"refreshedAt,omitempty"`
+	RefreshMode         string `json:"refreshMode,omitempty"`
+	SourceFingerprint   string `json:"sourceFingerprint,omitempty"`
+	NodesTotal          int    `json:"nodesTotal,omitempty"`
+	FilesTotal          int    `json:"filesTotal,omitempty"`
 }
 
 // Snapshot is a discovery-friendly Code Intelligence summary for Status/Doctor.
-// State reflects provider availability/compatibility only. GraphPresent is
-// separate Atlas-owned filesystem evidence (no freshness inference in Slice 31).
+// Probe/Status/Inspect never mutate. Freshness is derived from metadata + source.
 type Snapshot struct {
 	Applicable      bool
 	Provider        ProviderID
@@ -79,6 +103,13 @@ type Snapshot struct {
 	StorageDir      string
 	GraphPresent    bool
 	MetadataPresent bool
+	MetadataValid   bool
+	Freshness       Freshness
+	FreshnessReason string
+	RefreshedAt     string
+	RefreshMode     string
+	GraphDBPath     string
+	MetadataPath    string
 }
 
 // DisplayState returns a stable lowercase state string for UI/diagnostics.

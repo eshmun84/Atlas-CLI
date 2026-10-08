@@ -223,6 +223,14 @@ func (m Model) rawContent() string {
 			ApplyMessage:   m.contextMessage,
 			ContentFocused: m.focus == FocusContent,
 		})
+	case RouteCodeIntelRefresh:
+		return screens.RenderCodeIntelRefresh(screens.CodeIntelRefreshView{
+			Plan:           m.codeIntelPlan,
+			Outcome:        m.codeIntelOutcome,
+			Applied:        m.codeIntelApplied,
+			ApplyMessage:   m.codeIntelMessage,
+			ContentFocused: m.focus == FocusContent,
+		})
 	default:
 		return screens.Status(m.discovery)
 	}
@@ -412,6 +420,32 @@ func (m Model) renderActionRow() (string, bool) {
 			FooterIndex:    m.contextFooterIdx,
 			Width:          width,
 		}), true
+	case m.route == RouteCodeIntelRefresh:
+		panel := ""
+		if m.focus == FocusContent {
+			panel = screens.ConfigPanelFooter
+		}
+		if m.codeIntelApplied || m.codeIntelPlan.Blocked || !m.codeIntelPlan.NeedsApply() {
+			return screens.RenderActionFooter(screens.ActionFooterView{
+				ShowBack:       true,
+				ShowNext:       false,
+				BackLabel:      "Close",
+				ContentFocused: m.focus == FocusContent,
+				PanelFocus:     panel,
+				FooterIndex:    0,
+				Width:          width,
+			}), true
+		}
+		return screens.RenderActionFooter(screens.ActionFooterView{
+			ShowBack:       true,
+			ShowNext:       true,
+			BackLabel:      "Close",
+			NextLabel:      "Refresh graph",
+			ContentFocused: m.focus == FocusContent,
+			PanelFocus:     panel,
+			FooterIndex:    m.codeIntelFooterIdx,
+			Width:          width,
+		}), true
 	default:
 		return "", false
 	}
@@ -470,6 +504,12 @@ func (m Model) renderFooter() string {
 			text = "Tab focus  PgUp/PgDn scroll  Close  b status  q quit"
 		} else {
 			text = "Tab focus  PgUp/PgDn scroll  Close  Update context  b status  q quit"
+		}
+	case RouteCodeIntelRefresh:
+		if m.codeIntelApplied || m.codeIntelPlan.Blocked || !m.codeIntelPlan.NeedsApply() {
+			text = "Tab focus  PgUp/PgDn scroll  Close  b status  q quit"
+		} else {
+			text = "Tab focus  PgUp/PgDn scroll  Close  Refresh graph  b status  q quit"
 		}
 	}
 	return text

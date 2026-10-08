@@ -471,71 +471,125 @@ func evaluateCodeIntelligence(h runtime.Health) []Check {
 		provider = "codegraph"
 	}
 
+	var checks []Check
 	switch snap.State {
 	case "", "unavailable":
 		msg := "optional provider unavailable"
 		if snap.Message != "" {
 			msg = snap.Message
 		}
-		return []Check{{
-			Severity: SeverityInfo,
-			Name:     provider,
-			Message:  msg,
-		}}
+		return []Check{{Severity: SeverityInfo, Name: provider, Message: msg}}
 	case "missing":
-		// Expected/configured provider disappeared (when architecture can distinguish).
 		msg := "previously expected provider missing"
 		if snap.Message != "" {
 			msg = snap.Message
 		}
-		return []Check{{
-			Severity: SeverityWarn,
-			Name:     provider,
-			Message:  msg,
-		}}
-	case "available", "ready":
-		msg := string(snap.State)
-		if snap.Version != "" {
-			msg += " · " + snap.Version
-		}
-		if snap.GraphPresent {
-			msg += " · graph present"
-		} else {
-			msg += " · graph absent"
-		}
-		return []Check{{
-			Severity: SeverityPass,
-			Name:     provider,
-			Message:  msg,
-		}}
+		return []Check{{Severity: SeverityWarn, Name: provider, Message: msg}}
 	case "incompatible":
 		msg := "incompatible"
 		if snap.Message != "" {
 			msg += " · " + snap.Message
 		}
-		return []Check{{
-			Severity: SeverityWarn,
-			Name:     provider,
-			Message:  msg,
-		}}
+		return []Check{{Severity: SeverityWarn, Name: provider, Message: msg}}
 	case "error":
 		msg := "error"
 		if snap.Message != "" {
 			msg += " · " + snap.Message
 		}
-		return []Check{{
-			Severity: SeverityWarn,
-			Name:     provider,
-			Message:  msg,
-		}}
-	default:
-		// stale and other conceptual states: report without failing Doctor.
-		return []Check{{
-			Severity: SeverityPass,
-			Name:     provider,
-			Message:  string(snap.State),
-		}}
+		return []Check{{Severity: SeverityWarn, Name: provider, Message: msg}}
 	}
+
+	msg := "available"
+	if snap.Version != "" {
+		msg += " · " + snap.Version
+	}
+	if snap.GraphPresent {
+		msg += " · graph present"
+	} else {
+		msg += " · graph missing"
+	}
+	checks = append(checks, Check{Severity: SeverityPass, Name: provider, Message: msg})
+
+	if snap.Executable != "" {
+		checks = append(checks, Check{
+			Severity: SeverityPass,
+			Name:     provider + " executable",
+			Message:  snap.Executable,
+		})
+	}
+	if snap.GraphDBPath != "" {
+		if snap.GraphPresent {
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     provider + " storage",
+				Message:  "graph.db present under Atlas Home",
+			})
+		} else {
+			checks = append(checks, Check{
+				Severity: SeverityInfo,
+				Name:     provider + " storage",
+				Message:  "graph.db missing (run atlas codeintel refresh)",
+			})
+		}
+	}
+	switch {
+	case snap.MetadataPresent && snap.MetadataValid:
+		checks = append(checks, Check{
+			Severity: SeverityPass,
+			Name:     provider + " metadata",
+			Message:  "metadata.json valid",
+		})
+	case snap.MetadataPresent && !snap.MetadataValid:
+		checks = append(checks, Check{
+			Severity: SeverityWarn,
+			Name:     provider + " metadata",
+			Message:  "metadata.json invalid",
+		})
+	case snap.GraphPresent:
+		checks = append(checks, Check{
+			Severity: SeverityWarn,
+			Name:     provider + " metadata",
+			Message:  "metadata.json missing",
+		})
+	}
+	switch snap.Freshness {
+	case "ready":
+		checks = append(checks, Check{
+			Severity: SeverityPass,
+			Name:     provider + " freshness",
+			Message:  "ready",
+		})
+	case "stale":
+		reason := snap.FreshnessReason
+		if reason == "" {
+			reason = "source fingerprint changed"
+		}
+		checks = append(checks, Check{
+			Severity: SeverityWarn,
+			Name:     provider + " freshness",
+			Message:  "stale · " + reason,
+		})
+	case "missing":
+		checks = append(checks, Check{
+			Severity: SeverityInfo,
+			Name:     provider + " freshness",
+			Message:  "graph missing",
+		})
+	case "error":
+		checks = append(checks, Check{
+			Severity: SeverityWarn,
+			Name:     provider + " freshness",
+			Message:  snap.FreshnessReason,
+		})
+	}
+	if snap.RefreshedAt != "" {
+		checks = append(checks, Check{
+			Severity: SeverityInfo,
+			Name:     provider + " last refresh",
+			Message:  snap.RefreshedAt,
+		})
+	}
+	return checks
 }
 
 func evaluateContextEconomy(h runtime.Health) []Check {

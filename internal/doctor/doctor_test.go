@@ -327,7 +327,7 @@ func TestEvaluate_CodeIntelligenceAvailablePass(t *testing.T) {
 	}
 
 	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
-	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph absent")
+	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph missing")
 	if report.Failed() {
 		t.Fatal("available Code Intelligence must not fail Doctor")
 	}
@@ -345,10 +345,10 @@ func TestEvaluate_CodeIntelligenceGraphAbsentStillPass(t *testing.T) {
 	}
 
 	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
-	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph absent")
+	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph missing")
 	for _, check := range report.Checks {
 		if check.Name == "codegraph" && check.Severity != doctor.SeverityPass {
-			t.Fatalf("graph absent must stay PASS, got %#v", check)
+			t.Fatalf("graph missing must stay PASS, got %#v", check)
 		}
 	}
 }
@@ -404,7 +404,7 @@ func TestEvaluate_CodeIntelligenceWithoutConfigStillVisible(t *testing.T) {
 			},
 		},
 	})
-	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph absent")
+	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph missing")
 }
 
 func TestEvaluate_CodeIntelligenceIncompatibleWarn(t *testing.T) {
@@ -457,7 +457,7 @@ func TestEvaluate_CodeIntelligenceUsesSnapshotOnlyNoFSMutation(t *testing.T) {
 		RootPath: root,
 		Runtime:  rt,
 	})
-	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph absent")
+	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph missing")
 	assertDirUnchanged(t, root, before)
 
 	if _, err := os.Stat(filepath.Join(root, ".codegraph")); !os.IsNotExist(err) {
@@ -484,7 +484,7 @@ func TestDoctorScreen_RendersCodeIntelligenceSection(t *testing.T) {
 	if !strings.Contains(view, "Code Intelligence") {
 		t.Fatalf("doctor view missing Code Intelligence section:\n%s", view)
 	}
-	if !strings.Contains(view, "PASS codegraph: available · 3.17.0 · graph absent") {
+	if !strings.Contains(view, "PASS codegraph: available · 3.17.0 · graph missing") {
 		t.Fatalf("doctor view missing expected Code Intelligence line:\n%s", view)
 	}
 	// Must not bury the check under Context as a silent omission.

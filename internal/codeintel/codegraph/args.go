@@ -31,14 +31,22 @@ func WithJSON(args []string) []string {
 	return out
 }
 
-// BuildArgs prepares a future explicit graph build against the Atlas-owned DB.
-// Not executed by Probe/Status.
+// BuildArgs prepares an incremental/default graph build against the Atlas-owned DB.
 func BuildArgs(projectDir, dbPath string) []string {
 	args := []string{"build"}
 	if dir := strings.TrimSpace(projectDir); dir != "" {
 		args = append(args, dir)
 	}
 	return WithDB(args, dbPath)
+}
+
+// FullBuildArgs prepares a force-full rebuild (--no-incremental) against Atlas DB.
+func FullBuildArgs(projectDir, dbPath string) []string {
+	args := BuildArgs(projectDir, dbPath)
+	out := make([]string, 0, len(args)+1)
+	out = append(out, args...)
+	out = append(out, "--no-incremental")
+	return out
 }
 
 // StatsArgs prepares a future read-oriented stats invocation against the

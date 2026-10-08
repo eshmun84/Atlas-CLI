@@ -23,6 +23,9 @@ func (s stubProvider) Status(_ context.Context, project codeintel.Project) (code
 	st.ProjectID = project.ID
 	return st, nil
 }
+func (s stubProvider) Refresh(context.Context, codeintel.RefreshRequest) (codeintel.RefreshResult, error) {
+	return codeintel.RefreshResult{Mode: codeintel.RefreshModeIncremental}, nil
+}
 
 func TestService_UnknownProvider(t *testing.T) {
 	t.Parallel()

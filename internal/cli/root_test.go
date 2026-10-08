@@ -28,6 +28,9 @@ func TestResolve_Routes(t *testing.T) {
 		{[]string{"init", "--dry-run"}, cli.ModeTUI, tui.RouteInitPlan, ""},
 		{[]string{"status"}, cli.ModeTUI, tui.RouteStatus, ""},
 		{[]string{"doctor"}, cli.ModeTUI, tui.RouteDoctor, ""},
+		{[]string{"codeintel", "refresh"}, cli.ModeTUI, tui.RouteCodeIntelRefresh, ""},
+		{[]string{"codeintel", "refresh", "--full"}, cli.ModeTUI, tui.RouteCodeIntelRefresh, ""},
+		{[]string{"codeintel"}, cli.ModeTUI, tui.RouteError, "codeintel"},
 		{[]string{"mcp"}, cli.ModeTUI, tui.RouteError, "mcp"},
 		{[]string{"start"}, cli.ModeTUI, tui.RouteError, "start"},
 		{[]string{"change"}, cli.ModeTUI, tui.RouteError, "change"},
@@ -46,6 +49,18 @@ func TestResolve_Routes(t *testing.T) {
 		if action.UnknownCommand != tc.unknown {
 			t.Fatalf("args %v: unknown = %q, want %q", tc.args, action.UnknownCommand, tc.unknown)
 		}
+	}
+}
+
+func TestResolve_CodeIntelFullFlag(t *testing.T) {
+	t.Parallel()
+	action := cli.Resolve([]string{"codeintel", "refresh"})
+	if action.Route != tui.RouteCodeIntelRefresh || action.CodeIntelFull {
+		t.Fatalf("refresh %#v", action)
+	}
+	action = cli.Resolve([]string{"codeintel", "refresh", "--full"})
+	if action.Route != tui.RouteCodeIntelRefresh || !action.CodeIntelFull {
+		t.Fatalf("refresh --full %#v", action)
 	}
 }
 

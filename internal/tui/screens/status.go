@@ -553,25 +553,42 @@ func codeIntelligenceStatus(rt runtime.Health) string {
 	if provider == "" {
 		provider = "codegraph"
 	}
-	label := provider + " · " + string(snap.State)
+	switch snap.State {
+	case "unavailable", "missing", "":
+		return statusNo.Render(provider + " · unavailable")
+	case "incompatible", "error":
+		label := provider + " · " + string(snap.State)
+		if snap.Version != "" {
+			label += " · " + snap.Version
+		}
+		return statusWarn.Render(label)
+	}
+
+	label := provider + " · available"
 	if snap.Version != "" {
 		label += " · " + snap.Version
 	}
-	if snap.State == "available" || snap.State == "ready" {
-		if snap.GraphPresent {
-			label += " · graph present"
-		} else {
-			label += " · graph absent"
-		}
+	if snap.GraphPresent {
+		label += " · graph present"
+	} else {
+		label += " · graph missing"
 	}
-	switch snap.State {
-	case "available":
+	switch snap.Freshness {
+	case "ready":
+		label += " · ready"
 		return statusYes.Render(label)
-	case "incompatible", "error":
+	case "stale":
+		label += " · stale"
 		return statusWarn.Render(label)
-	case "unavailable", "missing", "":
-		return statusNo.Render(provider + " · unavailable")
+	case "missing":
+		return statusInfo.Render(label)
+	case "error":
+		label += " · metadata error"
+		return statusWarn.Render(label)
 	default:
+		if snap.GraphPresent {
+			return statusYes.Render(label)
+		}
 		return statusInfo.Render(label)
 	}
 }
