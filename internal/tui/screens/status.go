@@ -71,7 +71,8 @@ func writeStatusRuntime(b *strings.Builder, result workspace.DiscoveryResult) {
 	fmt.Fprintf(b, "  Runtime: %s\n", runtimeMaterializedLabel(rt))
 	fmt.Fprintf(b, "  AGENTS.md contract: %s\n", agentsContractSummary(rt))
 	fmt.Fprintf(b, "  SDD/OpenSpec contract: %s\n", sddContractStatus(rt))
-	fmt.Fprintf(b, "  Context Economy: %s\n\n", contextEconomyStatus(rt))
+	fmt.Fprintf(b, "  Context Economy: %s\n", contextEconomyStatus(rt))
+	fmt.Fprintf(b, "  Code Intelligence: %s\n\n", codeIntelligenceStatus(rt))
 }
 
 func writeStatusSourceControl(b *strings.Builder, result workspace.DiscoveryResult) {
@@ -220,6 +221,7 @@ func writeStatusHealth(b *strings.Builder, result workspace.DiscoveryResult, rep
 	}
 	fmt.Fprintf(b, "  Atlas Home: %s\n", homePresenceLabel(rt))
 	fmt.Fprintf(b, "  Context Economy: %s\n", contextEconomyStatus(rt))
+	fmt.Fprintf(b, "  Code Intelligence: %s\n", codeIntelligenceStatus(rt))
 	fmt.Fprintf(b, "  Suggested next action: %s\n", statusAct.Render(suggestedAction(result)))
 }
 
@@ -538,5 +540,34 @@ func contextEconomyStatus(rt workspace.RuntimeHealth) string {
 		return statusYes.Render("present")
 	default:
 		return statusNo.Render("n/a")
+	}
+}
+
+func codeIntelligenceStatus(rt workspace.RuntimeHealth) string {
+	snap := rt.CodeIntelligence
+	provider := string(snap.Provider)
+	if provider == "" {
+		provider = "codegraph"
+	}
+	label := provider + " · " + string(snap.State)
+	if snap.Version != "" {
+		label += " · " + snap.Version
+	}
+	if snap.State == "available" || snap.State == "ready" {
+		if snap.GraphPresent {
+			label += " · graph present"
+		} else {
+			label += " · graph absent"
+		}
+	}
+	switch snap.State {
+	case "available":
+		return statusYes.Render(label)
+	case "incompatible", "error":
+		return statusWarn.Render(label)
+	case "unavailable", "missing", "":
+		return statusNo.Render(provider + " · unavailable")
+	default:
+		return statusInfo.Render(label)
 	}
 }

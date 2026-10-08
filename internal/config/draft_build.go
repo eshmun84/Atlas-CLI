@@ -16,6 +16,11 @@ type ProjectSetupInput struct {
 	// DocsScaffold is set on Project Setup (Init Step 1); off by default.
 	DocsScaffold bool
 
+	// GitRepoDetected seeds Delivery platform from workspace discovery
+	// (result.Git.IsRepo). It must not run git; callers pass an existing fact.
+	// Explicit persisted source_control.mode always wins via ApplyProjectDocument.
+	GitRepoDetected bool
+
 	// Tool availability (LookPath only; never executed).
 	ToolGitAvailable       bool
 	ToolGHAvailable        bool
@@ -24,6 +29,19 @@ type ProjectSetupInput struct {
 	ToolOpenSpecAvailable  bool
 	ToolCursorAvailable    bool
 	ToolOpenCodeAvailable  bool
+}
+
+// DefaultSourceControlMode returns the Init/Configure draft seed for
+// source_control.mode before any persisted document is applied.
+//
+// Precedence after seeding is handled by ApplyProjectDocument:
+//
+//	explicit Atlas config → detected Git repository → none
+func DefaultSourceControlMode(gitRepoDetected bool) string {
+	if gitRepoDetected {
+		return SourceControlGitLocal
+	}
+	return SourceControlNone
 }
 
 // NormalizeProjectMode maps Step 1 modes onto config project modes.
@@ -84,6 +102,8 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 	adaptersField := field("adapters.selected", "", "", adapters, adapters, FieldTypeMulti, []string{"cursor", "opencode"}, FieldEditable, FieldEditable, false, false)
 	adaptersField.DisabledValues = adapterDisabled
 
+	deliveryPlatform := DefaultSourceControlMode(setup.GitRepoDetected)
+
 	draft := ConfigDraft{
 		Mode: mode,
 		Sections: []ConfigSection{
@@ -124,7 +144,7 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 				Title:       "Delivery",
 				Description: "",
 				Fields: []ConfigField{
-					field("source_control.mode", "Platform", "", "none", "none", FieldTypeChoice, []string{"none", "git_local", "git_github"}, FieldEditable, FieldEditable, true, false),
+					field("source_control.mode", "Platform", "", deliveryPlatform, deliveryPlatform, FieldTypeChoice, []string{"none", "git_local", "git_github"}, FieldEditable, FieldEditable, true, false),
 					field("source_control.governance_storage", "Governance files", "", "local_only", "local_only", FieldTypeChoice, []string{"local_only", "versioned"}, FieldEditable, FieldEditable, true, false),
 					field("source_control.delivery_assist", "Assisted operations", "", "false", "false", FieldTypeBool, nil, FieldEditable, FieldEditable, false, false),
 				},

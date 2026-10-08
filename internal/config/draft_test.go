@@ -103,6 +103,88 @@ func TestBuildConfigDraft_VisibleSectionsAndDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultSourceControlMode(t *testing.T) {
+	t.Parallel()
+	if got := config.DefaultSourceControlMode(true); got != config.SourceControlGitLocal {
+		t.Fatalf("detected git = %q, want %q", got, config.SourceControlGitLocal)
+	}
+	if got := config.DefaultSourceControlMode(false); got != config.SourceControlNone {
+		t.Fatalf("no git = %q, want %q", got, config.SourceControlNone)
+	}
+}
+
+func TestBuildConfigDraft_GitRepoDetectedDefaultsGitLocal(t *testing.T) {
+	t.Parallel()
+
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:     "demo",
+		ProjectMode:     "existing",
+		GitRepoDetected: true,
+	})
+	assertField(t, draft, "source_control.mode", config.SourceControlGitLocal, config.FieldEditable, config.FieldEditable)
+	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldEditable, config.FieldEditable)
+	mode, _ := draft.FieldByKey("source_control.mode")
+	if mode.Default != config.SourceControlGitLocal {
+		t.Fatalf("mode default = %q, want git_local", mode.Default)
+	}
+}
+
+func TestBuildConfigDraft_NoGitRepoDefaultsNone(t *testing.T) {
+	t.Parallel()
+
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:     "fresh",
+		ProjectMode:     "new",
+		GitRepoDetected: false,
+	})
+	assertField(t, draft, "source_control.mode", config.SourceControlNone, config.FieldEditable, config.FieldEditable)
+	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldEditable, config.FieldEditable)
+}
+
+func TestBuildConfigDraft_PersistedSourceControlModeWinsOverGitDetect(t *testing.T) {
+	t.Parallel()
+
+	base := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:     "demo",
+		ProjectMode:     "existing",
+		GitRepoDetected: true,
+	})
+	docNone := config.BuildProjectDocument(base, config.EmptyMCPDraft())
+	docNone.SourceControl.Mode = config.SourceControlNone
+
+	draftNone := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
+		ProjectName:     "demo",
+		ProjectMode:     "existing",
+		GitRepoDetected: true,
+	})
+	config.ApplyProjectDocument(&draftNone, docNone)
+	assertField(t, draftNone, "source_control.mode", config.SourceControlNone, config.FieldEditable, config.FieldEditable)
+	assertField(t, draftNone, "source_control.delivery_assist", "false", config.FieldEditable, config.FieldEditable)
+
+	docGH := docNone
+	docGH.SourceControl.Mode = config.SourceControlGitGitHub
+	draftGH := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
+		ProjectName:     "demo",
+		ProjectMode:     "existing",
+		GitRepoDetected: true,
+	})
+	config.ApplyProjectDocument(&draftGH, docGH)
+	assertField(t, draftGH, "source_control.mode", config.SourceControlGitGitHub, config.FieldEditable, config.FieldEditable)
+}
+
+func TestBuildConfigDraft_GitDetectDoesNotEnableAssistedOps(t *testing.T) {
+	t.Parallel()
+
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName:      "demo",
+		ProjectMode:      "existing",
+		GitRepoDetected:  true,
+		ToolGitAvailable: true,
+	})
+	assertField(t, draft, "source_control.mode", config.SourceControlGitLocal, config.FieldEditable, config.FieldEditable)
+	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldEditable, config.FieldEditable)
+}
+
 func TestConfigDraft_DeliveryPlatformUnlocksVersioned(t *testing.T) {
 	t.Parallel()
 

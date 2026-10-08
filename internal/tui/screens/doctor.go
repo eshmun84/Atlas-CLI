@@ -26,6 +26,7 @@ var doctorSectionOrder = []string{
 	"Adapters",
 	"Atlas Home",
 	"Context",
+	"Code Intelligence",
 	"MCP / External Context",
 }
 
@@ -119,8 +120,10 @@ func doctorSectionFor(name string) string {
 		return "Atlas Configuration"
 	case strings.HasPrefix(name, "atlas home"):
 		return "Atlas Home"
-	case name == "context graph" || name == "context economy" || name == "codegraph":
+	case name == "context graph" || name == "context economy":
 		return "Context"
+	case name == "code intelligence" || name == "codegraph":
+		return "Code Intelligence"
 	case strings.HasPrefix(name, "adapter") || name == "atlas agents" || name == "agent registry" ||
 		name == "tool cursor" || name == "tool opencode":
 		return "Adapters"
@@ -138,6 +141,8 @@ func doctorBadge(sev doctor.Severity) string {
 	switch sev {
 	case doctor.SeverityPass:
 		return docPass.Render("PASS")
+	case doctor.SeverityInfo:
+		return docInfo.Render("INFO")
 	case doctor.SeverityWarn:
 		return docWarn.Render("WARNING")
 	case doctor.SeverityFail:

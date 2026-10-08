@@ -1,9 +1,14 @@
 package workspace
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"time"
 
+	"github.com/eshmun84/Atlas-CLI/internal/codeintel"
+	"github.com/eshmun84/Atlas-CLI/internal/codeintel/codegraph"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
@@ -74,6 +79,10 @@ type RuntimeHealth struct {
 	SDDContractMatches   bool
 
 	ContextEconomy atlascontext.StatusSnapshot
+
+	// CodeIntelligence is an optional provider snapshot (read-only Probe/Status).
+	// Absence or errors never fail Atlas discovery.
+	CodeIntelligence codeintel.Snapshot
 
 	Home        home.Status
 	HomeProject home.ProjectStatus
@@ -241,6 +250,14 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 		StateUpdatedAt: health.State.ContextEconomyUpdatedAt,
 	})
 
+	projectID := ""
+	if health.HomeProject.ProjectID != "" {
+		projectID = health.HomeProject.ProjectID
+	} else if id, idErr := home.ProjectID(root, projectName); idErr == nil {
+		projectID = id
+	}
+	health.CodeIntelligence = probeCodeIntelligence(root, health.Home.Path, projectID)
+
 	for _, path := range forbiddenRuntimeArtifacts {
 		health.ForbiddenArtifacts = append(health.ForbiddenArtifacts, ForbiddenArtifactStatus{
 			Path:    path,
@@ -359,6 +376,20 @@ func collectRuntimeWarnings(h RuntimeHealth) []string {
 		warnings = append(warnings, "atlas state failed to load")
 	}
 	return warnings
+}
+
+func probeCodeIntelligence(root, homePath, projectID string) codeintel.Snapshot {
+	svc := codeintel.NewService(&codegraph.Adapter{
+		LookPath: exec.LookPath,
+		Runner:   codegraph.ExecRunner{Timeout: 2 * time.Second},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return svc.Snapshot(ctx, codeintel.Project{
+		Root:     root,
+		ID:       projectID,
+		HomePath: homePath,
+	})
 }
 
 func fileMatches(root, rel, expected string) bool {

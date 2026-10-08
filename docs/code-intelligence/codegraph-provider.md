@@ -107,6 +107,31 @@ $ATLAS_HOME/projects/<project-id>/codegraph/metadata.json
 
 Do **not** create a `.codegraph` directory (or equivalent) inside the product repository.
 
+### Real smoke finding (CodeGraph 3.17.0)
+
+Even when the graph database is directed at Atlas Home:
+
+```text
+codegraph build <repo> --db $ATLAS_HOME/projects/<project-id>/codegraph/graph.db
+```
+
+CodeGraph 3.17.0 may still create a repo-local side file:
+
+```text
+<repo>/.codegraph/changes.journal
+```
+
+`--db` alone does **not** guarantee repository cleanliness.
+
+#### Constraint for future Atlas-managed Build (not Slice 31)
+
+When Atlas later owns an explicit CodeGraph Build flow:
+
+- Atlas must not leave CodeGraph artifacts inside the product repository;
+- Build integration must find a supported way to contain, redirect, or suppress that journal (or equivalent repo-local outputs);
+- if upstream cannot do this safely, Atlas must not assume that pointing `--db` at Atlas Home is sufficient for a clean repo;
+- Slice 31 does **not** implement that containment — Probe/Status/Doctor remain read-only and must not run `build`.
+
 ## Evidence model
 
 CodeGraph output is **structural evidence**, not absolute truth.

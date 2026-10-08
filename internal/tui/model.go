@@ -478,6 +478,7 @@ func (m Model) projectSetupInput() config.ProjectSetupInput {
 		CursorDetected:         cursor,
 		OpenCodeDetected:       opencode,
 		DocsScaffold:           m.initDocsScaffold,
+		GitRepoDetected:        m.discovery.Git.IsRepo,
 		ToolGitAvailable:       tools["git"],
 		ToolGHAvailable:        tools["gh"],
 		ToolGlabAvailable:      tools["glab"] || pathToolAvailable("glab"),
@@ -506,23 +507,29 @@ func pathToolAvailable(name string) bool {
 func (m *Model) rebuildConfigDraft(mode config.ConfigMode, includeBack, includeNext bool) {
 	setup := m.projectSetupInput()
 	var persisted *config.ProjectDocument
-	if mode == config.ConfigModeConfigure && m.discovery.Atlas.Initialized() {
-		cfg := m.discovery.Atlas.Config
-		if cfg.Project.Name != "" {
-			setup.ProjectName = cfg.Project.Name
-		}
-		if cfg.Project.Mode != "" {
-			setup.ProjectMode = cfg.Project.Mode
-		}
+	if m.discovery.Atlas.Initialized() {
+		// Persisted config wins over discovery-based Delivery defaults for both
+		// Init (re-run) and Configure. Configure also reseeds setup identity.
 		if doc, err := config.LoadProjectDocument(m.discovery.Atlas.ConfigPath); err == nil {
 			persisted = &doc
-			setup.ProjectName = doc.Project.Name
-			setup.ProjectMode = doc.Project.Mode
-			if doc.SourceControl.DefaultRemote != "" {
-				setup.DefaultRemote = doc.SourceControl.DefaultRemote
+		}
+		if mode == config.ConfigModeConfigure {
+			cfg := m.discovery.Atlas.Config
+			if cfg.Project.Name != "" {
+				setup.ProjectName = cfg.Project.Name
 			}
-			setup.CursorDetected = containsString(doc.Adapters.Selected, "cursor")
-			setup.OpenCodeDetected = containsString(doc.Adapters.Selected, "opencode")
+			if cfg.Project.Mode != "" {
+				setup.ProjectMode = cfg.Project.Mode
+			}
+			if persisted != nil {
+				setup.ProjectName = persisted.Project.Name
+				setup.ProjectMode = persisted.Project.Mode
+				if persisted.SourceControl.DefaultRemote != "" {
+					setup.DefaultRemote = persisted.SourceControl.DefaultRemote
+				}
+				setup.CursorDetected = containsString(persisted.Adapters.Selected, "cursor")
+				setup.OpenCodeDetected = containsString(persisted.Adapters.Selected, "opencode")
+			}
 		}
 	}
 	setup.ProjectID = config.PreviewProjectID(setup.ProjectName)

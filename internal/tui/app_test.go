@@ -2,6 +2,7 @@ package tui_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -1570,7 +1571,10 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	if modeMid.Value != modeBefore.Value {
 		t.Fatalf("arrow mutated delivery platform")
 	}
-	// Cycle none -> git_local -> git_github
+	// No .git in this fixture → seed is none; cycle none → git_local → git_github.
+	if modeBefore.Value != "none" {
+		t.Fatalf("delivery platform seed = %q, want none without git repo", modeBefore.Value)
+	}
 	m = mustModel(m.Update(key("enter"))) // git_local
 	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("enter"))) // git_github
@@ -1852,6 +1856,56 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 	}
 	if !m.Initialized() {
 		t.Fatal("Status should see initialized atlas config")
+	}
+}
+
+func TestInitDeliveryPreselectsGitLocalWhenRepoDetected(t *testing.T) {
+	t.Setenv("ATLAS_HOME", t.TempDir())
+	root := t.TempDir()
+	gitCmd := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "HOME="+t.TempDir())
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitCmd("init")
+	gitCmd("branch", "-M", "develop")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd("add", "README.md")
+	gitCmd("-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "seed")
+
+	disc, err := workspace.Discover(root)
+	if err != nil || !disc.Git.IsRepo {
+		t.Fatalf("fixture must be a git repo: err=%v isRepo=%v", err, disc.Git.IsRepo)
+	}
+
+	m := loadWorkspace(t, tui.Options{
+		Route:    tui.RouteInitPlan,
+		Getwd:    func() (string, error) { return root, nil },
+		Discover: workspace.Discover,
+	})
+	m = gotoInitStep2(t, m)
+	mode, ok := m.ConfigDraft().FieldByKey("source_control.mode")
+	if !ok || mode.Value != "git_local" {
+		t.Fatalf("delivery platform = %#v, want git_local", mode)
+	}
+	assist, _ := m.ConfigDraft().FieldByKey("source_control.delivery_assist")
+	if assist.Value != "false" {
+		t.Fatalf("assisted operations = %q, want false", assist.Value)
+	}
+	m = gotoConfigSection(t, m, "source_control")
+	m = mustModel(m.Update(key("enter")))
+	view := m.View()
+	if !strings.Contains(view, "Git local") {
+		t.Fatalf("Delivery UI missing Git local preselection:\n%s", view)
+	}
+	if !strings.Contains(view, "[ ] Enabled") {
+		t.Fatalf("assisted operations must render disabled by default:\n%s", view)
 	}
 }
 

@@ -3,11 +3,16 @@ package doctor_test
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/eshmun84/Atlas-CLI/internal/codeintel"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
@@ -299,11 +304,194 @@ func TestEvaluate_ContextGraphEnabledWithoutEngineIsPass(t *testing.T) {
 
 	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
 	assertHas(t, report, doctor.SeverityPass, "context graph", "Atlas Context Graph preference (enabled); engine NOT IMPLEMENTED")
-	assertHas(t, report, doctor.SeverityPass, "codegraph", "NOT IMPLEMENTED (future optional external provider)")
+	assertHas(t, report, doctor.SeverityInfo, "codegraph", "optional provider unavailable")
 	for _, check := range report.Checks {
 		if check.Name == "context graph" && check.Severity != doctor.SeverityPass {
 			t.Fatalf("context graph must not warn/fail: %#v", check)
 		}
+		if check.Name == "codegraph" && check.Severity == doctor.SeverityFail {
+			t.Fatalf("optional Code Intelligence must not fail Doctor: %#v", check)
+		}
+	}
+}
+
+func TestEvaluate_CodeIntelligenceAvailablePass(t *testing.T) {
+	t.Parallel()
+
+	rt := healthyRuntime()
+	rt.CodeIntelligence = codeintel.Snapshot{
+		Applicable: true,
+		Provider:   codeintel.ProviderCodeGraph,
+		State:      codeintel.StateAvailable,
+		Version:    "3.17.0",
+	}
+
+	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph absent")
+	if report.Failed() {
+		t.Fatal("available Code Intelligence must not fail Doctor")
+	}
+}
+
+func TestEvaluate_CodeIntelligenceGraphAbsentStillPass(t *testing.T) {
+	t.Parallel()
+
+	rt := healthyRuntime()
+	rt.CodeIntelligence = codeintel.Snapshot{
+		Provider:     codeintel.ProviderCodeGraph,
+		State:        codeintel.StateAvailable,
+		Version:      "3.17.0",
+		GraphPresent: false,
+	}
+
+	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph absent")
+	for _, check := range report.Checks {
+		if check.Name == "codegraph" && check.Severity != doctor.SeverityPass {
+			t.Fatalf("graph absent must stay PASS, got %#v", check)
+		}
+	}
+}
+
+func TestEvaluate_CodeIntelligenceOptionalUnavailableInfo(t *testing.T) {
+	t.Parallel()
+
+	report := doctor.Evaluate(workspace.DiscoveryResult{
+		Runtime: workspace.RuntimeHealth{
+			CodeIntelligence: codeintel.Snapshot{
+				Provider: codeintel.ProviderCodeGraph,
+				State:    codeintel.StateUnavailable,
+				Message:  "CodeGraph executable not found on PATH",
+			},
+			ForbiddenArtifacts: []workspace.ForbiddenArtifactStatus{
+				{Path: "CLAUDE.md", Present: false},
+				{Path: "GEMINI.md", Present: false},
+				{Path: ".agents", Present: false},
+				{Path: ".claude", Present: false},
+			},
+		},
+	})
+	assertHas(t, report, doctor.SeverityInfo, "codegraph", "CodeGraph executable not found on PATH")
+	if report.Failed() {
+		t.Fatal("optional unavailable provider must not fail Doctor")
+	}
+	_, warnings, failed := report.Counts()
+	if failed != 0 {
+		t.Fatalf("failed=%d want 0", failed)
+	}
+	if warnings != 0 && hasNamedSeverity(report, "codegraph", doctor.SeverityWarn) {
+		t.Fatal("optional unavailable must not be WARNING")
+	}
+}
+
+func TestEvaluate_CodeIntelligenceWithoutConfigStillVisible(t *testing.T) {
+	t.Parallel()
+
+	report := doctor.Evaluate(workspace.DiscoveryResult{
+		Runtime: workspace.RuntimeHealth{
+			ConfigExists: false,
+			ConfigLoads:  false,
+			CodeIntelligence: codeintel.Snapshot{
+				Provider: codeintel.ProviderCodeGraph,
+				State:    codeintel.StateAvailable,
+				Version:  "3.17.0",
+			},
+			ForbiddenArtifacts: []workspace.ForbiddenArtifactStatus{
+				{Path: "CLAUDE.md", Present: false},
+				{Path: "GEMINI.md", Present: false},
+				{Path: ".agents", Present: false},
+				{Path: ".claude", Present: false},
+			},
+		},
+	})
+	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph absent")
+}
+
+func TestEvaluate_CodeIntelligenceIncompatibleWarn(t *testing.T) {
+	t.Parallel()
+
+	rt := healthyRuntime()
+	rt.CodeIntelligence = codeintel.Snapshot{
+		Provider: codeintel.ProviderCodeGraph,
+		State:    codeintel.StateIncompatible,
+		Version:  "2.9.0",
+		Message:  "CodeGraph 2.9.0 is outside the supported major 3 range",
+	}
+
+	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	assertHas(t, report, doctor.SeverityWarn, "codegraph",
+		"incompatible · CodeGraph 2.9.0 is outside the supported major 3 range")
+}
+
+func TestEvaluate_CodeIntelligenceMissingExpectedWarn(t *testing.T) {
+	t.Parallel()
+
+	rt := healthyRuntime()
+	rt.CodeIntelligence = codeintel.Snapshot{
+		Provider: codeintel.ProviderCodeGraph,
+		State:    codeintel.StateMissing,
+		Message:  "provider missing after prior configuration",
+	}
+
+	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	assertHas(t, report, doctor.SeverityWarn, "codegraph", "provider missing after prior configuration")
+}
+
+func TestEvaluate_CodeIntelligenceUsesSnapshotOnlyNoFSMutation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	marker := filepath.Join(root, "keep.txt")
+	if err := os.WriteFile(marker, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotDir(t, root)
+
+	rt := healthyRuntime()
+	rt.CodeIntelligence = codeintel.Snapshot{
+		Provider: codeintel.ProviderCodeGraph,
+		State:    codeintel.StateAvailable,
+		Version:  "3.17.0",
+	}
+	report := doctor.Evaluate(workspace.DiscoveryResult{
+		RootPath: root,
+		Runtime:  rt,
+	})
+	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph absent")
+	assertDirUnchanged(t, root, before)
+
+	if _, err := os.Stat(filepath.Join(root, ".codegraph")); !os.IsNotExist(err) {
+		t.Fatal("Doctor must not create .codegraph")
+	}
+	if _, err := os.Stat(filepath.Join(root, "graph.db")); !os.IsNotExist(err) {
+		t.Fatal("Doctor must not create graph.db")
+	}
+}
+
+func TestDoctorScreen_RendersCodeIntelligenceSection(t *testing.T) {
+	t.Parallel()
+
+	rt := healthyRuntime()
+	rt.CodeIntelligence = codeintel.Snapshot{
+		Provider: codeintel.ProviderCodeGraph,
+		State:    codeintel.StateAvailable,
+		Version:  "3.17.0",
+	}
+	result := workspace.DiscoveryResult{Runtime: rt}
+	report := doctor.Evaluate(result)
+	view := stripANSIDoctor(screens.Doctor(report, result))
+
+	if !strings.Contains(view, "Code Intelligence") {
+		t.Fatalf("doctor view missing Code Intelligence section:\n%s", view)
+	}
+	if !strings.Contains(view, "PASS codegraph: available · 3.17.0 · graph absent") {
+		t.Fatalf("doctor view missing expected Code Intelligence line:\n%s", view)
+	}
+	// Must not bury the check under Context as a silent omission.
+	idxCI := strings.Index(view, "Code Intelligence")
+	idxMCP := strings.Index(view, "MCP / External Context")
+	if idxCI < 0 || idxMCP < 0 || idxCI > idxMCP {
+		t.Fatalf("Code Intelligence section order unexpected:\n%s", view)
 	}
 }
 
@@ -426,4 +614,74 @@ func hasNamed(report doctor.Report, name string) bool {
 		}
 	}
 	return false
+}
+
+func hasNamedSeverity(report doctor.Report, name string, severity doctor.Severity) bool {
+	for _, check := range report.Checks {
+		if check.Name == name && check.Severity == severity {
+			return true
+		}
+	}
+	return false
+}
+
+func snapshotDir(t *testing.T, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			out[rel] = "dir"
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		out[rel] = string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func assertDirUnchanged(t *testing.T, root string, before map[string]string) {
+	t.Helper()
+	after := snapshotDir(t, root)
+	if len(before) != len(after) {
+		t.Fatalf("directory tree size changed: before=%d after=%d", len(before), len(after))
+	}
+	for path, content := range before {
+		if after[path] != content {
+			t.Fatalf("path mutated: %s", path)
+		}
+	}
+}
+
+func stripANSIDoctor(s string) string {
+	var b strings.Builder
+	inESC := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == 0x1b {
+			inESC = true
+			continue
+		}
+		if inESC {
+			if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+				inESC = false
+			}
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }

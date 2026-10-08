@@ -5,6 +5,7 @@ type Severity string
 
 const (
 	SeverityPass Severity = "PASS"
+	SeverityInfo Severity = "INFO"
 	SeverityWarn Severity = "WARN"
 	SeverityFail Severity = "FAIL"
 )

@@ -405,13 +405,10 @@ func evaluateRuntime(h workspace.RuntimeHealth) []Check {
 				Message:  "Atlas Context Graph preference (" + pref + "); engine NOT IMPLEMENTED",
 			})
 		}
-		checks = append(checks, Check{
-			Severity: SeverityPass,
-			Name:     "codegraph",
-			Message:  "NOT IMPLEMENTED (future optional external provider)",
-		})
 	}
 
+	// Code Intelligence uses the shared discovery snapshot only (no second probe).
+	checks = append(checks, evaluateCodeIntelligence(h)...)
 	checks = append(checks, evaluateContextEconomy(h)...)
 
 	switch {
@@ -461,6 +458,80 @@ func evaluateRuntime(h workspace.RuntimeHealth) []Check {
 	}
 
 	return checks
+}
+
+func evaluateCodeIntelligence(h workspace.RuntimeHealth) []Check {
+	snap := h.CodeIntelligence
+	provider := strings.TrimSpace(string(snap.Provider))
+	if provider == "" {
+		provider = "codegraph"
+	}
+
+	switch snap.State {
+	case "", "unavailable":
+		msg := "optional provider unavailable"
+		if snap.Message != "" {
+			msg = snap.Message
+		}
+		return []Check{{
+			Severity: SeverityInfo,
+			Name:     provider,
+			Message:  msg,
+		}}
+	case "missing":
+		// Expected/configured provider disappeared (when architecture can distinguish).
+		msg := "previously expected provider missing"
+		if snap.Message != "" {
+			msg = snap.Message
+		}
+		return []Check{{
+			Severity: SeverityWarn,
+			Name:     provider,
+			Message:  msg,
+		}}
+	case "available", "ready":
+		msg := string(snap.State)
+		if snap.Version != "" {
+			msg += " · " + snap.Version
+		}
+		if snap.GraphPresent {
+			msg += " · graph present"
+		} else {
+			msg += " · graph absent"
+		}
+		return []Check{{
+			Severity: SeverityPass,
+			Name:     provider,
+			Message:  msg,
+		}}
+	case "incompatible":
+		msg := "incompatible"
+		if snap.Message != "" {
+			msg += " · " + snap.Message
+		}
+		return []Check{{
+			Severity: SeverityWarn,
+			Name:     provider,
+			Message:  msg,
+		}}
+	case "error":
+		msg := "error"
+		if snap.Message != "" {
+			msg += " · " + snap.Message
+		}
+		return []Check{{
+			Severity: SeverityWarn,
+			Name:     provider,
+			Message:  msg,
+		}}
+	default:
+		// stale and other conceptual states: report without failing Doctor.
+		return []Check{{
+			Severity: SeverityPass,
+			Name:     provider,
+			Message:  string(snap.State),
+		}}
+	}
 }
 
 func evaluateContextEconomy(h workspace.RuntimeHealth) []Check {
@@ -704,6 +775,7 @@ func EvaluateDiscoveryError(err error) Report {
 }
 
 // Counts returns PASS/WARN/FAIL totals.
+// INFO checks are informational and do not affect health totals.
 func (r Report) Counts() (passed, warnings, failed int) {
 	for _, check := range r.Checks {
 		switch check.Severity {

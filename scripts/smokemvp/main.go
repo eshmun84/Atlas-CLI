@@ -835,11 +835,15 @@ func checkStatusDoctor() error {
 		"Overall Health",
 		"WARNING",
 		"Atlas Home",
+		"Code Intelligence",
 		"MCP / External Context",
 	} {
 		if !strings.Contains(doctorView, want) {
 			return fmt.Errorf("doctor render missing %q", want)
 		}
+	}
+	if !strings.Contains(status, "Code Intelligence") {
+		return fmt.Errorf("status render missing Code Intelligence")
 	}
 	afterTree, err := snapshotPaths(root)
 	if err != nil {
