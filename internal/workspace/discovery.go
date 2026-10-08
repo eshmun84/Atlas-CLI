@@ -1,73 +1,117 @@
 package workspace
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+	"time"
+
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 )
 
-// DiscoveryResult is the read-only snapshot of a workspace.
-type DiscoveryResult struct {
-	RootPath string
+// Compatibility aliases — prefer inspect.Inspection, project.*, and runtime.* for
+// new code. This package must not gain new productive consumers.
+type (
+	GitInfo     = project.GitInfo
+	GitRemote   = project.GitRemote
+	FileInfo    = project.FileInfo
+	Technology  = project.Technology
+	Library     = project.Library
+	ToolInfo    = project.ToolInfo
+	AtlasStatus = project.AtlasStatus
 
-	Git              GitInfo
-	Files            FileInfo
-	Technologies     []Technology
-	Libraries        []Library
-	RuntimeArtifacts []string
-	Atlas            AtlasStatus
-	Runtime          RuntimeHealth
-	Tools            []ToolInfo
+	RuntimeHealth           = runtime.Health
+	ProjectionStatus        = runtime.ProjectionStatus
+	ForbiddenArtifactStatus = runtime.ForbiddenArtifactStatus
+	AgentFileStatus         = runtime.AgentFileStatus
+	RuntimeRepairPlan       = runtime.RuntimeRepairPlan
+	RuntimeRepairTarget     = runtime.RuntimeRepairTarget
+	RuntimeRepairResult     = runtime.RuntimeRepairResult
 
-	Warnings []string
+	// DiscoveryResult is an alias of the canonical inspect.Inspection.
+	DiscoveryResult = inspect.Inspection
+)
+
+const (
+	AtlasStateNotInitialized = project.AtlasStateNotInitialized
+	AtlasStateInitialized    = project.AtlasStateInitialized
+	AtlasStatePartialSetup   = project.AtlasStatePartialSetup
+	AtlasStateInvalidConfig  = project.AtlasStateInvalidConfig
+
+	ConfidenceHigh   = project.ConfidenceHigh
+	ConfidenceMedium = project.ConfidenceMedium
+	ConfidenceLow    = project.ConfidenceLow
+
+	RepairActionCreate     = runtime.RepairActionCreate
+	RepairActionReplace    = runtime.RepairActionReplace
+	RepairActionQuarantine = runtime.RepairActionQuarantine
+	RepairKindAgents       = runtime.RepairKindAgents
+	RepairKindAdapter      = runtime.RepairKindAdapter
+	RepairKindAgent        = runtime.RepairKindAgent
+	RepairKindAtlas        = runtime.RepairKindAtlas
+	RepairKindHome         = runtime.RepairKindHome
+	RepairKindConflict     = runtime.RepairKindConflict
+	RepairHomePath         = runtime.RepairHomePath
+	RepairSuccessTitle     = runtime.RepairSuccessTitle
+	RepairSuccessBody      = runtime.RepairSuccessBody
+	RepairNoopTitle        = runtime.RepairNoopTitle
+	RepairNoopBody         = runtime.RepairNoopBody
+	RepairStaleMessage     = runtime.RepairStaleMessage
+)
+
+// RequiredTools re-exports project.RequiredTools.
+var RequiredTools = project.RequiredTools
+
+// Discover forwards to inspect.Inspect (canonical composition).
+// Deprecated for new productive call sites — use inspect.Inspect.
+func Discover(root string) (DiscoveryResult, error) {
+	return inspect.Inspect(root)
 }
 
-// Discover inspects root using read-only filesystem and Git operations.
-func Discover(root string) (DiscoveryResult, error) {
-	if strings.TrimSpace(root) == "" {
-		return DiscoveryResult{}, fmt.Errorf("root path is required")
-	}
+// DiscoverFiles re-exports project.DiscoverFiles.
+func DiscoverFiles(root string) (FileInfo, error) { return project.DiscoverFiles(root) }
 
-	info, err := os.Stat(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return DiscoveryResult{}, fmt.Errorf("root path does not exist: %s", root)
-		}
-		return DiscoveryResult{}, fmt.Errorf("stat root path: %w", err)
-	}
-	if !info.IsDir() {
-		return DiscoveryResult{}, fmt.Errorf("root path is not a directory: %s", root)
-	}
+// DiscoverGit re-exports project.DiscoverGit.
+func DiscoverGit(root string) (GitInfo, error) { return project.DiscoverGit(root) }
 
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return DiscoveryResult{}, fmt.Errorf("resolve root path: %w", err)
-	}
+// DiscoverTools re-exports project.DiscoverTools.
+func DiscoverTools() []ToolInfo { return project.DiscoverTools() }
 
-	result := DiscoveryResult{
-		RootPath: absRoot,
-	}
+// DiscoverTechnologies re-exports project.DiscoverTechnologies.
+func DiscoverTechnologies(files FileInfo) []Technology {
+	return project.DiscoverTechnologies(files)
+}
 
-	files, err := DiscoverFiles(absRoot)
-	if err != nil {
-		return DiscoveryResult{}, err
-	}
-	result.Files = files
-	result.Technologies = DiscoverTechnologies(files)
-	result.Libraries = DiscoverLibraries(absRoot, files)
-	result.RuntimeArtifacts = DiscoverRuntimeArtifacts(absRoot)
-	result.Atlas = EvaluateAtlasStatus(absRoot, files)
-	result.Runtime = EvaluateRuntimeHealth(absRoot, result.Atlas, files)
-	result.Tools = DiscoverTools()
+// DiscoverLibraries re-exports project.DiscoverLibraries.
+func DiscoverLibraries(root string, files FileInfo) []Library {
+	return project.DiscoverLibraries(root, files)
+}
 
-	gitInfo, warnings, err := discoverGit(absRoot)
-	if err != nil {
-		return DiscoveryResult{}, err
-	}
-	result.Git = gitInfo
-	result.Warnings = append(result.Warnings, warnings...)
-	result.Warnings = append(result.Warnings, result.Runtime.Warnings...)
+// DiscoverRuntimeArtifacts re-exports project.DiscoverRuntimeArtifacts.
+func DiscoverRuntimeArtifacts(root string) []string {
+	return project.DiscoverRuntimeArtifacts(root)
+}
 
-	return result, nil
+// EvaluateAtlasStatus re-exports project.EvaluateAtlasStatus.
+func EvaluateAtlasStatus(root string, files FileInfo) AtlasStatus {
+	return project.EvaluateAtlasStatus(root, files)
+}
+
+// EvaluateRuntimeHealth re-exports runtime.EvaluateHealth.
+func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) RuntimeHealth {
+	return runtime.EvaluateHealth(root, atlas, files)
+}
+
+// BuildRuntimeRepairPlan re-exports runtime.BuildRuntimeRepairPlan.
+func BuildRuntimeRepairPlan(root string, health RuntimeHealth) RuntimeRepairPlan {
+	return runtime.BuildRuntimeRepairPlan(root, health)
+}
+
+// ApplyRuntimeRepair re-exports runtime.ApplyRuntimeRepair.
+func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) (RuntimeRepairResult, error) {
+	return runtime.ApplyRuntimeRepair(root, expectedSignature, nowFn)
+}
+
+// ShowRuntimeRepair re-exports runtime.ShowRuntimeRepair for a composed result.
+func ShowRuntimeRepair(result DiscoveryResult) bool {
+	return runtime.ShowRuntimeRepair(result.RootPath, result.Atlas, result.Runtime)
 }

@@ -1,4 +1,4 @@
-package workspace
+package project
 
 import "path/filepath"
 
@@ -19,7 +19,7 @@ var runtimeArtifactNames = []string{
 func DiscoverRuntimeArtifacts(root string) []string {
 	var found []string
 	for _, name := range runtimeArtifactNames {
-		if exists(root, name) {
+		if Exists(root, name) {
 			found = append(found, filepath.ToSlash(name))
 		}
 	}

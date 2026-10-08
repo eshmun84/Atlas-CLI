@@ -1,11 +1,11 @@
-package workspace_test
+package project_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
 )
 
 func TestDiscoverLibraries_DetectsCharmbraceletStack(t *testing.T) {
@@ -23,7 +23,7 @@ require (
 )
 `)
 
-	libs := workspace.DiscoverLibraries(root, workspace.FileInfo{HasGoMod: true})
+	libs := project.DiscoverLibraries(root, project.FileInfo{HasGoMod: true})
 	got := map[string]bool{}
 	for _, lib := range libs {
 		got[lib.Name] = true
@@ -45,7 +45,7 @@ func TestDiscoverRuntimeArtifacts(t *testing.T) {
 		t.Fatalf("mkdir .agents: %v", err)
 	}
 
-	found := workspace.DiscoverRuntimeArtifacts(root)
+	found := project.DiscoverRuntimeArtifacts(root)
 	want := map[string]bool{"AGENTS.md": true, "CLAUDE.md": true, ".agents": true}
 	if len(found) != len(want) {
 		t.Fatalf("got %#v, want %d entries", found, len(want))

@@ -1,4 +1,4 @@
-package workspace_test
+package runtime_test
 
 import (
 	"os"
@@ -8,18 +8,20 @@ import (
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 func TestEvaluateRuntimeHealth_NotInitialized(t *testing.T) {
 
 	root := t.TempDir()
-	files, err := workspace.DiscoverFiles(root)
+	files, err := project.DiscoverFiles(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	atlas := workspace.EvaluateAtlasStatus(root, files)
-	health := workspace.EvaluateRuntimeHealth(root, atlas, files)
+	atlas := project.EvaluateAtlasStatus(root, files)
+	health := runtime.EvaluateHealth(root, atlas, files)
 
 	if health.Initialized || health.ConfigExists || health.StateExists || health.AgentsExists {
 		t.Fatalf("unexpected health: %#v", health)
@@ -84,7 +86,7 @@ func TestEvaluateRuntimeHealth_InitializedOpenCode(t *testing.T) {
 
 	root := materializeProject(t, []string{"opencode"}, true)
 	before := snapshotTree(t, root)
-	h := workspace.EvaluateRuntimeHealth(root, workspace.EvaluateAtlasStatus(root, mustFiles(t, root)), mustFiles(t, root))
+	h := runtime.EvaluateHealth(root, project.EvaluateAtlasStatus(root, mustFiles(t, root)), mustFiles(t, root))
 	if len(h.ExpectedProjections) != 1 || h.ExpectedProjections[0].Path != config.FileOpenCodeAtlas || !h.ExpectedProjections[0].Present {
 		t.Fatalf("projections = %#v", h.ExpectedProjections)
 	}
@@ -101,8 +103,8 @@ func TestEvaluateRuntimeHealth_InvalidConfigPartial(t *testing.T) {
 	writeFile(t, filepath.Join(root, "AGENTS.md"), config.RenderAgentsMD("demo", true, nil, nil))
 
 	files := mustFiles(t, root)
-	atlas := workspace.EvaluateAtlasStatus(root, files)
-	h := workspace.EvaluateRuntimeHealth(root, atlas, files)
+	atlas := project.EvaluateAtlasStatus(root, files)
+	h := runtime.EvaluateHealth(root, atlas, files)
 	if !h.ConfigExists || h.ConfigLoads || h.ConfigError == "" {
 		t.Fatalf("expected partial invalid config health: %#v", h)
 	}
@@ -121,7 +123,7 @@ func TestEvaluateRuntimeHealth_MissingAgentsAndProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := workspace.EvaluateRuntimeHealth(root, workspace.EvaluateAtlasStatus(root, mustFiles(t, root)), mustFiles(t, root))
+	h := runtime.EvaluateHealth(root, project.EvaluateAtlasStatus(root, mustFiles(t, root)), mustFiles(t, root))
 	if h.AgentsExists {
 		t.Fatal("agents should be missing")
 	}
@@ -141,7 +143,7 @@ func TestEvaluateRuntimeHealth_BrokenMarkers(t *testing.T) {
 
 	root := materializeProject(t, nil, true)
 	writeFile(t, filepath.Join(root, "AGENTS.md"), "# broken\n<!-- ATLAS:BASE:BEGIN -->\n")
-	h := workspace.EvaluateRuntimeHealth(root, workspace.EvaluateAtlasStatus(root, mustFiles(t, root)), mustFiles(t, root))
+	h := runtime.EvaluateHealth(root, project.EvaluateAtlasStatus(root, mustFiles(t, root)), mustFiles(t, root))
 	if h.AgentsMarkers.Complete() {
 		t.Fatalf("markers should be incomplete: %#v", h.AgentsMarkers)
 	}
@@ -182,13 +184,23 @@ func materializeProject(t *testing.T, adapters []string, contextGraph bool) stri
 	return root
 }
 
-func mustFiles(t *testing.T, root string) workspace.FileInfo {
+func mustFiles(t *testing.T, root string) project.FileInfo {
 	t.Helper()
-	files, err := workspace.DiscoverFiles(root)
+	files, err := project.DiscoverFiles(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return files
+}
+
+func writeFile(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func snapshotTree(t *testing.T, root string) map[string]string {

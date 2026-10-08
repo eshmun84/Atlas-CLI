@@ -7,7 +7,9 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 )
 
 // Report is the full doctor diagnostics result.
@@ -15,9 +17,11 @@ type Report struct {
 	Checks []Check
 }
 
-// Evaluate builds diagnostics from a successful workspace discovery.
+// Evaluate builds diagnostics from the canonical inspect.Inspection.
+// It assigns INFO/PASS/WARN/FAIL from existing evidence only — no second
+// discovery, Git probe, tool LookPath, or Code Intelligence process.
 // Runtime checks are read-only and never repair or rematerialize.
-func Evaluate(result workspace.DiscoveryResult) Report {
+func Evaluate(result inspect.Inspection) Report {
 	var checks []Check
 
 	checks = append(checks, Check{
@@ -100,7 +104,7 @@ func Evaluate(result workspace.DiscoveryResult) Report {
 
 // evaluateRemoteDefaultBranch reports local knowledge of refs/remotes/<remote>/HEAD.
 // Read-only: never contacts remotes or runs git remote set-head.
-func evaluateRemoteDefaultBranch(git workspace.GitInfo) []Check {
+func evaluateRemoteDefaultBranch(git project.GitInfo) []Check {
 	if !git.IsRepo {
 		return nil
 	}
@@ -125,7 +129,7 @@ func evaluateRemoteDefaultBranch(git workspace.GitInfo) []Check {
 	}}
 }
 
-func evaluateRuntime(h workspace.RuntimeHealth) []Check {
+func evaluateRuntime(h runtime.Health) []Check {
 	var checks []Check
 
 	if !h.ConfigExists {
@@ -460,7 +464,7 @@ func evaluateRuntime(h workspace.RuntimeHealth) []Check {
 	return checks
 }
 
-func evaluateCodeIntelligence(h workspace.RuntimeHealth) []Check {
+func evaluateCodeIntelligence(h runtime.Health) []Check {
 	snap := h.CodeIntelligence
 	provider := strings.TrimSpace(string(snap.Provider))
 	if provider == "" {
@@ -534,7 +538,7 @@ func evaluateCodeIntelligence(h workspace.RuntimeHealth) []Check {
 	}
 }
 
-func evaluateContextEconomy(h workspace.RuntimeHealth) []Check {
+func evaluateContextEconomy(h runtime.Health) []Check {
 	ce := h.ContextEconomy
 	switch {
 	case !ce.Applicable:
@@ -576,7 +580,7 @@ func evaluateContextEconomy(h workspace.RuntimeHealth) []Check {
 	}
 }
 
-func evaluateHome(h workspace.RuntimeHealth) []Check {
+func evaluateHome(h runtime.Health) []Check {
 	var checks []Check
 	homePath := strings.TrimSpace(h.Home.Path)
 	if homePath == "" {
@@ -731,7 +735,7 @@ func evaluateHome(h workspace.RuntimeHealth) []Check {
 	return checks
 }
 
-func runtimeMaterializationMessage(h workspace.RuntimeHealth) string {
+func runtimeMaterializationMessage(h runtime.Health) string {
 	if !h.StateLoads {
 		if h.Initialized {
 			return "state unavailable; cannot confirm runtime_materialized"

@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
 )
 
 // Step statuses for the dry-run init plan.
@@ -51,13 +52,13 @@ type Options struct {
 	ProjectName string
 }
 
-// Build infers a dry-run init plan from a discovered workspace.
-func Build(root string, result workspace.DiscoveryResult) (Plan, error) {
+// Build infers a dry-run init plan from the canonical inspection.
+func Build(root string, result inspect.Inspection) (Plan, error) {
 	return BuildWithOptions(root, result, Options{})
 }
 
 // BuildWithOptions infers a dry-run init plan, optionally overriding project mode.
-func BuildWithOptions(root string, result workspace.DiscoveryResult, opts Options) (Plan, error) {
+func BuildWithOptions(root string, result inspect.Inspection, opts Options) (Plan, error) {
 	if root == "" {
 		return Plan{}, fmt.Errorf("root path is required")
 	}
@@ -130,7 +131,7 @@ func inferProjectName(root string) string {
 	return name
 }
 
-func inferProjectMode(root string, files workspace.FileInfo) (string, error) {
+func inferProjectMode(root string, files project.FileInfo) (string, error) {
 	if files.HasAtlasConfig {
 		return config.ModeExisting, nil
 	}

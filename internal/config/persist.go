@@ -17,8 +17,8 @@ const (
 	GovernanceFilesLocalOnly = "local_only"
 	GovernanceFilesVersioned = "versioned"
 
-	SourceControlGitLocal  = "git_local"
-	SourceControlGitGitHub = "git_github"
+	SourceControlGitLocal  = "git_local"  // == delivery.ModeGitLocal
+	SourceControlGitGitHub = "git_github" // == delivery.ModeGitGitHub
 )
 
 // ProjectDocument is the persisted project-shared .atlas/config.yaml.

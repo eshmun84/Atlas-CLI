@@ -1,7 +1,8 @@
-package workspace
+package runtime
 
 import (
 	"context"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,9 +44,9 @@ type AgentFileStatus struct {
 	Matches bool
 }
 
-// RuntimeHealth is a read-only snapshot of Atlas runtime materialization.
+// Health is a read-only snapshot of Atlas runtime materialization.
 // Safe for Status, Doctor, tests, and future Repair; never mutates the workspace.
-type RuntimeHealth struct {
+type Health struct {
 	Initialized bool
 
 	ConfigExists bool
@@ -101,10 +102,10 @@ type RuntimeHealth struct {
 	Warnings []string
 }
 
-// EvaluateRuntimeHealth inspects Atlas runtime files without writing.
+// EvaluateHealth inspects Atlas runtime files without writing.
 // Invalid config yields partial health (no panic, no empty-only result).
-func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) RuntimeHealth {
-	health := RuntimeHealth{
+func EvaluateHealth(root string, atlas project.AtlasStatus, files project.FileInfo) Health {
+	health := Health{
 		Initialized:         atlas.Initialized(),
 		ConfigExists:        files.HasAtlasConfig || atlas.HasConfig,
 		SelectedAdapters:    []string{},
@@ -125,7 +126,7 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 		if err != nil {
 			health.ConfigLoads = false
 			health.ConfigError = err.Error()
-			// Fall back to AtlasStatus.Config when ProjectDocument shape fails
+			// Fall back to project.AtlasStatus.Config when ProjectDocument shape fails
 			// but legacy Config.Load already succeeded (Initialized=true).
 			if atlas.Initialized() {
 				health.SelectedAdapters = adaptersFromConfig(atlas.Config)
@@ -143,20 +144,20 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 					health.ExpectedProjections = append(health.ExpectedProjections, ProjectionStatus{
 						Adapter: adapter,
 						Path:    path,
-						Present: exists(root, path),
+						Present: project.Exists(root, path),
 					})
 				case "opencode":
 					path := config.FileOpenCodeAtlas
 					health.ExpectedProjections = append(health.ExpectedProjections, ProjectionStatus{
 						Adapter: adapter,
 						Path:    path,
-						Present: exists(root, path),
+						Present: project.Exists(root, path),
 					})
 				}
 			}
 			for _, path := range config.AtlasAgentRuntimePaths(doc.Adapters.Selected) {
 				adapter := agentAdapterFromPath(path)
-				present := exists(root, path)
+				present := project.Exists(root, path)
 				matches := false
 				if present {
 					expected, err := config.RenderAtlasAgent(filepath.Base(path))
@@ -174,24 +175,24 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 
 			homePath := health.Home.Path
 			expectedRegistry := config.RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected, homePath)
-			health.AgentRegistryPresent = exists(root, config.FileAgentRegistry)
+			health.AgentRegistryPresent = project.Exists(root, config.FileAgentRegistry)
 			health.AgentRegistryMatches = health.AgentRegistryPresent && fileMatches(root, config.FileAgentRegistry, expectedRegistry)
 
 			expectedManifest, err := config.RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
-			health.RuntimeManifestPresent = exists(root, config.FileRuntimeManifest)
+			health.RuntimeManifestPresent = project.Exists(root, config.FileRuntimeManifest)
 			if err == nil && health.RuntimeManifestPresent {
 				health.RuntimeManifestMatches = fileMatches(root, config.FileRuntimeManifest, expectedManifest)
 			}
 
 			expectedLock, err := config.RenderAssetsLockYAMLFor(homePath, doc)
-			health.AssetsLockPresent = exists(root, config.FileAssetsLock)
+			health.AssetsLockPresent = project.Exists(root, config.FileAssetsLock)
 			if err == nil && health.AssetsLockPresent {
 				health.AssetsLockMatches = fileMatches(root, config.FileAssetsLock, expectedLock)
 			}
 
 			health.DependsOnSDDContract = config.DependsOnSDDOpenSpecContract(doc)
 			if health.DependsOnSDDContract {
-				health.SDDContractPresent = exists(root, config.FileSDDOpenSpecContract)
+				health.SDDContractPresent = project.Exists(root, config.FileSDDOpenSpecContract)
 				if health.SDDContractPresent {
 					expectedContract, contractErr := config.RenderSDDOpenSpecContract()
 					if contractErr == nil {
@@ -203,7 +204,7 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 	}
 
 	statePath := filepath.Join(root, config.FileState)
-	if exists(root, config.FileState) {
+	if project.Exists(root, config.FileState) {
 		health.StateExists = true
 		state, err := config.LoadStateDocument(statePath)
 		if err != nil {
@@ -217,7 +218,7 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 	}
 
 	agentsPath := filepath.Join(root, config.FileAgentsMD)
-	if exists(root, config.FileAgentsMD) {
+	if project.Exists(root, config.FileAgentsMD) {
 		health.AgentsExists = true
 		data, err := os.ReadFile(agentsPath)
 		if err == nil {
@@ -227,7 +228,7 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 		health.AgentsExists = files.HasAgentsFile
 	}
 
-	health.LegacyBackupsDirExists = exists(root, config.DirBackups)
+	health.LegacyBackupsDirExists = project.Exists(root, config.DirBackups)
 
 	projectName := ""
 	if health.StateLoads {
@@ -261,7 +262,7 @@ func EvaluateRuntimeHealth(root string, atlas AtlasStatus, files FileInfo) Runti
 	for _, path := range forbiddenRuntimeArtifacts {
 		health.ForbiddenArtifacts = append(health.ForbiddenArtifacts, ForbiddenArtifactStatus{
 			Path:    path,
-			Present: exists(root, path),
+			Present: project.Exists(root, path),
 		})
 	}
 
@@ -280,7 +281,7 @@ func adaptersFromConfig(cfg config.Config) []string {
 	return out
 }
 
-func collectRuntimeWarnings(h RuntimeHealth) []string {
+func collectRuntimeWarnings(h Health) []string {
 	var warnings []string
 
 	// Backups are created on demand under Atlas Home; absence is not a warning

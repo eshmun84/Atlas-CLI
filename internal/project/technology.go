@@ -1,4 +1,4 @@
-package workspace
+package project
 
 // Confidence levels for technology detection.
 const (

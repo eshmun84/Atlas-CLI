@@ -9,8 +9,8 @@ import (
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 // Init loads workspace-backed screens when needed.
@@ -64,9 +64,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.repairApplied = false
 			m.repairMessage = ""
 			m.repairFooterIdx = 0
-			m.repairResult = workspace.RuntimeRepairResult{}
+			m.repairResult = runtime.RuntimeRepairResult{}
 			if len(m.repairPlan.Targets) == 0 && !m.repairPlan.Blocked {
-				m.repairPlan = workspace.BuildRuntimeRepairPlan(m.discovery.RootPath, m.discovery.Runtime)
+				m.repairPlan = runtime.BuildRuntimeRepairPlan(m.discovery.RootPath, m.discovery.Runtime)
 			}
 			m.repairSignature = m.repairPlan.Signature()
 		}
@@ -786,7 +786,7 @@ func (m Model) handleRuntimeRepairKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) applyRuntimeRepair() (tea.Model, tea.Cmd) {
 	root := m.discovery.RootPath
-	result, err := workspace.ApplyRuntimeRepair(root, m.repairSignature, nil)
+	result, err := runtime.ApplyRuntimeRepair(root, m.repairSignature, nil)
 	if err != nil {
 		m.repairMessage = err.Error()
 		m.repairResult = result
@@ -801,7 +801,7 @@ func (m Model) applyRuntimeRepair() (tea.Model, tea.Cmd) {
 		m.repairResult = result
 		m.repairPlan = result.Plan
 		m.repairSignature = result.Plan.Signature()
-		m.repairMessage = workspace.RepairStaleMessage
+		m.repairMessage = runtime.RepairStaleMessage
 		m.repairFooterIdx = 0
 		return m, nil
 	}
@@ -812,7 +812,7 @@ func (m Model) applyRuntimeRepair() (tea.Model, tea.Cmd) {
 	m.repairFooterIdx = 0
 	if refreshed, discErr := m.discover(root); discErr == nil {
 		m.discovery = refreshed
-		m.repairPlan = workspace.BuildRuntimeRepairPlan(root, refreshed.Runtime)
+		m.repairPlan = runtime.BuildRuntimeRepairPlan(root, refreshed.Runtime)
 		m.repairSignature = m.repairPlan.Signature()
 		m.report = doctor.Evaluate(refreshed)
 	}
@@ -1015,7 +1015,7 @@ func (m Model) setRoute(route Route) (Model, tea.Cmd) {
 		m.repairApplied = false
 		m.repairMessage = ""
 		m.repairFooterIdx = 0
-		m.repairResult = workspace.RuntimeRepairResult{}
+		m.repairResult = runtime.RuntimeRepairResult{}
 		m.repairSignature = ""
 	}
 	if route == RouteContextEconomy {
@@ -1098,7 +1098,7 @@ func (m Model) loadCmd() tea.Cmd {
 		case RouteDoctor:
 			msg.report = doctor.Evaluate(result)
 		case RouteRuntimeRepair:
-			msg.repairPlan = workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+			msg.repairPlan = runtime.BuildRuntimeRepairPlan(root, result.Runtime)
 		case RouteContextEconomy:
 			msg.contextPlan = atlascontext.BuildUpdatePlan(
 				root,

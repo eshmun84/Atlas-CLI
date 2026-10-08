@@ -1,4 +1,4 @@
-package workspace_test
+package runtime_test
 
 import (
 	"encoding/json"
@@ -11,13 +11,14 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 func TestBuildRuntimeRepairPlan_HealthyNoop(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
 	result := mustDiscover(t, root)
-	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, result.Runtime)
 	if !plan.Healthy || plan.NeedsApply() {
 		t.Fatalf("plan = %#v", plan)
 	}
@@ -26,7 +27,7 @@ func TestBuildRuntimeRepairPlan_HealthyNoop(t *testing.T) {
 func TestBuildRuntimeRepairPlan_BlockedWhenNotInitialized(t *testing.T) {
 	root := t.TempDir()
 	result := mustDiscover(t, root)
-	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, result.Runtime)
 	if !plan.Blocked || plan.NeedsApply() {
 		t.Fatalf("plan = %#v", plan)
 	}
@@ -38,7 +39,7 @@ func TestApplyRuntimeRepair_MissingAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := snapshotTree(t, root)
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	if !containsPath(plan.Creates, config.FileAgentsMD) {
 		t.Fatalf("creates = %#v", plan.Creates)
 	}
@@ -68,7 +69,7 @@ func TestApplyRuntimeRepair_BrokenMarkersBackupReplace(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixed := time.Date(2026, 10, 5, 15, 1, 0, 0, time.UTC)
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	result := applyRepair(t, root, plan.Signature(), func() time.Time { return fixed })
 	if len(result.Replaced) == 0 {
 		t.Fatalf("expected replace: %#v", result)
@@ -103,7 +104,7 @@ func TestApplyRuntimeRepair_PreservesUserWhenMarkersValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	applyRepair(t, root, plan.Signature(), func() time.Time {
 		return time.Date(2026, 10, 5, 15, 2, 0, 0, time.UTC)
 	})
@@ -124,7 +125,7 @@ func TestApplyRuntimeRepair_MissingAdapterProjections(t *testing.T) {
 	if err := os.Remove(filepath.Join(cursorRoot, ".cursor", "rules", "atlas.mdc")); err != nil {
 		t.Fatal(err)
 	}
-	plan := workspace.BuildRuntimeRepairPlan(cursorRoot, mustDiscover(t, cursorRoot).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(cursorRoot, mustDiscover(t, cursorRoot).Runtime)
 	applyRepair(t, cursorRoot, plan.Signature(), nil)
 	if _, err := os.Stat(filepath.Join(cursorRoot, config.FileCursorAtlasMDC)); err != nil {
 		t.Fatal(err)
@@ -138,7 +139,7 @@ func TestApplyRuntimeRepair_MissingAdapterProjections(t *testing.T) {
 	if err := os.Remove(filepath.Join(opencodeRoot, ".opencode", "atlas.md")); err != nil {
 		t.Fatal(err)
 	}
-	plan = workspace.BuildRuntimeRepairPlan(opencodeRoot, mustDiscover(t, opencodeRoot).Runtime)
+	plan = runtime.BuildRuntimeRepairPlan(opencodeRoot, mustDiscover(t, opencodeRoot).Runtime)
 	applyRepair(t, opencodeRoot, plan.Signature(), nil)
 	if _, err := os.Stat(filepath.Join(opencodeRoot, config.FileOpenCodeAtlas)); err != nil {
 		t.Fatal(err)
@@ -156,7 +157,7 @@ func TestApplyRuntimeRepair_NonAtlasProjectionContentReplace(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cursorRoot, config.FileCursorAtlasMDC), []byte(oldCursor), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	plan := workspace.BuildRuntimeRepairPlan(cursorRoot, mustDiscover(t, cursorRoot).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(cursorRoot, mustDiscover(t, cursorRoot).Runtime)
 	if !containsPath(plan.Replaces, config.FileCursorAtlasMDC) || !containsPath(plan.Backups, config.FileCursorAtlasMDC) {
 		t.Fatalf("cursor plan = %#v", plan)
 	}
@@ -184,7 +185,7 @@ func TestApplyRuntimeRepair_NonAtlasProjectionContentReplace(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(opencodeRoot, config.FileOpenCodeAtlas), []byte(oldOpen), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	plan = workspace.BuildRuntimeRepairPlan(opencodeRoot, mustDiscover(t, opencodeRoot).Runtime)
+	plan = runtime.BuildRuntimeRepairPlan(opencodeRoot, mustDiscover(t, opencodeRoot).Runtime)
 	if !containsPath(plan.Replaces, config.FileOpenCodeAtlas) || !containsPath(plan.Backups, config.FileOpenCodeAtlas) {
 		t.Fatalf("opencode plan = %#v", plan)
 	}
@@ -210,7 +211,7 @@ func TestApplyRuntimeRepair_NonAtlasProjectionContentReplace(t *testing.T) {
 
 func TestApplyRuntimeRepair_MatchingProjectionIsNoop(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	if !plan.Healthy {
 		t.Fatalf("expected healthy plan with matching projection: %#v", plan)
 	}
@@ -221,7 +222,7 @@ func TestApplyRuntimeRepair_RejectsStalePlan(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
 		t.Fatal(err)
 	}
-	reviewed := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	reviewed := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	sig := reviewed.Signature()
 	if !reviewed.NeedsApply() {
 		t.Fatal("expected reviewed plan to need apply")
@@ -233,14 +234,14 @@ func TestApplyRuntimeRepair_RejectsStalePlan(t *testing.T) {
 	}
 	before := snapshotTree(t, root)
 
-	result, err := workspace.ApplyRuntimeRepair(root, sig, nil)
+	result, err := runtime.ApplyRuntimeRepair(root, sig, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !result.Stale {
 		t.Fatalf("expected stale: %#v", result)
 	}
-	if result.MessageTitle != workspace.RepairStaleMessage {
+	if result.MessageTitle != runtime.RepairStaleMessage {
 		t.Fatalf("message = %q", result.MessageTitle)
 	}
 	if result.Plan.NeedsApply() {
@@ -274,7 +275,7 @@ func TestApplyRuntimeRepair_QuarantinesCompetingArtifacts(t *testing.T) {
 	}
 
 	fixed := time.Date(2026, 10, 5, 15, 3, 0, 0, time.UTC)
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	result := applyRepair(t, root, plan.Signature(), func() time.Time { return fixed })
 	if len(result.Quarantined) == 0 {
 		t.Fatalf("expected quarantine: %#v", result)
@@ -316,7 +317,7 @@ func TestApplyRuntimeRepair_QuarantinesCompetingArtifacts(t *testing.T) {
 func TestApplyRuntimeRepair_HealthyNoopDoesNotMutate(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
 	before := snapshotTree(t, root)
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	result := applyRepair(t, root, plan.Signature(), func() time.Time {
 		return time.Date(2026, 10, 5, 16, 0, 0, 0, time.UTC)
 	})
@@ -328,7 +329,7 @@ func TestApplyRuntimeRepair_HealthyNoopDoesNotMutate(t *testing.T) {
 
 func TestApplyRuntimeRepair_DoesNotCreateUnselectedAdapters(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	applyRepair(t, root, plan.Signature(), nil)
 	if _, err := os.Stat(filepath.Join(root, ".opencode")); !os.IsNotExist(err) {
 		t.Fatal("opencode created")
@@ -341,7 +342,7 @@ func TestApplyRuntimeRepair_MissingBaseBlock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(broken), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	if !containsPath(plan.Replaces, config.FileAgentsMD) {
 		t.Fatalf("expected AGENTS replace for missing base: %#v", plan)
 	}
@@ -373,7 +374,7 @@ func TestApplyRuntimeRepair_MissingSelectedAdapterBlock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(baseOnly), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	if !containsPath(plan.Replaces, config.FileAgentsMD) {
 		t.Fatalf("expected replace for missing adapter block: %#v", plan)
 	}
@@ -404,7 +405,7 @@ func TestApplyRuntimeRepair_DriftedSelectedAdapterBlock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(tampered), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	if !containsPath(plan.Replaces, config.FileAgentsMD) {
 		t.Fatalf("expected replace for drifted adapters: %#v", plan)
 	}
@@ -431,7 +432,7 @@ func TestApplyRuntimeRepair_RemovesUnselectedAdapterBlock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(both), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	if !containsPath(plan.Replaces, config.FileAgentsMD) {
 		t.Fatalf("expected replace for unselected adapter block: %#v", plan)
 	}
@@ -463,7 +464,7 @@ func TestApplyRuntimeRepair_RestoresMissingAndDriftedAtlasAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	if !containsPath(plan.Creates, ".cursor/agents/atlas-orchestrator.md") {
 		t.Fatalf("creates = %#v", plan.Creates)
 	}
@@ -498,7 +499,7 @@ func TestApplyRuntimeRepair_DoesNotTouchDeveloperAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	if containsPath(plan.Quarantines, ".cursor/agents/my-helper.md") {
 		t.Fatalf("developer agent must not be quarantined: %#v", plan.Quarantines)
 	}
@@ -528,7 +529,7 @@ func TestApplyRuntimeRepair_PreservesProjectDocsScaffold(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
 		t.Fatal(err)
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	for _, target := range plan.Targets {
 		if strings.HasPrefix(target.Path, "docs/") {
 			t.Fatalf("repair must not target project docs: %#v", plan.Targets)
@@ -551,7 +552,7 @@ func TestApplyRuntimeRepair_RestoresSDDOpenSpecContract(t *testing.T) {
 	if err := os.Remove(contractPath); err != nil {
 		t.Fatal(err)
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	if !containsPath(plan.Creates, config.FileSDDOpenSpecContract) {
 		t.Fatalf("creates = %#v", plan.Creates)
 	}
@@ -571,7 +572,7 @@ func TestApplyRuntimeRepair_RestoresSDDOpenSpecContract(t *testing.T) {
 	if err := os.WriteFile(contractPath, []byte("drifted contract\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	plan = workspace.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
+	plan = runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	if !containsPath(plan.Replaces, config.FileSDDOpenSpecContract) {
 		t.Fatalf("replaces = %#v", plan.Replaces)
 	}
@@ -587,9 +588,9 @@ func TestApplyRuntimeRepair_RestoresSDDOpenSpecContract(t *testing.T) {
 	assertDoctorRuntimeReady(t, root)
 }
 
-func applyRepair(t *testing.T, root, signature string, nowFn func() time.Time) workspace.RuntimeRepairResult {
+func applyRepair(t *testing.T, root, signature string, nowFn func() time.Time) runtime.RuntimeRepairResult {
 	t.Helper()
-	result, err := workspace.ApplyRuntimeRepair(root, signature, nowFn)
+	result, err := runtime.ApplyRuntimeRepair(root, signature, nowFn)
 	if err != nil {
 		t.Fatal(err)
 	}

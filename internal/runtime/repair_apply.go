@@ -1,7 +1,8 @@
-package workspace
+package runtime
 
 import (
 	"fmt"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,12 +51,12 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		now = nowFn().UTC()
 	}
 
-	files, err := DiscoverFiles(root)
+	files, err := project.DiscoverFiles(root)
 	if err != nil {
 		return RuntimeRepairResult{}, err
 	}
-	atlas := EvaluateAtlasStatus(root, files)
-	health := EvaluateRuntimeHealth(root, atlas, files)
+	atlas := project.EvaluateAtlasStatus(root, files)
+	health := EvaluateHealth(root, atlas, files)
 	plan := BuildRuntimeRepairPlan(root, health)
 
 	result := RuntimeRepairResult{Plan: plan, Blockers: plan.Blockers, Blocked: plan.Blocked}
@@ -260,7 +261,7 @@ func removeConflict(root, rel string) error {
 	return nil
 }
 
-func updateRepairState(root, homePath, projectID string, health RuntimeHealth, now time.Time, actions []string) error {
+func updateRepairState(root, homePath, projectID string, health Health, now time.Time, actions []string) error {
 	stamp := now.Format(time.RFC3339)
 
 	local, _, _ := home.LoadProjectLocalState(homePath, projectID)

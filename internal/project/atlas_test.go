@@ -1,4 +1,4 @@
-package workspace_test
+package project_test
 
 import (
 	"os"
@@ -6,15 +6,15 @@ import (
 	"testing"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"gopkg.in/yaml.v3"
 )
 
 func TestEvaluateAtlasStatus_NotInitialized(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	status := workspace.EvaluateAtlasStatus(root, workspace.FileInfo{})
-	if status.State != workspace.AtlasStateNotInitialized {
+	status := project.EvaluateAtlasStatus(root, project.FileInfo{})
+	if status.State != project.AtlasStateNotInitialized {
 		t.Fatalf("state = %q", status.State)
 	}
 	if status.Initialized() {
@@ -29,14 +29,14 @@ func TestEvaluateAtlasStatus_PartialAndInvalidAndInitialized(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".atlas"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	partial := workspace.EvaluateAtlasStatus(root, workspace.FileInfo{HasAtlasDir: true})
-	if partial.State != workspace.AtlasStatePartialSetup {
+	partial := project.EvaluateAtlasStatus(root, project.FileInfo{HasAtlasDir: true})
+	if partial.State != project.AtlasStatePartialSetup {
 		t.Fatalf("partial state = %q", partial.State)
 	}
 
 	writeFile(t, filepath.Join(root, ".atlas", "config.yaml"), "atlas: {}\n")
-	invalid := workspace.EvaluateAtlasStatus(root, workspace.FileInfo{HasAtlasDir: true, HasAtlasConfig: true})
-	if invalid.State != workspace.AtlasStateInvalidConfig {
+	invalid := project.EvaluateAtlasStatus(root, project.FileInfo{HasAtlasDir: true, HasAtlasConfig: true})
+	if invalid.State != project.AtlasStateInvalidConfig {
 		t.Fatalf("invalid state = %q", invalid.State)
 	}
 
@@ -46,8 +46,8 @@ func TestEvaluateAtlasStatus_PartialAndInvalidAndInitialized(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(root, ".atlas", "config.yaml"), string(data))
-	ok := workspace.EvaluateAtlasStatus(root, workspace.FileInfo{HasAtlasDir: true, HasAtlasConfig: true})
-	if ok.State != workspace.AtlasStateInitialized {
+	ok := project.EvaluateAtlasStatus(root, project.FileInfo{HasAtlasDir: true, HasAtlasConfig: true})
+	if ok.State != project.AtlasStateInitialized {
 		t.Fatalf("initialized state = %q", ok.State)
 	}
 	if !ok.Initialized() {

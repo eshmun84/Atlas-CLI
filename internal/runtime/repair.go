@@ -1,9 +1,10 @@
-package workspace
+package runtime
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"os"
 	"path/filepath"
 	"sort"
@@ -94,8 +95,8 @@ func (p RuntimeRepairPlan) Signature() string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// BuildRuntimeRepairPlan inspects RuntimeHealth and the filesystem. Read-only.
-func BuildRuntimeRepairPlan(root string, health RuntimeHealth) RuntimeRepairPlan {
+// BuildRuntimeRepairPlan inspects Health and the filesystem. Read-only.
+func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 	plan := RuntimeRepairPlan{
 		Blockers:    []string{},
 		Warnings:    []string{},
@@ -292,7 +293,7 @@ func BuildRuntimeRepairPlan(root string, health RuntimeHealth) RuntimeRepairPlan
 		}
 	}
 
-	if !selected["cursor"] && exists(root, ".cursor") {
+	if !selected["cursor"] && project.Exists(root, ".cursor") {
 		addRepairTarget(&plan, RuntimeRepairTarget{
 			Path:   ".cursor",
 			Action: RepairActionQuarantine,
@@ -302,7 +303,7 @@ func BuildRuntimeRepairPlan(root string, health RuntimeHealth) RuntimeRepairPlan
 		})
 		plan.Drift = append(plan.Drift, "unselected adapter path present: .cursor")
 	}
-	if !selected["opencode"] && exists(root, ".opencode") {
+	if !selected["opencode"] && project.Exists(root, ".opencode") {
 		addRepairTarget(&plan, RuntimeRepairTarget{
 			Path:   ".opencode",
 			Action: RepairActionQuarantine,
@@ -314,7 +315,7 @@ func BuildRuntimeRepairPlan(root string, health RuntimeHealth) RuntimeRepairPlan
 	}
 
 	for _, path := range competingRuntimeRoots {
-		if exists(root, path) {
+		if project.Exists(root, path) {
 			addRepairTarget(&plan, RuntimeRepairTarget{
 				Path:   path,
 				Action: RepairActionQuarantine,
@@ -337,14 +338,14 @@ func BuildRuntimeRepairPlan(root string, health RuntimeHealth) RuntimeRepairPlan
 }
 
 // ShowRuntimeRepair reports whether the Runtime Repair sidebar entry should appear.
-func ShowRuntimeRepair(result DiscoveryResult) bool {
-	if result.Atlas.Initialized() || result.Runtime.RuntimeMaterialized {
+func ShowRuntimeRepair(root string, atlas project.AtlasStatus, health Health) bool {
+	if atlas.Initialized() || health.RuntimeMaterialized {
 		return true
 	}
-	if !result.Runtime.ConfigExists {
+	if !health.ConfigExists {
 		return false
 	}
-	plan := BuildRuntimeRepairPlan(result.RootPath, result.Runtime)
+	plan := BuildRuntimeRepairPlan(root, health)
 	return plan.NeedsApply() || plan.Blocked
 }
 
@@ -413,7 +414,7 @@ func atlasOwnedAdapterKeepSet(adapter string) map[string]bool {
 }
 
 func extraAdapterFiles(root, dir string, keep map[string]bool) []string {
-	if dir == "" || !exists(root, dir) {
+	if dir == "" || !project.Exists(root, dir) {
 		return nil
 	}
 	var extras []string

@@ -9,7 +9,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 )
 
 var (
@@ -23,15 +25,17 @@ var (
 )
 
 // Status renders the read-only executive project overview (default landing).
-// Health counts are derived from doctor.Evaluate so they match Doctor.
-func Status(result workspace.DiscoveryResult) string {
+// It consumes the composed discovery snapshot only — no re-discovery of Git,
+// tools, runtime, or Code Intelligence. Health counts come from doctor.Evaluate
+// on that same snapshot so they match Doctor.
+func Status(result inspect.Inspection) string {
 	return StatusWithReport(result, doctor.Evaluate(result))
 }
 
 // StatusWithReport renders Status using an existing diagnostics report.
 // Callers (TUI shell) should pass the same report snapshot shown on Doctor.
 // If report has no checks, Status falls back to doctor.Evaluate(result).
-func StatusWithReport(result workspace.DiscoveryResult, report doctor.Report) string {
+func StatusWithReport(result inspect.Inspection, report doctor.Report) string {
 	if len(report.Checks) == 0 {
 		report = doctor.Evaluate(result)
 	}
@@ -53,7 +57,7 @@ func StatusWithReport(result workspace.DiscoveryResult, report doctor.Report) st
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func writeStatusWorkspace(b *strings.Builder, result workspace.DiscoveryResult) {
+func writeStatusWorkspace(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintln(b, statusHead.Render("Workspace"))
 	name := projectDisplayName(result)
 	fmt.Fprintf(b, "  Project: %s\n", name)
@@ -62,7 +66,7 @@ func writeStatusWorkspace(b *strings.Builder, result workspace.DiscoveryResult) 
 	fmt.Fprintf(b, "  Project mode: %s\n\n", detectedModeLabel(result))
 }
 
-func writeStatusRuntime(b *strings.Builder, result workspace.DiscoveryResult) {
+func writeStatusRuntime(b *strings.Builder, result inspect.Inspection) {
 	rt := result.Runtime
 	fmt.Fprintln(b, statusHead.Render("Atlas Runtime"))
 	fmt.Fprintf(b, "  Initialized: %s\n", yesNo(rt.Initialized))
@@ -75,7 +79,7 @@ func writeStatusRuntime(b *strings.Builder, result workspace.DiscoveryResult) {
 	fmt.Fprintf(b, "  Code Intelligence: %s\n\n", codeIntelligenceStatus(rt))
 }
 
-func writeStatusSourceControl(b *strings.Builder, result workspace.DiscoveryResult) {
+func writeStatusSourceControl(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintln(b, statusHead.Render("Source Control / Delivery Tools"))
 	fmt.Fprintf(b, "  Repository: %s\n", yesNo(result.Git.IsRepo))
 	fmt.Fprintf(b, "  Current branch: %s\n", displayOrNone(result.Git.CurrentBranch))
@@ -101,7 +105,7 @@ func writeStatusSourceControl(b *strings.Builder, result workspace.DiscoveryResu
 	fmt.Fprintln(b)
 }
 
-func writeStatusTechnology(b *strings.Builder, result workspace.DiscoveryResult) {
+func writeStatusTechnology(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintln(b, statusHead.Render("Project Technology"))
 	if len(result.Technologies) == 0 {
 		fmt.Fprintln(b, "  "+statusNo.Render("none detected"))
@@ -124,7 +128,7 @@ func writeStatusTechnology(b *strings.Builder, result workspace.DiscoveryResult)
 	fmt.Fprintln(b)
 }
 
-func writeStatusAdapters(b *strings.Builder, result workspace.DiscoveryResult) {
+func writeStatusAdapters(b *strings.Builder, result inspect.Inspection) {
 	rt := result.Runtime
 	fmt.Fprintln(b, statusHead.Render("Adapters"))
 	if !rt.ConfigLoads {
@@ -149,7 +153,7 @@ func writeStatusAdapters(b *strings.Builder, result workspace.DiscoveryResult) {
 	fmt.Fprintln(b)
 }
 
-func writeStatusGovernance(b *strings.Builder, result workspace.DiscoveryResult) {
+func writeStatusGovernance(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintln(b, statusHead.Render("Governance Tools"))
 	rt := result.Runtime
 	if !rt.ConfigLoads {
@@ -176,7 +180,7 @@ func writeStatusGovernance(b *strings.Builder, result workspace.DiscoveryResult)
 	fmt.Fprintln(b)
 }
 
-func writeStatusMCP(b *strings.Builder, result workspace.DiscoveryResult) {
+func writeStatusMCP(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintln(b, statusHead.Render("MCP / External Context"))
 	rt := result.Runtime
 	if !rt.ConfigLoads {
@@ -203,7 +207,7 @@ func writeStatusMCP(b *strings.Builder, result workspace.DiscoveryResult) {
 	fmt.Fprintln(b)
 }
 
-func writeStatusHealth(b *strings.Builder, result workspace.DiscoveryResult, report doctor.Report) {
+func writeStatusHealth(b *strings.Builder, result inspect.Inspection, report doctor.Report) {
 	rt := result.Runtime
 	pass, warn, errn := report.Counts()
 	fmt.Fprintln(b, statusHead.Render("Health"))
@@ -270,7 +274,7 @@ func writeMCPBuiltin(b *strings.Builder, name string, enabled bool) {
 	fmt.Fprintf(b, "  %s: %s\n", name, statusNo.Render("not selected"))
 }
 
-func projectDisplayName(result workspace.DiscoveryResult) string {
+func projectDisplayName(result inspect.Inspection) string {
 	if result.Runtime.ConfigLoads && strings.TrimSpace(result.Runtime.Document.Project.Name) != "" {
 		return result.Runtime.Document.Project.Name
 	}
@@ -284,7 +288,7 @@ func projectDisplayName(result workspace.DiscoveryResult) string {
 	return name
 }
 
-func detectedModeLabel(result workspace.DiscoveryResult) string {
+func detectedModeLabel(result inspect.Inspection) string {
 	if result.Runtime.ConfigLoads && result.Runtime.Document.Project.Mode != "" {
 		return result.Runtime.Document.Project.Mode
 	}
@@ -308,18 +312,18 @@ func detectedModeLabel(result workspace.DiscoveryResult) string {
 }
 
 // SuggestedAction returns the executive next-step hint for Status Health.
-func SuggestedAction(result workspace.DiscoveryResult) string {
+func SuggestedAction(result inspect.Inspection) string {
 	return suggestedAction(result)
 }
 
-func suggestedAction(result workspace.DiscoveryResult) string {
+func suggestedAction(result inspect.Inspection) string {
 	switch result.Atlas.State {
-	case workspace.AtlasStateNotInitialized, workspace.AtlasStatePartialSetup:
+	case project.AtlasStateNotInitialized, project.AtlasStatePartialSetup:
 		return "Run Init / Setup"
-	case workspace.AtlasStateInvalidConfig:
+	case project.AtlasStateInvalidConfig:
 		return "Open Doctor"
-	case workspace.AtlasStateInitialized:
-		if workspace.BuildRuntimeRepairPlan(result.RootPath, result.Runtime).NeedsApply() {
+	case project.AtlasStateInitialized:
+		if runtime.BuildRuntimeRepairPlan(result.RootPath, result.Runtime).NeedsApply() {
 			return "Review Runtime Repair"
 		}
 		if result.Runtime.ContextEconomy.Applicable &&
@@ -339,7 +343,7 @@ func suggestedAction(result workspace.DiscoveryResult) string {
 	}
 }
 
-func runtimeMaterializedLabel(rt workspace.RuntimeHealth) string {
+func runtimeMaterializedLabel(rt runtime.Health) string {
 	if !rt.StateLoads && !rt.Initialized {
 		return statusNo.Render("not materialized")
 	}
@@ -352,7 +356,7 @@ func runtimeMaterializedLabel(rt workspace.RuntimeHealth) string {
 	return statusNo.Render("not materialized")
 }
 
-func agentsContractSummary(rt workspace.RuntimeHealth) string {
+func agentsContractSummary(rt runtime.Health) string {
 	switch {
 	case !rt.AgentsExists && rt.RuntimeMaterialized:
 		return statusFail.Render("missing")
@@ -367,8 +371,8 @@ func agentsContractSummary(rt workspace.RuntimeHealth) string {
 	}
 }
 
-func adapterExecutiveStatus(rt workspace.RuntimeHealth, name string) string {
-	var proj *workspace.ProjectionStatus
+func adapterExecutiveStatus(rt runtime.Health, name string) string {
+	var proj *runtime.ProjectionStatus
 	for i := range rt.ExpectedProjections {
 		if strings.EqualFold(rt.ExpectedProjections[i].Adapter, name) {
 			proj = &rt.ExpectedProjections[i]
@@ -398,7 +402,7 @@ func adapterExecutiveStatus(rt workspace.RuntimeHealth, name string) string {
 	}
 }
 
-func remotesSummary(git workspace.GitInfo) string {
+func remotesSummary(git project.GitInfo) string {
 	if !git.IsRepo || len(git.Remotes) == 0 {
 		return statusNo.Render("none")
 	}
@@ -412,7 +416,7 @@ func remotesSummary(git workspace.GitInfo) string {
 // remoteDefaultBranchLabel renders the local view of refs/remotes/<remote>/HEAD.
 // "none" means no default remote; "unknown locally" means the remote exists but
 // its HEAD symbolic-ref is not configured in this clone.
-func remoteDefaultBranchLabel(git workspace.GitInfo) string {
+func remoteDefaultBranchLabel(git project.GitInfo) string {
 	if branch := strings.TrimSpace(git.DefaultBranch); branch != "" {
 		return branch
 	}
@@ -422,7 +426,7 @@ func remoteDefaultBranchLabel(git workspace.GitInfo) string {
 	return statusNo.Render("none")
 }
 
-func toolAvailability(tools []workspace.ToolInfo, name string) string {
+func toolAvailability(tools []project.ToolInfo, name string) string {
 	for _, tool := range tools {
 		if tool.Name == name {
 			if tool.Available {
@@ -434,7 +438,7 @@ func toolAvailability(tools []workspace.ToolInfo, name string) string {
 	return statusNo.Render("missing")
 }
 
-func projectHasGo(techs []workspace.Technology) bool {
+func projectHasGo(techs []project.Technology) bool {
 	for _, tech := range techs {
 		name := strings.ToLower(tech.Name)
 		if name == "go" || strings.Contains(name, "go module") {
@@ -444,7 +448,7 @@ func projectHasGo(techs []workspace.Technology) bool {
 	return false
 }
 
-func homePresenceLabel(rt workspace.RuntimeHealth) string {
+func homePresenceLabel(rt runtime.Health) string {
 	switch {
 	case !rt.Home.Exists && (rt.Initialized || rt.RuntimeMaterialized):
 		return statusFail.Render("missing")
@@ -485,7 +489,7 @@ func yesNo(v bool) string {
 	return statusNo.Render("no")
 }
 
-func configStatus(rt workspace.RuntimeHealth) string {
+func configStatus(rt runtime.Health) string {
 	switch {
 	case !rt.ConfigExists:
 		return statusNo.Render("missing")
@@ -496,7 +500,7 @@ func configStatus(rt workspace.RuntimeHealth) string {
 	}
 }
 
-func stateStatus(rt workspace.RuntimeHealth) string {
+func stateStatus(rt runtime.Health) string {
 	switch {
 	case !rt.StateExists:
 		if rt.Initialized {
@@ -510,7 +514,7 @@ func stateStatus(rt workspace.RuntimeHealth) string {
 	}
 }
 
-func sddContractStatus(rt workspace.RuntimeHealth) string {
+func sddContractStatus(rt runtime.Health) string {
 	if !rt.ConfigLoads || !rt.DependsOnSDDContract {
 		return statusNo.Render("n/a")
 	}
@@ -524,7 +528,7 @@ func sddContractStatus(rt workspace.RuntimeHealth) string {
 	}
 }
 
-func contextEconomyStatus(rt workspace.RuntimeHealth) string {
+func contextEconomyStatus(rt runtime.Health) string {
 	ce := rt.ContextEconomy
 	if !ce.Applicable {
 		return statusNo.Render("not configured")
@@ -543,7 +547,7 @@ func contextEconomyStatus(rt workspace.RuntimeHealth) string {
 	}
 }
 
-func codeIntelligenceStatus(rt workspace.RuntimeHealth) string {
+func codeIntelligenceStatus(rt runtime.Health) string {
 	snap := rt.CodeIntelligence
 	provider := string(snap.Provider)
 	if provider == "" {

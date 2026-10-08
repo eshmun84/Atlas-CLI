@@ -11,8 +11,10 @@ import (
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 // Options configures a TUI session.
@@ -20,7 +22,7 @@ type Options struct {
 	Route          Route
 	UnknownCommand string
 	Getwd          func() (string, error)
-	Discover       func(string) (workspace.DiscoveryResult, error)
+	Discover       func(string) (inspect.Inspection, error)
 }
 
 // Focus identifies which panel receives navigation keys.
@@ -91,10 +93,10 @@ type Model struct {
 
 	unknownCommand  string
 	plan            initplan.Plan
-	discovery       workspace.DiscoveryResult
+	discovery       inspect.Inspection
 	report          doctor.Report
-	repairPlan      workspace.RuntimeRepairPlan
-	repairResult    workspace.RuntimeRepairResult
+	repairPlan      runtime.RuntimeRepairPlan
+	repairResult    runtime.RuntimeRepairResult
 	repairMessage   string
 	repairFooterIdx int
 	repairApplied   bool
@@ -113,14 +115,14 @@ type Model struct {
 	quitting bool
 
 	getwd    func() (string, error)
-	discover func(string) (workspace.DiscoveryResult, error)
+	discover func(string) (inspect.Inspection, error)
 }
 
 type loadedMsg struct {
 	plan        initplan.Plan
-	discovery   workspace.DiscoveryResult
+	discovery   inspect.Inspection
 	report      doctor.Report
-	repairPlan  workspace.RuntimeRepairPlan
+	repairPlan  runtime.RuntimeRepairPlan
 	contextPlan atlascontext.UpdatePlan
 	err         error
 }
@@ -133,7 +135,7 @@ func NewModel(opts Options) Model {
 	}
 	discover := opts.Discover
 	if discover == nil {
-		discover = workspace.Discover
+		discover = inspect.Inspect
 	}
 
 	route := opts.Route
@@ -201,45 +203,45 @@ func needsWorkspace(route Route) bool {
 	}
 }
 
-func (m Model) Route() Route                            { return m.route }
-func (m Model) Width() int                              { return m.width }
-func (m Model) Height() int                             { return m.height }
-func (m Model) SidebarIndex() int                       { return m.sidebarIndex }
-func (m Model) ContentOffset() int                      { return m.contentOffset }
-func (m Model) Focus() Focus                            { return m.focus }
-func (m Model) InitModeConfirmed() InitMode             { return m.initModeConfirmed }
-func (m Model) InitDocsScaffold() bool                  { return m.initDocsScaffold }
-func (m Model) DraftName() string                       { return m.nameInput.Value() }
-func (m Model) InitField() int                          { return m.initField }
-func (m Model) InitWizardStep() int                     { return m.initWizardStep }
-func (m Model) InitReviewMessage() string               { return m.initReviewMessage }
-func (m Model) ConfigureNotice() string                 { return m.configureNotice }
-func (m Model) InitApplied() bool                       { return m.initApplied }
-func (m Model) ConfigDraft() config.ConfigDraft         { return m.configDraft }
-func (m Model) ConfigSectionIndex() int                 { return m.configSectionIdx }
-func (m Model) ConfigFieldIndex() int                   { return m.configFieldIdx }
-func (m Model) ConfigOptionIndex() int                  { return m.configOptionIdx }
-func (m Model) ConfigPanel() string                     { return m.configPanel }
-func (m Model) ConfigFooterIndex() int                  { return m.configFooterIdx }
-func (m Model) MCPDraft() config.MCPDraft               { return m.mcpDraft }
-func (m Model) MCPMode() string                         { return m.mcpMode }
-func (m Model) MCPIndex() int                           { return m.mcpIndex }
-func (m Model) MCPListFocus() string                    { return m.mcpListFocus }
-func (m Model) MCPAddError() string                     { return m.mcpAddError }
-func (m Model) MCPNotice() string                       { return m.mcpNotice }
-func (m Model) MCPAddFocus() string                     { return m.mcpAddFocus }
-func (m Model) MCPAddName() string                      { return m.mcpNameInput.Value() }
-func (m Model) MCPAddConn() string                      { return m.mcpConnInput.Value() }
-func (m Model) MCPAddArgs() string                      { return m.mcpArgsInput.Value() }
-func (m Model) MCPAddEnv() string                       { return m.mcpEnvInput.Value() }
-func (m Model) RepairApplied() bool                     { return m.repairApplied }
-func (m Model) RepairMessage() string                   { return m.repairMessage }
-func (m Model) RepairPlan() workspace.RuntimeRepairPlan { return m.repairPlan }
-func (m Model) ContextApplied() bool                    { return m.contextApplied }
-func (m Model) ContextMessage() string                  { return m.contextMessage }
-func (m Model) ContextPlan() atlascontext.UpdatePlan    { return m.contextPlan }
-func (m Model) NameCursor() int                         { return m.nameInput.Position() }
-func (m Model) Quitting() bool                          { return m.quitting }
+func (m Model) Route() Route                          { return m.route }
+func (m Model) Width() int                            { return m.width }
+func (m Model) Height() int                           { return m.height }
+func (m Model) SidebarIndex() int                     { return m.sidebarIndex }
+func (m Model) ContentOffset() int                    { return m.contentOffset }
+func (m Model) Focus() Focus                          { return m.focus }
+func (m Model) InitModeConfirmed() InitMode           { return m.initModeConfirmed }
+func (m Model) InitDocsScaffold() bool                { return m.initDocsScaffold }
+func (m Model) DraftName() string                     { return m.nameInput.Value() }
+func (m Model) InitField() int                        { return m.initField }
+func (m Model) InitWizardStep() int                   { return m.initWizardStep }
+func (m Model) InitReviewMessage() string             { return m.initReviewMessage }
+func (m Model) ConfigureNotice() string               { return m.configureNotice }
+func (m Model) InitApplied() bool                     { return m.initApplied }
+func (m Model) ConfigDraft() config.ConfigDraft       { return m.configDraft }
+func (m Model) ConfigSectionIndex() int               { return m.configSectionIdx }
+func (m Model) ConfigFieldIndex() int                 { return m.configFieldIdx }
+func (m Model) ConfigOptionIndex() int                { return m.configOptionIdx }
+func (m Model) ConfigPanel() string                   { return m.configPanel }
+func (m Model) ConfigFooterIndex() int                { return m.configFooterIdx }
+func (m Model) MCPDraft() config.MCPDraft             { return m.mcpDraft }
+func (m Model) MCPMode() string                       { return m.mcpMode }
+func (m Model) MCPIndex() int                         { return m.mcpIndex }
+func (m Model) MCPListFocus() string                  { return m.mcpListFocus }
+func (m Model) MCPAddError() string                   { return m.mcpAddError }
+func (m Model) MCPNotice() string                     { return m.mcpNotice }
+func (m Model) MCPAddFocus() string                   { return m.mcpAddFocus }
+func (m Model) MCPAddName() string                    { return m.mcpNameInput.Value() }
+func (m Model) MCPAddConn() string                    { return m.mcpConnInput.Value() }
+func (m Model) MCPAddArgs() string                    { return m.mcpArgsInput.Value() }
+func (m Model) MCPAddEnv() string                     { return m.mcpEnvInput.Value() }
+func (m Model) RepairApplied() bool                   { return m.repairApplied }
+func (m Model) RepairMessage() string                 { return m.repairMessage }
+func (m Model) RepairPlan() runtime.RuntimeRepairPlan { return m.repairPlan }
+func (m Model) ContextApplied() bool                  { return m.contextApplied }
+func (m Model) ContextMessage() string                { return m.contextMessage }
+func (m Model) ContextPlan() atlascontext.UpdatePlan  { return m.contextPlan }
+func (m Model) NameCursor() int                       { return m.nameInput.Position() }
+func (m Model) Quitting() bool                        { return m.quitting }
 
 func (m Model) editingTextInput() bool {
 	if m.focus != FocusContent {
@@ -255,7 +257,7 @@ func (m Model) editingTextInput() bool {
 func (m Model) Initialized() bool { return m.discovery.Atlas.Initialized() }
 
 func (m Model) Sidebar() []SidebarItem {
-	return SidebarItems(m.Initialized(), workspace.ShowRuntimeRepair(m.discovery), m.Initialized())
+	return SidebarItems(m.Initialized(), runtime.ShowRuntimeRepair(m.discovery.RootPath, m.discovery.Atlas, m.discovery.Runtime), m.Initialized())
 }
 
 func (m Model) ProjectName() string {
@@ -461,15 +463,18 @@ func (m Model) projectSetupInput() config.ProjectSetupInput {
 			opencode = true
 		}
 	}
-	remote := m.discovery.Git.DefaultRemote
-	if remote == "" {
-		remote = "origin"
-	}
 	name := m.nameInput.Value()
 	if name == "" {
 		name = m.detectedName
 	}
-	tools := toolAvailabilityMap(m.discovery.Tools)
+	// Init defaults derive from the canonical project snapshot (Discover once).
+	// Do not probe Git/tools here — use composed discovery evidence only.
+	snap := m.discovery.ProjectSnapshot()
+	remote := snap.Git.DefaultRemote
+	if remote == "" {
+		remote = "origin"
+	}
+	tools := toolAvailabilityMap(snap.Tools)
 	return config.ProjectSetupInput{
 		ProjectName:            name,
 		ProjectMode:            string(m.initModeConfirmed),
@@ -478,7 +483,7 @@ func (m Model) projectSetupInput() config.ProjectSetupInput {
 		CursorDetected:         cursor,
 		OpenCodeDetected:       opencode,
 		DocsScaffold:           m.initDocsScaffold,
-		GitRepoDetected:        m.discovery.Git.IsRepo,
+		GitRepoDetected:        snap.Git.IsRepo,
 		ToolGitAvailable:       tools["git"],
 		ToolGHAvailable:        tools["gh"],
 		ToolGlabAvailable:      tools["glab"] || pathToolAvailable("glab"),
@@ -489,7 +494,7 @@ func (m Model) projectSetupInput() config.ProjectSetupInput {
 	}
 }
 
-func toolAvailabilityMap(tools []workspace.ToolInfo) map[string]bool {
+func toolAvailabilityMap(tools []project.ToolInfo) map[string]bool {
 	out := make(map[string]bool, len(tools))
 	for _, tool := range tools {
 		out[tool.Name] = tool.Available

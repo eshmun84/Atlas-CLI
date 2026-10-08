@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 )
 
 var (
@@ -32,7 +32,7 @@ var doctorSectionOrder = []string{
 
 // Doctor renders the deep diagnostic screen with grouped sections.
 // Read-only: never repairs, rematerializes, or mutates Atlas Home.
-func Doctor(report doctor.Report, result workspace.DiscoveryResult) string {
+func Doctor(report doctor.Report, result inspect.Inspection) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, docHead.Render("Atlas Doctor"))
 	fmt.Fprintln(&b, docMute.Render("Deep diagnostics · read-only"))
@@ -73,7 +73,7 @@ func Doctor(report doctor.Report, result workspace.DiscoveryResult) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func writeDoctorMCP(b *strings.Builder, checks []doctor.Check, result workspace.DiscoveryResult) {
+func writeDoctorMCP(b *strings.Builder, checks []doctor.Check, result inspect.Inspection) {
 	for _, check := range checks {
 		fmt.Fprintf(b, "  %s %s: %s\n", doctorBadge(check.Severity), check.Name, check.Message)
 	}

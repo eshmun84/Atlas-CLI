@@ -1,4 +1,4 @@
-package workspace
+package project
 
 import (
 	"os"
@@ -152,9 +152,9 @@ func TestDiscover_GitRepoIntegration(t *testing.T) {
 		t.Fatalf("write readme: %v", err)
 	}
 
-	result, err := Discover(root)
+	result, err := Inspect(root)
 	if err != nil {
-		t.Fatalf("Discover: %v", err)
+		t.Fatalf("Inspect: %v", err)
 	}
 	if !result.Git.IsRepo {
 		t.Fatal("expected git repo")

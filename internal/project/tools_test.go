@@ -1,25 +1,25 @@
-package workspace_test
+package project_test
 
 import (
 	"testing"
 
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
 )
 
 func TestDiscoverTools_ReturnsRequiredNames(t *testing.T) {
 	t.Parallel()
 
-	tools := workspace.DiscoverTools()
-	if len(tools) != len(workspace.RequiredTools) {
-		t.Fatalf("got %d tools, want %d", len(tools), len(workspace.RequiredTools))
+	tools := project.DiscoverTools()
+	if len(tools) != len(project.RequiredTools) {
+		t.Fatalf("got %d tools, want %d", len(tools), len(project.RequiredTools))
 	}
 
-	got := map[string]workspace.ToolInfo{}
+	got := map[string]project.ToolInfo{}
 	for _, tool := range tools {
 		got[tool.Name] = tool
 	}
 
-	for _, name := range workspace.RequiredTools {
+	for _, name := range project.RequiredTools {
 		tool, ok := got[name]
 		if !ok {
 			t.Fatalf("missing tool entry for %q", name)

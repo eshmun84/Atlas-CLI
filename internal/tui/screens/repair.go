@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 )
 
 // RepairView is the Runtime Repair review renderer input.
 type RepairView struct {
-	Plan           workspace.RuntimeRepairPlan
+	Plan           runtime.RuntimeRepairPlan
 	Applied        bool
 	ApplyMessage   string
 	ContentFocused bool
@@ -31,9 +31,9 @@ func RenderRuntimeRepair(view RepairView) string {
 
 	if view.Applied {
 		fmt.Fprintln(&b, initSection.Render("Result"))
-		fmt.Fprintln(&b, "  "+initOK.Render(workspace.RepairSuccessTitle))
-		fmt.Fprintln(&b, "  "+initOK.Render(workspace.RepairSuccessBody))
-		if view.ApplyMessage != "" && view.ApplyMessage != workspace.RepairSuccessTitle {
+		fmt.Fprintln(&b, "  "+initOK.Render(runtime.RepairSuccessTitle))
+		fmt.Fprintln(&b, "  "+initOK.Render(runtime.RepairSuccessBody))
+		if view.ApplyMessage != "" && view.ApplyMessage != runtime.RepairSuccessTitle {
 			fmt.Fprintln(&b, "  "+initWarn.Render(view.ApplyMessage))
 		}
 		fmt.Fprintln(&b)
@@ -54,8 +54,8 @@ func RenderRuntimeRepair(view RepairView) string {
 
 	if plan.Healthy && !view.Applied {
 		fmt.Fprintln(&b, initSection.Render("Status"))
-		fmt.Fprintln(&b, "  "+initOK.Render(workspace.RepairNoopTitle))
-		fmt.Fprintln(&b, "  "+initMuted.Render(workspace.RepairNoopBody))
+		fmt.Fprintln(&b, "  "+initOK.Render(runtime.RepairNoopTitle))
+		fmt.Fprintln(&b, "  "+initMuted.Render(runtime.RepairNoopBody))
 		fmt.Fprintln(&b, "  "+initMuted.Render("Status and Doctor remain read-only. Apply is a no-op."))
 		return strings.TrimRight(b.String(), "\n")
 	}

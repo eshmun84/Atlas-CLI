@@ -1,10 +1,10 @@
-package workspace_test
+package project_test
 
 import (
 	"path/filepath"
 	"testing"
 
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
 )
 
 func TestDiscoverFiles_KnownMarkers(t *testing.T) {
@@ -30,7 +30,7 @@ func TestDiscoverFiles_KnownMarkers(t *testing.T) {
 		writeFile(t, filepath.Join(root, marker), "x")
 	}
 
-	info, err := workspace.DiscoverFiles(root)
+	info, err := project.DiscoverFiles(root)
 	if err != nil {
 		t.Fatalf("DiscoverFiles: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestDiscoverFiles_EmptyDir(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	info, err := workspace.DiscoverFiles(root)
+	info, err := project.DiscoverFiles(root)
 	if err != nil {
 		t.Fatalf("DiscoverFiles: %v", err)
 	}

@@ -1,15 +1,15 @@
-package workspace_test
+package project_test
 
 import (
 	"testing"
 
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
 )
 
 func TestDiscoverTechnologies_MapsKnownFiles(t *testing.T) {
 	t.Parallel()
 
-	files := workspace.FileInfo{
+	files := project.FileInfo{
 		HasGoMod:         true,
 		HasPackageJSON:   true,
 		HasComposerJSON:  true,
@@ -22,8 +22,8 @@ func TestDiscoverTechnologies_MapsKnownFiles(t *testing.T) {
 		HasOpenSpecDir:   true,
 	}
 
-	techs := workspace.DiscoverTechnologies(files)
-	got := map[string]workspace.Technology{}
+	techs := project.DiscoverTechnologies(files)
+	got := map[string]project.Technology{}
 	for _, tech := range techs {
 		got[tech.Name] = tech
 	}
@@ -54,8 +54,8 @@ func TestDiscoverTechnologies_MapsKnownFiles(t *testing.T) {
 		if tech.Source != source {
 			t.Fatalf("%s source = %q, want %q", name, tech.Source, source)
 		}
-		if tech.Confidence != workspace.ConfidenceHigh {
-			t.Fatalf("%s confidence = %q, want %q", name, tech.Confidence, workspace.ConfidenceHigh)
+		if tech.Confidence != project.ConfidenceHigh {
+			t.Fatalf("%s confidence = %q, want %q", name, tech.Confidence, project.ConfidenceHigh)
 		}
 	}
 }

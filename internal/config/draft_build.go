@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"github.com/eshmun84/Atlas-CLI/internal/delivery"
 )
 
 // ProjectSetupInput carries Step 1 values used to seed a ConfigDraft.
@@ -16,7 +18,7 @@ type ProjectSetupInput struct {
 	// DocsScaffold is set on Project Setup (Init Step 1); off by default.
 	DocsScaffold bool
 
-	// GitRepoDetected seeds Delivery platform from workspace discovery
+	// GitRepoDetected seeds Delivery platform from inspect/project Git evidence
 	// (result.Git.IsRepo). It must not run git; callers pass an existing fact.
 	// Explicit persisted source_control.mode always wins via ApplyProjectDocument.
 	GitRepoDetected bool
@@ -34,14 +36,12 @@ type ProjectSetupInput struct {
 // DefaultSourceControlMode returns the Init/Configure draft seed for
 // source_control.mode before any persisted document is applied.
 //
+// Ownership of Delivery mode meaning lives in internal/delivery.
 // Precedence after seeding is handled by ApplyProjectDocument:
 //
 //	explicit Atlas config → detected Git repository → none
 func DefaultSourceControlMode(gitRepoDetected bool) string {
-	if gitRepoDetected {
-		return SourceControlGitLocal
-	}
-	return SourceControlNone
+	return delivery.DefaultMode(gitRepoDetected)
 }
 
 // NormalizeProjectMode maps Step 1 modes onto config project modes.
