@@ -283,41 +283,6 @@ func (d *ConfigDraft) ToggleBool(key string) bool {
 	return d.SetValue(key, next)
 }
 
-// CycleChoice moves a choice field to the next/previous option when editable.
-func (d *ConfigDraft) CycleChoice(key string, forward bool) bool {
-	field, ok := d.FieldByKey(key)
-	if !ok || field.Type != FieldTypeChoice || !field.Editable(d.Mode) || len(field.Options) == 0 {
-		return false
-	}
-	idx := 0
-	for i, opt := range field.Options {
-		if opt == field.Value {
-			idx = i
-			break
-		}
-	}
-	if forward {
-		idx = (idx + 1) % len(field.Options)
-	} else {
-		idx = (idx - 1 + len(field.Options)) % len(field.Options)
-	}
-	if !d.SetValue(key, field.Options[idx]) {
-		return false
-	}
-	if key == "source_control.mode" {
-		SyncDevelopmentDelivery(d)
-	}
-	return true
-}
-
-// FormatBoolDisplay normalizes a bool draft value for display.
-func FormatBoolDisplay(v string) string {
-	if strings.EqualFold(v, "true") {
-		return "true"
-	}
-	return "false"
-}
-
 // FormatProjectModeLabel maps a project mode value to UI copy.
 func FormatProjectModeLabel(mode string) string {
 	switch NormalizeProjectMode(mode) {
@@ -369,26 +334,6 @@ func OptionLabel(value string) string {
 		return "No"
 	default:
 		return value
-	}
-}
-
-// BadgeLabel returns a short badge for UI rendering.
-func BadgeLabel(m FieldMutability) string {
-	switch m {
-	case FieldEditable:
-		return "editable"
-	case FieldLocked:
-		return "locked"
-	case FieldMigrationRequired:
-		return "migration"
-	case FieldAIManaged:
-		return "ai-managed"
-	case FieldLocalOnly:
-		return "local-only"
-	case FieldReadonly:
-		return "readonly"
-	default:
-		return string(m)
 	}
 }
 

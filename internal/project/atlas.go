@@ -31,7 +31,7 @@ func EvaluateAtlasStatus(root string, files FileInfo) AtlasStatus {
 
 	switch {
 	case files.HasAtlasConfig:
-		cfg, err := config.Load(status.ConfigPath)
+		cfg, err := config.LoadAt(root)
 		if err != nil {
 			status.State = AtlasStateInvalidConfig
 			return status

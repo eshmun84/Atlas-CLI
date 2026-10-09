@@ -47,14 +47,6 @@ func Resolve() (string, error) {
 	return filepath.Join(userHome, DefaultDirName), nil
 }
 
-// PathJoin joins rel under the resolved Atlas Home using slash-safe segments.
-func PathJoin(homePath string, elem ...string) string {
-	parts := make([]string, 0, len(elem)+1)
-	parts = append(parts, homePath)
-	parts = append(parts, elem...)
-	return filepath.Join(parts...)
-}
-
 // AssetsRoot returns $ATLAS_HOME/assets.
 func AssetsRoot(homePath string) string {
 	return filepath.Join(homePath, "assets")

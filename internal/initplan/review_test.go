@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
 )
 
@@ -80,11 +81,22 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 		"Apply is the only mutation step. Status and Doctor remain read-only.",
 		"Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files.",
 		"Apply creates/updates Atlas Home (ATLAS_HOME or ~/.atlas) and mirrors bundled Atlas-owned assets.",
+		"After Init, Configure Apply saves .atlas/config.yaml and reconciles MCP projections",
+		"MCP desired state is stored in Atlas config and materialized into selected agent MCP configs",
 		"Runtime conflicts block Init and require manual cleanup in this slice.",
-		"Context Economy v0 is a separate explicit flow. CodeGraph and Atlas Context Graph are NOT IMPLEMENTED.",
+		"Context Economy v0 is a separate explicit flow. CodeGraph is an optional externally installed Code Intelligence provider",
+		"Atlas Context Graph is NOT IMPLEMENTED.",
 		"Init performs no Git operations.",
 	}) {
 		t.Fatalf("missing preserve/warning copy: %#v %#v", plan.Preservations, plan.Warnings)
+	}
+	for _, banned := range []string{
+		"Configure Apply is config-only",
+		"preference/config only",
+	} {
+		if stringsContainsAll(plan, []string{banned}) {
+			t.Fatalf("stale MCP/Configure wording still present (%q): %#v %#v", banned, plan.Preservations, plan.Warnings)
+		}
 	}
 	if !strings.Contains(plan.GovernanceNote, "Local only") {
 		t.Fatalf("governance note = %q", plan.GovernanceNote)
@@ -141,10 +153,10 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 		t.Fatal("set versioned")
 	}
 	mcp := config.EmptyMCPDraft()
-	if !mcp.ToggleBuiltin(0) {
+	if !mcp.EnableBuiltin(config.MCPBuiltinJira) {
 		t.Fatal("select jira")
 	}
-	if _, err := mcp.AddCustom("Jira Main", config.MCPTransportStdio, "", "", ""); err != nil {
+	if _, err := mcp.AddCustom("Jira Main", config.MCPTransportStdio, "npx", "-y demo-mcp", ""); err != nil {
 		t.Fatalf("add mcp: %v", err)
 	}
 	mcp.ToggleCustom(0)
@@ -168,7 +180,7 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 	if plan.MCPEntries[1].Name != "Jira Main" || plan.MCPEntries[1].Kind != "custom" || plan.MCPEntries[1].Transport != "stdio" {
 		t.Fatalf("custom mcp = %#v", plan.MCPEntries[1])
 	}
-	if !strings.Contains(plan.MCPEntries[0].Status, "preference recorded") || !strings.Contains(plan.MCPEntries[1].Status, "preference recorded") {
+	if plan.MCPEntries[0].Status == "" || plan.MCPEntries[1].Status == "" {
 		t.Fatalf("mcp status = %#v", plan.MCPEntries)
 	}
 	if plan.GovernanceNote == "" || plan.GovernanceStorage != "Versioned" {
@@ -269,6 +281,60 @@ func TestBuildReview_DocsScaffoldProjectWrite(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected docs scaffold in project writes: %#v", onPlan.Creates)
+	}
+}
+
+func TestBuildReview_HomeDataPresentAbsentUnknown(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv(home.EnvAtlasHome, homeDir)
+
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: "presence-demo",
+		ProjectMode: "new",
+	})
+
+	rootAbsent := t.TempDir()
+	planAbsent := initplan.BuildReview(initplan.ReviewInput{Root: rootAbsent, Draft: draft})
+	if planAbsent.HomeDataPresence != "absent" || planAbsent.HomeDataDetected {
+		t.Fatalf("absent: %#v", planAbsent)
+	}
+
+	rootPresent := t.TempDir()
+	id, err := home.ProjectID(rootPresent, "presence-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj := filepath.Join(homeDir, "projects", id)
+	if err := os.MkdirAll(proj, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "marker"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	planPresent := initplan.BuildReview(initplan.ReviewInput{Root: rootPresent, Draft: draft})
+	if planPresent.HomeDataPresence != "present" || !planPresent.HomeDataDetected {
+		t.Fatalf("present: %#v", planPresent)
+	}
+
+	rootUnknown := t.TempDir()
+	idUnknown, err := home.ProjectID(rootUnknown, "presence-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(homeDir, "projects", idUnknown)
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := t.TempDir()
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	planUnknown := initplan.BuildReview(initplan.ReviewInput{Root: rootUnknown, Draft: draft})
+	if planUnknown.HomeDataPresence != "unknown" || planUnknown.HomeDataDetected {
+		t.Fatalf("unknown: %#v", planUnknown)
+	}
+	if planUnknown.HomeDataError == "" {
+		t.Fatal("expected HomeDataError for inspection failure")
 	}
 }
 

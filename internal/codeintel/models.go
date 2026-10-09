@@ -1,7 +1,5 @@
 package codeintel
 
-import "strings"
-
 // ProviderID identifies a Code Intelligence backend.
 type ProviderID string
 
@@ -110,13 +108,4 @@ type Snapshot struct {
 	RefreshMode     string
 	GraphDBPath     string
 	MetadataPath    string
-}
-
-// DisplayState returns a stable lowercase state string for UI/diagnostics.
-func (c Capability) DisplayState() string {
-	s := strings.TrimSpace(string(c.State))
-	if s == "" {
-		return string(StateUnavailable)
-	}
-	return s
 }

@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 func TestEvaluateRuntimeHealth_NotInitialized(t *testing.T) {
@@ -42,7 +42,7 @@ func TestEvaluateRuntimeHealth_InitializedCursor(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
 	before := snapshotTree(t, root)
 
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestEvaluateRuntimeHealth_InvalidConfigPartial(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(root, ".atlas", "config.yaml"), "project:\n  name: demo\n  mode: new\ngovernance:\n  workflow: sdd\n  spec_engine: none\nadapters:\n  selected: [Cursor]\nsource_control:\n  mode: none\n  default_remote: origin\n  branch_strategy: manual\n  governance_files: local_only\nmemory:\n  strategy: sqlite\ncontext:\n  graph:\n    enabled: true\nmcp:\n  builtins:\n    jira:\n      enabled: false\n    context7:\n      enabled: false\n    chrome_devtools:\n      enabled: false\n  custom: []\n")
-	writeFile(t, filepath.Join(root, "AGENTS.md"), config.RenderAgentsMD("demo", true, nil, nil))
+	writeFile(t, filepath.Join(root, "AGENTS.md"), mustRenderAgentsMD(t, "demo", true, nil, nil))
 
 	files := mustFiles(t, root)
 	atlas := project.EvaluateAtlasStatus(root, files)

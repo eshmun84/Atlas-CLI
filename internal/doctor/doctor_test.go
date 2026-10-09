@@ -12,24 +12,26 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 func TestEvaluate_WarnsForMissingAtlasMarkers(t *testing.T) {
 	t.Parallel()
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{
+	report := doctor.Evaluate(inspect.Inspection{
 		RootPath: "/tmp/demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo:        true,
 			CurrentBranch: "develop",
-			Remotes: []workspace.GitRemote{
+			Remotes: []project.GitRemote{
 				{Name: "origin", URL: "git@example.com:demo.git"},
 			},
 		},
-		Runtime: workspace.RuntimeHealth{},
-		Tools: []workspace.ToolInfo{
+		Runtime: runtime.Health{},
+		Tools: []project.ToolInfo{
 			{Name: "git", Available: true},
 			{Name: "openspec", Available: false},
 		},
@@ -40,7 +42,7 @@ func TestEvaluate_WarnsForMissingAtlasMarkers(t *testing.T) {
 	assertHas(t, report, doctor.SeverityPass, "branch", "develop")
 	assertHas(t, report, doctor.SeverityWarn, "atlas config", ".atlas/config.yaml not found")
 	assertHas(t, report, doctor.SeverityWarn, "agents file", "AGENTS.md not found")
-	assertHas(t, report, doctor.SeverityPass, "forbidden artifacts", "CLAUDE.md, GEMINI.md, .agents/, .claude/ absent")
+	assertHas(t, report, doctor.SeverityPass, "forbidden artifacts", "AGENT.md, CLAUDE.md, GEMINI.md, .agents/, .claude/ absent (Atlas does not mutate these)")
 	assertHas(t, report, doctor.SeverityPass, "tool git", "available")
 	assertHas(t, report, doctor.SeverityWarn, "tool openspec", "unavailable")
 
@@ -65,9 +67,9 @@ func TestEvaluate_WarnsForMissingAtlasMarkers(t *testing.T) {
 func TestEvaluate_GitAndBranchWarnings(t *testing.T) {
 	t.Parallel()
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{
+	report := doctor.Evaluate(inspect.Inspection{
 		RootPath: "/tmp/demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo: false,
 		},
 		Runtime: healthyRuntime(),
@@ -83,9 +85,9 @@ func TestEvaluate_GitAndBranchWarnings(t *testing.T) {
 func TestEvaluate_WarnsWhenRepoHasNoRemotes(t *testing.T) {
 	t.Parallel()
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{
+	report := doctor.Evaluate(inspect.Inspection{
 		RootPath: "/tmp/demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo:        true,
 			CurrentBranch: "main",
 		},
@@ -101,13 +103,13 @@ func TestEvaluate_WarnsWhenRepoHasNoRemotes(t *testing.T) {
 func TestEvaluate_WarnsWhenRemoteDefaultBranchUnknownLocally(t *testing.T) {
 	t.Parallel()
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{
+	report := doctor.Evaluate(inspect.Inspection{
 		RootPath: "/tmp/demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo:        true,
 			CurrentBranch: "feature/x",
 			DefaultRemote: "origin",
-			Remotes: []workspace.GitRemote{
+			Remotes: []project.GitRemote{
 				{Name: "origin", URL: "https://example.com/demo.git"},
 			},
 		},
@@ -121,14 +123,14 @@ func TestEvaluate_WarnsWhenRemoteDefaultBranchUnknownLocally(t *testing.T) {
 func TestEvaluate_PassesWhenRemoteDefaultBranchKnown(t *testing.T) {
 	t.Parallel()
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{
+	report := doctor.Evaluate(inspect.Inspection{
 		RootPath: "/tmp/demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo:        true,
 			CurrentBranch: "feature/x",
 			DefaultRemote: "origin",
 			DefaultBranch: "main",
-			Remotes: []workspace.GitRemote{
+			Remotes: []project.GitRemote{
 				{Name: "origin", URL: "https://example.com/demo.git"},
 			},
 		},
@@ -141,19 +143,19 @@ func TestEvaluate_PassesWhenRemoteDefaultBranchKnown(t *testing.T) {
 func TestEvaluate_ReadyWhenClean(t *testing.T) {
 	t.Parallel()
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{
+	report := doctor.Evaluate(inspect.Inspection{
 		RootPath: "/tmp/demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo:        true,
 			CurrentBranch: "develop",
 			DefaultRemote: "origin",
 			DefaultBranch: "main",
-			Remotes: []workspace.GitRemote{
+			Remotes: []project.GitRemote{
 				{Name: "origin", URL: "git@example.com:demo.git"},
 			},
 		},
 		Runtime: healthyRuntime(),
-		Tools: []workspace.ToolInfo{
+		Tools: []project.ToolInfo{
 			{Name: "git", Available: true},
 		},
 	})
@@ -174,16 +176,16 @@ func TestEvaluate_RuntimeDriftFailures(t *testing.T) {
 	rt.AgentsExists = false
 	rt.AgentsMarkers = config.AgentsMarkers{}
 	rt.Warnings = []string{"runtime_materialized=true but AGENTS.md is missing"}
-	rt.ExpectedProjections = []workspace.ProjectionStatus{
+	rt.ExpectedProjections = []runtime.ProjectionStatus{
 		{Adapter: "cursor", Path: config.FileCursorAtlasMDC, Present: false},
 	}
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{
+	report := doctor.Evaluate(inspect.Inspection{
 		RootPath: "/tmp/demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo:        true,
 			CurrentBranch: "develop",
-			Remotes:       []workspace.GitRemote{{Name: "origin", URL: "x"}},
+			Remotes:       []project.GitRemote{{Name: "origin", URL: "x"}},
 		},
 		Runtime: rt,
 	})
@@ -202,7 +204,7 @@ func TestEvaluate_IncompleteMarkersFailWhenMaterialized(t *testing.T) {
 	rt := healthyRuntime()
 	rt.AgentsMarkers = config.AgentsMarkers{BaseBegin: true, BaseEnd: true}
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
 	assertHas(t, report, doctor.SeverityFail, "agents markers", "AGENTS.md markers incomplete")
 }
 
@@ -214,7 +216,7 @@ func TestEvaluate_MissingBackupsPassWhenInitialized(t *testing.T) {
 	rt.LegacyBackupsDirExists = false
 	rt.HomeProject.BackupsPresent = false
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
 	assertHas(t, report, doctor.SeverityPass, "backups directory", "no backups yet (created on repair/init backup)")
 	if report.Failed() {
 		t.Fatal("missing backups must not fail")
@@ -225,14 +227,14 @@ func TestEvaluate_ForbiddenArtifactsWarnWhenPresent(t *testing.T) {
 	t.Parallel()
 
 	rt := healthyRuntime()
-	rt.ForbiddenArtifacts = []workspace.ForbiddenArtifactStatus{
+	rt.ForbiddenArtifacts = []runtime.ForbiddenArtifactStatus{
 		{Path: "CLAUDE.md", Present: true},
 		{Path: "GEMINI.md", Present: false},
 		{Path: ".agents", Present: false},
 		{Path: ".claude", Present: false},
 	}
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
 	assertHas(t, report, doctor.SeverityWarn, "forbidden artifact CLAUDE.md", "present but not required or expected")
 	if hasNamed(report, "forbidden artifacts") {
 		t.Fatal("aggregate pass should be omitted when any forbidden artifact is present")
@@ -242,7 +244,7 @@ func TestEvaluate_ForbiddenArtifactsWarnWhenPresent(t *testing.T) {
 func TestEvaluate_InvalidConfigFailsWithoutPanic(t *testing.T) {
 	t.Parallel()
 
-	rt := workspace.RuntimeHealth{
+	rt := runtime.Health{
 		Initialized:  false,
 		ConfigExists: true,
 		ConfigLoads:  false,
@@ -250,7 +252,7 @@ func TestEvaluate_InvalidConfigFailsWithoutPanic(t *testing.T) {
 		StateExists:  true,
 		StateLoads:   true,
 		State:        config.StateDocument{RuntimeMaterialized: false},
-		ForbiddenArtifacts: []workspace.ForbiddenArtifactStatus{
+		ForbiddenArtifacts: []runtime.ForbiddenArtifactStatus{
 			{Path: "CLAUDE.md", Present: false},
 			{Path: "GEMINI.md", Present: false},
 			{Path: ".agents", Present: false},
@@ -258,7 +260,7 @@ func TestEvaluate_InvalidConfigFailsWithoutPanic(t *testing.T) {
 		},
 	}
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
 	assertHas(t, report, doctor.SeverityFail, "atlas config loads", "failed to load: invalid config: adapters.selected[0] \"Cursor\" is invalid")
 	if !report.Failed() {
 		t.Fatal("invalid config must fail")
@@ -268,9 +270,9 @@ func TestEvaluate_InvalidConfigFailsWithoutPanic(t *testing.T) {
 func TestEvaluate_MissingStateNeutralForNonAtlas(t *testing.T) {
 	t.Parallel()
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{
-		Runtime: workspace.RuntimeHealth{
-			ForbiddenArtifacts: []workspace.ForbiddenArtifactStatus{
+	report := doctor.Evaluate(inspect.Inspection{
+		Runtime: runtime.Health{
+			ForbiddenArtifacts: []runtime.ForbiddenArtifactStatus{
 				{Path: "CLAUDE.md", Present: false},
 				{Path: "GEMINI.md", Present: false},
 				{Path: ".agents", Present: false},
@@ -292,7 +294,7 @@ func TestEvaluate_MissingStateFailsWhenInitialized(t *testing.T) {
 	rt.State = config.StateDocument{}
 	rt.RuntimeMaterialized = false
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
 	assertHas(t, report, doctor.SeverityFail, "atlas state", ".atlas/state.yaml missing for initialized project")
 }
 
@@ -302,7 +304,7 @@ func TestEvaluate_ContextGraphEnabledWithoutEngineIsPass(t *testing.T) {
 	rt := healthyRuntime()
 	rt.ContextGraphEnabled = true
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
 	assertHas(t, report, doctor.SeverityPass, "context graph", "Atlas Context Graph preference (enabled); engine NOT IMPLEMENTED")
 	assertHas(t, report, doctor.SeverityInfo, "codegraph", "optional provider unavailable")
 	for _, check := range report.Checks {
@@ -326,7 +328,7 @@ func TestEvaluate_CodeIntelligenceAvailablePass(t *testing.T) {
 		Version:    "3.17.0",
 	}
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
 	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph missing")
 	if report.Failed() {
 		t.Fatal("available Code Intelligence must not fail Doctor")
@@ -344,7 +346,7 @@ func TestEvaluate_CodeIntelligenceGraphAbsentStillPass(t *testing.T) {
 		GraphPresent: false,
 	}
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
 	assertHas(t, report, doctor.SeverityPass, "codegraph", "available · 3.17.0 · graph missing")
 	for _, check := range report.Checks {
 		if check.Name == "codegraph" && check.Severity != doctor.SeverityPass {
@@ -356,14 +358,14 @@ func TestEvaluate_CodeIntelligenceGraphAbsentStillPass(t *testing.T) {
 func TestEvaluate_CodeIntelligenceOptionalUnavailableInfo(t *testing.T) {
 	t.Parallel()
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{
-		Runtime: workspace.RuntimeHealth{
+	report := doctor.Evaluate(inspect.Inspection{
+		Runtime: runtime.Health{
 			CodeIntelligence: codeintel.Snapshot{
 				Provider: codeintel.ProviderCodeGraph,
 				State:    codeintel.StateUnavailable,
 				Message:  "CodeGraph executable not found on PATH",
 			},
-			ForbiddenArtifacts: []workspace.ForbiddenArtifactStatus{
+			ForbiddenArtifacts: []runtime.ForbiddenArtifactStatus{
 				{Path: "CLAUDE.md", Present: false},
 				{Path: "GEMINI.md", Present: false},
 				{Path: ".agents", Present: false},
@@ -387,8 +389,8 @@ func TestEvaluate_CodeIntelligenceOptionalUnavailableInfo(t *testing.T) {
 func TestEvaluate_CodeIntelligenceWithoutConfigStillVisible(t *testing.T) {
 	t.Parallel()
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{
-		Runtime: workspace.RuntimeHealth{
+	report := doctor.Evaluate(inspect.Inspection{
+		Runtime: runtime.Health{
 			ConfigExists: false,
 			ConfigLoads:  false,
 			CodeIntelligence: codeintel.Snapshot{
@@ -396,7 +398,7 @@ func TestEvaluate_CodeIntelligenceWithoutConfigStillVisible(t *testing.T) {
 				State:    codeintel.StateAvailable,
 				Version:  "3.17.0",
 			},
-			ForbiddenArtifacts: []workspace.ForbiddenArtifactStatus{
+			ForbiddenArtifacts: []runtime.ForbiddenArtifactStatus{
 				{Path: "CLAUDE.md", Present: false},
 				{Path: "GEMINI.md", Present: false},
 				{Path: ".agents", Present: false},
@@ -418,7 +420,7 @@ func TestEvaluate_CodeIntelligenceIncompatibleWarn(t *testing.T) {
 		Message:  "CodeGraph 2.9.0 is outside the supported major 3 range",
 	}
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
 	assertHas(t, report, doctor.SeverityWarn, "codegraph",
 		"incompatible · CodeGraph 2.9.0 is outside the supported major 3 range")
 }
@@ -433,7 +435,7 @@ func TestEvaluate_CodeIntelligenceMissingExpectedWarn(t *testing.T) {
 		Message:  "provider missing after prior configuration",
 	}
 
-	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
 	assertHas(t, report, doctor.SeverityWarn, "codegraph", "provider missing after prior configuration")
 }
 
@@ -453,7 +455,7 @@ func TestEvaluate_CodeIntelligenceUsesSnapshotOnlyNoFSMutation(t *testing.T) {
 		State:    codeintel.StateAvailable,
 		Version:  "3.17.0",
 	}
-	report := doctor.Evaluate(workspace.DiscoveryResult{
+	report := doctor.Evaluate(inspect.Inspection{
 		RootPath: root,
 		Runtime:  rt,
 	})
@@ -477,7 +479,7 @@ func TestDoctorScreen_RendersCodeIntelligenceSection(t *testing.T) {
 		State:    codeintel.StateAvailable,
 		Version:  "3.17.0",
 	}
-	result := workspace.DiscoveryResult{Runtime: rt}
+	result := inspect.Inspection{Runtime: rt}
 	report := doctor.Evaluate(result)
 	view := stripANSIDoctor(screens.Doctor(report, result))
 
@@ -490,6 +492,9 @@ func TestDoctorScreen_RendersCodeIntelligenceSection(t *testing.T) {
 	// Must not bury the check under Context as a silent omission.
 	idxCI := strings.Index(view, "Code Intelligence")
 	idxMCP := strings.Index(view, "MCP / External Context")
+	if idxMCP < 0 {
+		idxMCP = strings.Index(view, "\nMCP\n")
+	}
 	if idxCI < 0 || idxMCP < 0 || idxCI > idxMCP {
 		t.Fatalf("Code Intelligence section order unexpected:\n%s", view)
 	}
@@ -518,17 +523,17 @@ func TestEvaluateDiscoveryError(t *testing.T) {
 	}
 }
 
-func healthyRuntime() workspace.RuntimeHealth {
-	agents := make([]workspace.AgentFileStatus, 0, len(config.AtlasAgentRuntimePaths([]string{"cursor"})))
+func healthyRuntime() runtime.Health {
+	agents := make([]runtime.AgentFileStatus, 0, len(config.AtlasAgentRuntimePaths([]string{"cursor"})))
 	for _, path := range config.AtlasAgentRuntimePaths([]string{"cursor"}) {
-		agents = append(agents, workspace.AgentFileStatus{
+		agents = append(agents, runtime.AgentFileStatus{
 			Adapter: "cursor",
 			Path:    path,
 			Present: true,
 			Matches: true,
 		})
 	}
-	return workspace.RuntimeHealth{
+	return runtime.Health{
 		Initialized:         true,
 		ConfigExists:        true,
 		ConfigLoads:         true,
@@ -548,7 +553,7 @@ func healthyRuntime() workspace.RuntimeHealth {
 			FoundAdapters: []string{"cursor"},
 		},
 		SelectedAdapters:       []string{"cursor"},
-		ExpectedProjections:    []workspace.ProjectionStatus{{Adapter: "cursor", Path: config.FileCursorAtlasMDC, Present: true}},
+		ExpectedProjections:    []runtime.ProjectionStatus{{Adapter: "cursor", Path: config.FileCursorAtlasMDC, Present: true}},
 		ExpectedAgents:         agents,
 		AgentRegistryPresent:   true,
 		AgentRegistryMatches:   true,
@@ -576,7 +581,7 @@ func healthyRuntime() workspace.RuntimeHealth {
 		ContextGraphEnabled:  true,
 		ContextGraphReadable: true,
 		BackupsDirExists:     true,
-		ForbiddenArtifacts: []workspace.ForbiddenArtifactStatus{
+		ForbiddenArtifacts: []runtime.ForbiddenArtifactStatus{
 			{Path: "CLAUDE.md", Present: false},
 			{Path: "GEMINI.md", Present: false},
 			{Path: ".agents", Present: false},
@@ -588,9 +593,54 @@ func healthyRuntime() workspace.RuntimeHealth {
 func TestEvaluate_HomePathReported(t *testing.T) {
 	t.Parallel()
 	rt := healthyRuntime()
-	report := doctor.Evaluate(workspace.DiscoveryResult{Runtime: rt})
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
 	assertHas(t, report, doctor.SeverityPass, "atlas home path", rt.Home.Path)
 	assertHas(t, report, doctor.SeverityPass, "atlas home assets", fmt.Sprintf("%d mirrored", len(home.BundledAssets())))
+}
+
+func TestEvaluate_HomeAssetErrorsFail(t *testing.T) {
+	t.Parallel()
+	rt := healthyRuntime()
+	rt.Home.AssetErrors = []string{"agents/runtime/atlas-worker.md: injected read failure"}
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
+	assertHas(t, report, doctor.SeverityFail, "atlas home assets", "1 embedded integrity error(s)")
+	if !report.Failed() {
+		t.Fatal("doctor must not report healthy with asset integrity errors")
+	}
+}
+
+func TestEvaluate_RuntimeRenderErrorNotDrift(t *testing.T) {
+	t.Parallel()
+	rt := healthyRuntime()
+	rt.RuntimeManifestMatches = false
+	rt.RuntimeManifestRenderError = "injected canonical render failure"
+	rt.AssetsLockMatches = false
+	rt.AssetsLockRenderError = "injected lock render failure"
+	if len(rt.ExpectedAgents) > 0 {
+		rt.ExpectedAgents[0].Matches = false
+		rt.ExpectedAgents[0].RenderError = "injected agent render failure"
+	}
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
+	assertHas(t, report, doctor.SeverityFail, "runtime manifest", "canonical render failed")
+	assertHas(t, report, doctor.SeverityFail, "assets lock", "canonical render failed")
+	assertHas(t, report, doctor.SeverityFail, "atlas agents", "1 Atlas agent canonical render failure(s)")
+	for _, c := range report.Checks {
+		if c.Name == "runtime manifest" && c.Message == "content drifted" {
+			t.Fatal("render failure must not be labeled only as drift")
+		}
+	}
+	if !report.Failed() {
+		t.Fatal("doctor must FAIL on render integrity errors")
+	}
+}
+
+func TestEvaluate_RuntimeDriftStillDrift(t *testing.T) {
+	t.Parallel()
+	rt := healthyRuntime()
+	rt.RuntimeManifestMatches = false
+	rt.RuntimeManifestRenderError = ""
+	report := doctor.Evaluate(inspect.Inspection{Runtime: rt})
+	assertHas(t, report, doctor.SeverityFail, "runtime manifest", "content drifted")
 }
 
 func assertHas(t *testing.T, report doctor.Report, severity doctor.Severity, name, message string) {

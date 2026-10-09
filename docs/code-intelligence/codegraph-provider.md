@@ -2,7 +2,7 @@
 
 CodeGraph-specific boundaries for Atlas Code Intelligence. For the provider-neutral design, see [architecture.md](architecture.md).
 
-CodeGraph is an **optional external** backend. It is not part of the Atlas Go core and is not Atlas Context Graph.
+CodeGraph is an **optional external** backend implemented behind `internal/codeintel/codegraph/`. It is not part of the Atlas Go core and is not Atlas Context Graph. There is **no** CodeGraph MCP server.
 
 ## Responsibility boundary
 
@@ -24,6 +24,7 @@ CodeGraph is an **optional external** backend. It is not part of the Atlas Go co
 - Consumes machine-readable JSON.
 - Normalizes results into Atlas models.
 - Reports states such as missing, incompatible, stale, unavailable, or error.
+- Owns lifecycle, freshness, metadata, fingerprint, and containment.
 
 ### Mandatory rule
 
@@ -54,8 +55,8 @@ If it was configured and later disappears:
 
 ```text
 Atlas
-  → Code Intelligence abstraction
-  → CodeGraph adapter
+  → Code Intelligence abstraction (internal/codeintel)
+  → CodeGraph adapter (internal/codeintel/codegraph)
   → external CodeGraph CLI
   → machine-readable JSON
 ```
@@ -71,7 +72,8 @@ Rules:
 - apply timeouts;
 - bound and capture stdout/stderr;
 - prefer JSON as the machine-readable contract; do not scrape human tables when JSON exists;
-- map provider failures to Atlas-owned errors.
+- map provider failures to Atlas-owned errors;
+- never project CodeGraph as MCP.
 
 ## Compatibility
 
@@ -89,7 +91,7 @@ The adapter exists to shield Atlas from upstream CLI and schema churn.
 
 ## Storage
 
-Conceptual layout under Atlas Home:
+Layout under Atlas Home:
 
 ```text
 $ATLAS_HOME/projects/<project-id>/codegraph/graph.db
@@ -101,59 +103,38 @@ $ATLAS_HOME/projects/<project-id>/codegraph/metadata.json
 - provider identity;
 - provider version;
 - project identity;
-- source revision;
+- source revision / fingerprint;
 - last successful build/update timestamp;
 - freshness state.
 
-Do **not** create a `.codegraph` directory (or equivalent) inside the product repository.
+Do **not** create a `.codegraph` directory (or equivalent) inside the product repository. Refresh containment must keep provider artifacts out of the workspace.
 
-### Real smoke finding (CodeGraph 3.17.0)
+### Repo-local side files
 
-Even when the graph database is directed at Atlas Home:
+Some CodeGraph versions may attempt repo-local journals even when `--db` points at Atlas Home. Atlas refresh/containment policy must refuse or clean such workspace pollution; Status/Doctor remain read-only and must not run build.
 
-```text
-codegraph build <repo> --db $ATLAS_HOME/projects/<project-id>/codegraph/graph.db
-```
+## Refresh modes
 
-CodeGraph 3.17.0 may still create a repo-local side file:
+Atlas-owned refresh planning supports:
 
-```text
-<repo>/.codegraph/changes.journal
-```
-
-`--db` alone does **not** guarantee repository cleanliness.
-
-#### Constraint for future Atlas-managed Build (not Slice 31)
-
-When Atlas later owns an explicit CodeGraph Build flow:
-
-- Atlas must not leave CodeGraph artifacts inside the product repository;
-- Build integration must find a supported way to contain, redirect, or suppress that journal (or equivalent repo-local outputs);
-- if upstream cannot do this safely, Atlas must not assume that pointing `--db` at Atlas Home is sufficient for a clean repo;
-- Slice 31 does **not** implement that containment — Probe/Status/Doctor remain read-only and must not run `build`.
+- **initial** — first graph materialization;
+- **incremental** — update when fingerprint drift allows;
+- **noop** — already fresh;
+- **full** — forced rebuild when policy requires it.
 
 ## Evidence model
 
 CodeGraph output is **structural evidence**, not absolute truth.
 
-Treat results carefully when the codebase uses:
+Treat results carefully when the codebase uses reflection, dependency injection, dynamic dispatch, framework “magic”, or runtime-generated relationships.
 
-- reflection;
-- dependency injection;
-- dynamic dispatch;
-- framework “magic”;
-- convention-heavy frameworks (for example Laravel-style indirection);
-- runtime-generated relationships.
+## Scope
 
-Atlas should still prefer compilers/runtimes where applicable, tests, architecture rules, framework knowledge, and human review when evidence conflicts.
+In scope: CLI + JSON behind the Code Intelligence abstraction; Probe/Status/Doctor read-only; explicit Refresh.
 
-## Initial scope
+Out of scope:
 
-First integration target: **CLI + JSON** behind the Code Intelligence abstraction.
-
-Out of scope for this foundation:
-
-- MCP materialization;
+- MCP materialization for CodeGraph;
 - remote embeddings;
 - external LLM enrichment;
 - Atlas Context Graph;

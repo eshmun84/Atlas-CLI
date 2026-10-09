@@ -113,23 +113,6 @@ func ClampSelectorState(draft config.ConfigDraft, sectionIdx, fieldIdx, optionId
 	return sectionIdx, rows[0].FieldIndex, rows[0].OptionIndex
 }
 
-// SyncOptionIndex aligns option index to the field's current value for choice fields.
-func SyncOptionIndex(draft config.ConfigDraft, sectionIdx, fieldIdx int) int {
-	sections := draft.SelectorSections()
-	if sectionIdx < 0 || sectionIdx >= len(sections) {
-		return 0
-	}
-	fields := sections[sectionIdx].Fields
-	if fieldIdx < 0 || fieldIdx >= len(fields) {
-		return 0
-	}
-	field := fields[fieldIdx]
-	if field.Type == config.FieldTypeBool {
-		return 0
-	}
-	return field.OptionIndexOf(field.Value)
-}
-
 // ActiveField returns the focused field in the selector, if any.
 func ActiveField(draft config.ConfigDraft, sectionIdx, fieldIdx int) (config.ConfigField, bool) {
 	sections := draft.SelectorSections()

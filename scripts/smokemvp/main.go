@@ -19,9 +19,12 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/mcp/cursor"
+	"github.com/eshmun84/Atlas-CLI/internal/mcp/opencode"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/tui"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 func main() {
@@ -60,7 +63,7 @@ func run() error {
 		{"same-name different-root isolation", checkSameNameDifferentRootIsolation},
 		{"initialized Cursor project", checkCursorProject},
 		{"initialized OpenCode project", checkOpenCodeProject},
-		{"Configure config-only behavior", checkConfigureConfigOnly},
+		{"Configure saves config without non-MCP rematerialize", checkConfigureConfigOnly},
 		{"Init Home reset gate", checkInitHomeResetGate},
 		{"developer-owned files preserved", checkDeveloperOwnedPreserved},
 		{"status + doctor surfaces", checkStatusDoctor},
@@ -195,7 +198,7 @@ func checkGitReadmeExistingProject() error {
 	if err != nil {
 		return err
 	}
-	disc, err := workspace.Discover(root)
+	disc, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
@@ -323,7 +326,10 @@ func checkConfigureConfigOnly() error {
 		return err
 	}
 	if !strings.Contains(res.Notice, "config.yaml") {
-		return fmt.Errorf("missing config-only notice: %q", res.Notice)
+		return fmt.Errorf("missing config save notice: %q", res.Notice)
+	}
+	if !strings.Contains(res.Notice, "MCP selections were reconciled") {
+		return fmt.Errorf("missing MCP reconcile notice: %q", res.Notice)
 	}
 	if !res.Impact.RuntimeRepairNeeded {
 		return fmt.Errorf("adapter change should recommend Runtime Repair")
@@ -343,26 +349,31 @@ func checkConfigureConfigOnly() error {
 		return fmt.Errorf("Configure mutated Cursor projection")
 	}
 	if _, err := os.Stat(filepath.Join(root, config.FileOpenCodeAtlas)); !os.IsNotExist(err) {
-		return fmt.Errorf("Configure must not materialize OpenCode projection")
+		return fmt.Errorf("Configure must not materialize OpenCode runtime projection")
 	}
 	afterTree, err := snapshotPaths(root)
 	if err != nil {
 		return err
 	}
 	configRel := filepath.ToSlash(config.FileConfig)
+	allowedMutations := map[string]bool{
+		configRel:                                true,
+		filepath.ToSlash(cursor.ConfigRelPath):   true,
+		filepath.ToSlash(opencode.ConfigRelPath): true,
+	}
 	for path, content := range beforeTree {
 		got, ok := afterTree[path]
 		if !ok {
 			return fmt.Errorf("Configure removed %s", path)
 		}
-		if path == configRel {
+		if allowedMutations[path] {
 			continue
 		}
 		if got != content {
 			return fmt.Errorf("Configure mutated %s", path)
 		}
 	}
-	doc, err := config.LoadProjectDocument(filepath.Join(root, config.FileConfig))
+	doc, err := config.LoadProjectDocumentAt(root)
 	if err != nil {
 		return err
 	}
@@ -450,14 +461,14 @@ func checkFreshProject() error {
 	}
 	defer os.RemoveAll(root)
 
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
 	if result.Atlas.Initialized() || result.Runtime.Initialized {
 		return fmt.Errorf("fresh project reported as initialized")
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, result.Runtime)
 	if !plan.Blocked {
 		return fmt.Errorf("repair should be blocked on uninitialized project")
 	}
@@ -519,7 +530,7 @@ func checkInitHappyPath() error {
 			return fmt.Errorf("missing atlas agent %s: %w", path, err)
 		}
 	}
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
@@ -625,7 +636,7 @@ func checkDefaultHomeUntouched() error {
 	defer os.RemoveAll(root)
 
 	objective := "smoke isolation"
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
@@ -706,15 +717,15 @@ func checkDeveloperOwnedPreserved() error {
 	if err := os.WriteFile(filepath.Join(root, ".cursor", "agents", "atlas-worker.md"), []byte("drift\n"), 0o644); err != nil {
 		return err
 	}
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, result.Runtime)
 	if !plan.NeedsApply() {
 		return fmt.Errorf("expected repair for agent drift")
 	}
-	if _, err := workspace.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 12, 31, 0)); err != nil {
+	if _, err := runtime.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 12, 31, 0)); err != nil {
 		return err
 	}
 
@@ -750,7 +761,7 @@ func checkStatusDoctorNoHomeCreate() error {
 		return err
 	}
 	defer os.RemoveAll(root)
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
@@ -801,7 +812,7 @@ func checkStatusDoctor() error {
 	}
 	defer os.RemoveAll(root)
 
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
@@ -814,7 +825,7 @@ func checkStatusDoctor() error {
 		"Project Technology",
 		"Adapters",
 		"Governance Tools",
-		"MCP / External Context",
+		"MCP",
 		"Health",
 		"AGENTS.md contract",
 		"SDD/OpenSpec contract",
@@ -836,7 +847,7 @@ func checkStatusDoctor() error {
 		"WARNING",
 		"Atlas Home",
 		"Code Intelligence",
-		"MCP / External Context",
+		"MCP",
 	} {
 		if !strings.Contains(doctorView, want) {
 			return fmt.Errorf("doctor render missing %q", want)
@@ -875,15 +886,15 @@ func checkRepairHealthyNoop() error {
 	}
 	defer os.RemoveAll(root)
 
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, result.Runtime)
 	if !plan.Healthy || plan.NeedsApply() {
 		return fmt.Errorf("expected healthy plan: %#v", plan)
 	}
-	applied, err := workspace.ApplyRuntimeRepair(root, plan.Signature(), nil)
+	applied, err := runtime.ApplyRuntimeRepair(root, plan.Signature(), nil)
 	if err != nil {
 		return err
 	}
@@ -903,15 +914,15 @@ func checkRepairMissingAgents() error {
 	if err := os.Remove(filepath.Join(root, config.FileAgentsMD)); err != nil {
 		return err
 	}
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, result.Runtime)
 	if !plan.NeedsApply() {
 		return fmt.Errorf("expected apply for missing AGENTS.md: %#v", plan)
 	}
-	applied, err := workspace.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 17, 0, 0))
+	applied, err := runtime.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 17, 0, 0))
 	if err != nil {
 		return err
 	}
@@ -938,15 +949,15 @@ func checkRepairMissingProjection() error {
 	if err := os.Remove(filepath.Join(root, config.FileCursorAtlasMDC)); err != nil {
 		return err
 	}
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, result.Runtime)
 	if !plan.NeedsApply() {
 		return fmt.Errorf("expected apply for missing projection: %#v", plan)
 	}
-	if _, err := workspace.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 17, 1, 0)); err != nil {
+	if _, err := runtime.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 17, 1, 0)); err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(root, config.FileCursorAtlasMDC)); err != nil {
@@ -973,11 +984,11 @@ func checkRepairAtlasAgents() error {
 		return err
 	}
 
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, result.Runtime)
 	if !plan.NeedsApply() {
 		return fmt.Errorf("expected apply for atlas agent drift: %#v", plan)
 	}
@@ -986,7 +997,7 @@ func checkRepairAtlasAgents() error {
 			return fmt.Errorf("external agent quarantined")
 		}
 	}
-	if _, err := workspace.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 17, 2, 0)); err != nil {
+	if _, err := runtime.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 17, 2, 0)); err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(root, ".cursor", "agents", "atlas-orchestrator.md")); err != nil {
@@ -1025,15 +1036,15 @@ func checkRepairSDDContract() error {
 	if err := os.Remove(contractPath); err != nil {
 		return err
 	}
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
-	plan := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	plan := runtime.BuildRuntimeRepairPlan(root, result.Runtime)
 	if !plan.NeedsApply() {
 		return fmt.Errorf("expected apply for missing SDD contract: %#v", plan)
 	}
-	if _, err := workspace.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 17, 3, 0)); err != nil {
+	if _, err := runtime.ApplyRuntimeRepair(root, plan.Signature(), fixedNow(2026, 10, 5, 17, 3, 0)); err != nil {
 		return err
 	}
 	want, err := config.RenderSDDOpenSpecContract()
@@ -1063,7 +1074,7 @@ func checkContextEconomy() error {
 		return err
 	}
 
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
@@ -1114,7 +1125,7 @@ func checkContextEconomy() error {
 		return fmt.Errorf("state missing context economy refs")
 	}
 
-	refreshed, err := workspace.Discover(root)
+	refreshed, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
@@ -1137,7 +1148,7 @@ func checkContextEconomy() error {
 	if err := os.WriteFile(filepath.Join(root, "extra_context_probe.go"), []byte("package main\n"), 0o644); err != nil {
 		return err
 	}
-	staleDisc, err := workspace.Discover(root)
+	staleDisc, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
@@ -1150,14 +1161,14 @@ func checkContextEconomy() error {
 	if err != nil {
 		return err
 	}
-	repairPlan := workspace.BuildRuntimeRepairPlan(root, staleDisc.Runtime)
+	repairPlan := runtime.BuildRuntimeRepairPlan(root, staleDisc.Runtime)
 	for _, target := range repairPlan.Targets {
 		if strings.Contains(target.Path, "/context/") || strings.Contains(target.Path, "projects/") || strings.HasSuffix(target.Path, "capsule.md") {
 			return fmt.Errorf("repair targets context economy path: %#v", target)
 		}
 	}
 	if repairPlan.NeedsApply() {
-		if _, err := workspace.ApplyRuntimeRepair(root, repairPlan.Signature(), fixedNow(2026, 10, 6, 18, 5, 0)); err != nil {
+		if _, err := runtime.ApplyRuntimeRepair(root, repairPlan.Signature(), fixedNow(2026, 10, 6, 18, 5, 0)); err != nil {
 			return err
 		}
 	}
@@ -1193,28 +1204,34 @@ func checkRepairStalePlan() error {
 	if err := os.Remove(filepath.Join(root, config.FileAgentsMD)); err != nil {
 		return err
 	}
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
-	reviewed := workspace.BuildRuntimeRepairPlan(root, result.Runtime)
+	reviewed := runtime.BuildRuntimeRepairPlan(root, result.Runtime)
 	sig := reviewed.Signature()
 	if !reviewed.NeedsApply() {
 		return fmt.Errorf("reviewed plan should need apply")
 	}
 
 	// Heal AGENTS.md so the reviewed signature is stale.
-	if err := os.WriteFile(filepath.Join(root, config.FileAgentsMD), []byte(config.RenderAgentsMD("smoke", true, []string{"cursor"}, nil)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, config.FileAgentsMD), func() []byte {
+		s, err := config.RenderAgentsMD("smoke", true, []string{"cursor"}, nil)
+		if err != nil {
+			panic(err)
+		}
+		return []byte(s)
+	}(), 0o644); err != nil {
 		return err
 	}
-	applied, err := workspace.ApplyRuntimeRepair(root, sig, nil)
+	applied, err := runtime.ApplyRuntimeRepair(root, sig, nil)
 	if err != nil {
 		return err
 	}
 	if !applied.Stale {
 		return fmt.Errorf("expected stale rejection: %#v", applied)
 	}
-	if applied.MessageTitle != workspace.RepairStaleMessage {
+	if applied.MessageTitle != runtime.RepairStaleMessage {
 		return fmt.Errorf("stale message = %q", applied.MessageTitle)
 	}
 	return nil
@@ -1330,7 +1347,7 @@ func snapshotOptionalTree(root string) (map[string]string, error) {
 }
 
 func assertRuntimeReady(root string) error {
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}

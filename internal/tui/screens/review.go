@@ -64,7 +64,7 @@ func RenderReview(view ReviewView) string {
 	fmt.Fprintf(&b, "  - Platform: %s\n", plan.DeliveryPlatform)
 	fmt.Fprintf(&b, "  - Governance files: %s\n", plan.GovernanceStorage)
 	fmt.Fprintf(&b, "  - Assisted operations: %s\n", plan.DeliveryAssistance)
-	fmt.Fprintf(&b, "  - MCP preferences: %d recorded\n", plan.MCPCount)
+	fmt.Fprintf(&b, "  - MCP desired state: %d selected\n", plan.MCPCount)
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, initSection.Render("Project writes"))
@@ -88,9 +88,15 @@ func RenderReview(view ReviewView) string {
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, initSection.Render("Atlas Home reset"))
-	if !plan.HomeDataDetected {
-		fmt.Fprintln(&b, "  "+initMuted.Render("none"))
-	} else {
+	switch plan.HomeDataPresence {
+	case "unknown":
+		msg := "could not inspect Atlas Home project data"
+		if plan.HomeDataError != "" {
+			msg = msg + ": " + plan.HomeDataError
+		}
+		fmt.Fprintln(&b, "  "+initWarn.Render(msg))
+		fmt.Fprintln(&b, "  "+initMuted.Render("Do not treat Home data as absent; Apply re-checks before mutation."))
+	case "present":
 		fmt.Fprintf(&b, "  Project name: %s\n", plan.ProjectName)
 		if plan.ProjectRoot != "" {
 			fmt.Fprintf(&b, "  Project root: %s\n", plan.ProjectRoot)
@@ -111,14 +117,18 @@ func RenderReview(view ReviewView) string {
 		} else {
 			fmt.Fprintln(&b, "  "+initOption.Render(marker+" "+label))
 		}
+	default:
+		fmt.Fprintln(&b, "  "+initMuted.Render("none"))
 	}
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, initSection.Render("Config vs later flows"))
 	fmt.Fprintln(&b, "  "+initMuted.Render("Init Apply writes config and materializes selected runtime files."))
-	fmt.Fprintln(&b, "  "+initMuted.Render("Later Configure Apply is config-only — run Runtime Repair for runtime files."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("Later Configure Apply saves .atlas/config.yaml and reconciles MCP projections when MCP/adapters change."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("Runtime Repair remains required for non-MCP runtime artifacts (AGENTS.md, rules, agents)."))
 	fmt.Fprintln(&b, "  "+initMuted.Render("Context Economy Update is a separate explicit flow."))
-	fmt.Fprintln(&b, "  "+initMuted.Render("MCP selections are preference/config only until materialization exists."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("MCP desired state is stored in Atlas config; Atlas-owned projections materialize to selected agents."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("Authentication/connection/verification may still depend on the provider or agent. Secrets are not stored."))
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, initSection.Render("No Git operations"))
@@ -174,7 +184,7 @@ func RenderReview(view ReviewView) string {
 			fmt.Fprintf(&b, "    status: %s\n", entry.Status)
 		}
 	}
-	fmt.Fprintln(&b, "  "+initMuted.Render("MCP: preference recorded · configured in config.yaml · connected/authenticated/verified NOT IMPLEMENTED."))
+	fmt.Fprintln(&b, "  "+initMuted.Render("MCP: desired state in Atlas config · Atlas-owned projections to selected agents · auth/connection/verification may still depend on provider/agent."))
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, initSection.Render("Git / delivery policy"))

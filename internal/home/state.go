@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,10 +35,18 @@ type StateAssetEntry struct {
 	ResolvedPath string `yaml:"resolved_path"`
 }
 
-// LoadState reads home state when present. Missing file returns empty doc + false.
+// StateRelPath is the Home-relative path of state/home.yaml.
+const StateRelPath = "state/home.yaml"
+
+// LoadState reads home state via symlink-safe contained read of state/home.yaml.
+// Missing file returns empty doc + false. Symlink parents/leaves, non-regular
+// files, and containment failures return error (fail closed before mutation).
 func LoadState(homePath string) (StateDocument, bool, error) {
-	path := StateFile(homePath)
-	data, err := os.ReadFile(path)
+	homePath = strings.TrimSpace(homePath)
+	if homePath == "" {
+		return StateDocument{}, false, fmt.Errorf("atlas home: home path is required")
+	}
+	data, err := fsafety.ReadFileContained(homePath, StateRelPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return StateDocument{}, false, nil
@@ -50,23 +60,28 @@ func LoadState(homePath string) (StateDocument, bool, error) {
 	return doc, true, nil
 }
 
-// WriteState persists home state metadata.
-func WriteState(homePath string, doc StateDocument) error {
-	path := StateFile(homePath)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("atlas home: create state dir: %w", err)
-	}
+func marshalHomeState(doc StateDocument) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
 	if err := enc.Encode(&doc); err != nil {
 		_ = enc.Close()
-		return fmt.Errorf("atlas home: marshal state: %w", err)
+		return nil, fmt.Errorf("atlas home: marshal state: %w", err)
 	}
 	if err := enc.Close(); err != nil {
-		return fmt.Errorf("atlas home: marshal state: %w", err)
+		return nil, fmt.Errorf("atlas home: marshal state: %w", err)
 	}
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+	return buf.Bytes(), nil
+}
+
+// WriteState persists home state metadata.
+func WriteState(homePath string, doc StateDocument) error {
+	data, err := marshalHomeState(doc)
+	if err != nil {
+		return err
+	}
+	rel := filepath.ToSlash(filepath.Join("state", "home.yaml"))
+	if err := fsafety.AtomicWriteContainedDir(homePath, rel, data, 0o600, DirPermHome, ".atlas-home-*.tmp"); err != nil {
 		return fmt.Errorf("atlas home: write state: %w", err)
 	}
 	return nil

@@ -1,6 +1,8 @@
 package context_test
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -235,6 +237,136 @@ func TestApplyUpdate_DoesNotTouchDeveloperAgents(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(root, ".cursor", "agents", "external.md"))
 	if err != nil || string(got) != "keep\n" {
 		t.Fatalf("developer agent touched: %q err=%v", got, err)
+	}
+}
+
+func TestBuildIndex_BeyondStoredCapStale(t *testing.T) {
+	root := t.TempDir()
+	fixed := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	const n = atlascontext.MaxIndexedEntries + 1
+	for i := 0; i < n; i++ {
+		write(t, filepath.Join(root, fmt.Sprintf("f%05d.go", i)), fmt.Sprintf("package f%d\n", i))
+	}
+	idx, err := atlascontext.BuildIndex(root, "demo", fixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !idx.Truncated {
+		t.Fatal("expected Truncated")
+	}
+	if len(idx.Files) > atlascontext.MaxIndexedEntries {
+		t.Fatalf("entries=%d exceed cap", len(idx.Files))
+	}
+	stale, err := atlascontext.IsStale(root, idx)
+	if err != nil || stale {
+		t.Fatalf("fresh index must not be stale: stale=%v err=%v", stale, err)
+	}
+	// Mutate a file outside the stored Entries range (highest path sorts last).
+	write(t, filepath.Join(root, fmt.Sprintf("f%05d.go", n-1)), "package mutated\n")
+	stale, err = atlascontext.IsStale(root, idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stale {
+		t.Fatal("mutation beyond stored Entries must make IsStale true")
+	}
+}
+
+func TestBuildIndex_WalkAndRelErrors(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "a.go"), "package a\n")
+	fixed := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+
+	atlascontext.SetIndexWalkForTest(func(string, filepath.WalkFunc) error {
+		return errors.New("injected walk failure")
+	})
+	_, err := atlascontext.BuildIndex(root, "demo", fixed)
+	atlascontext.SetIndexWalkForTest(nil)
+	if err == nil {
+		t.Fatal("expected walk error")
+	}
+
+	atlascontext.SetIndexRelForTest(func(string, string) (string, error) {
+		return "", errors.New("injected rel failure")
+	})
+	t.Cleanup(func() { atlascontext.SetIndexRelForTest(nil) })
+	_, err = atlascontext.BuildIndex(root, "demo", fixed)
+	if err == nil {
+		t.Fatal("expected rel error")
+	}
+}
+
+func TestBuildIndex_FingerprintDeterministic(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "a.go"), "package a\n")
+	write(t, filepath.Join(root, "b.go"), "package b\n")
+	fixed := time.Unix(1_700_000_000, 0).UTC()
+	a, err := atlascontext.BuildIndex(root, "demo", fixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := atlascontext.BuildIndex(root, "demo", fixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Fingerprint == "" || a.Fingerprint != b.Fingerprint {
+		t.Fatalf("fingerprint mismatch %q vs %q", a.Fingerprint, b.Fingerprint)
+	}
+}
+
+func TestBuildIndex_ContentBasedSameSizeMtimeRestored(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "same.go")
+	write(t, path, "package a\nfunc X(){}\n")
+	fixed := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	before, err := atlascontext.BuildIndex(root, "demo", fixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := info.ModTime()
+	// Same-length rewrite.
+	write(t, path, "package a\nfunc Y(){}\n")
+	if err := os.Chtimes(path, orig, orig); err != nil {
+		t.Fatal(err)
+	}
+	after, err := atlascontext.BuildIndex(root, "demo", fixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Fingerprint == after.Fingerprint {
+		t.Fatal("same-size content rewrite with restored mtime must change fingerprint")
+	}
+}
+
+func TestBuildIndex_RelevantSymlinkRefused(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	ext := filepath.Join(outside, "ext.go")
+	write(t, ext, "package ext\n")
+	link := filepath.Join(root, "linked.go")
+	if err := os.Symlink(ext, link); err != nil {
+		t.Fatal(err)
+	}
+	_, err := atlascontext.BuildIndex(root, "demo", time.Now().UTC())
+	if err == nil {
+		t.Fatal("expected symlink refusal")
+	}
+}
+
+func TestBuildIndex_WalkDisappearanceFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "a.go"), "package a\n")
+	atlascontext.SetIndexWalkForTest(func(string, filepath.WalkFunc) error {
+		return os.ErrNotExist
+	})
+	t.Cleanup(func() { atlascontext.SetIndexWalkForTest(nil) })
+	_, err := atlascontext.BuildIndex(root, "demo", time.Now().UTC())
+	if err == nil {
+		t.Fatal("expected disappearance error")
 	}
 }
 

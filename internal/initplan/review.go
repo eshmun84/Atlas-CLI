@@ -2,7 +2,6 @@ package initplan
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -44,7 +43,9 @@ type MaterializationPlan struct {
 	Creates            []PlannedFile
 	HomeWrites         []PlannedFile
 	HomeReset          []PlannedFile
-	HomeDataDetected   bool
+	HomeDataDetected   bool   // true only when presence is confirmed
+	HomeDataPresence   string // present | absent | unknown
+	HomeDataError      string
 	AcceptHomeReset    bool
 	ExistingArtifacts  []string
 	Backups            []PlannedBackup
@@ -140,11 +141,29 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		GitSafetyStatement: "No repository, branch, commit, push, pull request, merge or remote operation will be performed.",
 	}
 
+	plan.HomeDataPresence = "absent"
 	if plan.ProjectRoot != "" {
-		if id, idErr := home.ProjectID(plan.ProjectRoot, plan.ProjectName); idErr == nil {
+		id, idErr := home.ProjectID(plan.ProjectRoot, plan.ProjectName)
+		if idErr != nil {
+			plan.HomeDataPresence = "unknown"
+			plan.HomeDataError = idErr.Error()
+		} else {
 			plan.ProjectID = id
-			if homePath, homeErr := home.Resolve(); homeErr == nil {
-				plan.HomeDataDetected = home.ProjectDataPresent(homePath, id)
+			homePath, homeErr := home.Resolve()
+			if homeErr != nil {
+				plan.HomeDataPresence = "unknown"
+				plan.HomeDataError = homeErr.Error()
+			} else {
+				present, inspErr := home.InspectProjectDataPresence(homePath, id)
+				if inspErr != nil {
+					plan.HomeDataPresence = "unknown"
+					plan.HomeDataError = inspErr.Error()
+				} else if present {
+					plan.HomeDataPresence = "present"
+					plan.HomeDataDetected = true
+				} else {
+					plan.HomeDataPresence = "absent"
+				}
 			}
 		}
 	}
@@ -211,7 +230,11 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		}
 	}
 
-	replaceTargets := plannedReplaceTargets(in.Root, adaptersValue, in.Artifacts)
+	replaceTargets, unsafeRuntime := plannedReplaceTargets(in.Root, adaptersValue, in.Artifacts)
+	for _, msg := range unsafeRuntime {
+		plan.Blockers = append(plan.Blockers, PlanBlocker{Message: msg})
+		plan.Warnings = append(plan.Warnings, PlanWarning{Message: msg})
+	}
 	backupRoot := BackupPlaceholderDir()
 	if len(replaceTargets) == 0 {
 		plan.Backups = nil
@@ -263,10 +286,11 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Message: "Apply is the only mutation step. Status and Doctor remain read-only."},
 		{Message: "Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files."},
 		{Message: "Apply creates/updates Atlas Home (ATLAS_HOME or ~/.atlas) and mirrors bundled Atlas-owned assets."},
-		{Message: "After Init, Configure Apply is config-only — Runtime Repair rematerializes runtime files; Context Economy Update refreshes context."},
+		{Message: "After Init, Configure Apply saves .atlas/config.yaml and reconciles MCP projections when MCP/adapters change; Runtime Repair rematerializes non-MCP runtime files; Context Economy Update refreshes context."},
 		{Message: "Runtime conflicts block Init and require manual cleanup in this slice."},
-		{Message: "MCP selections are preference recorded only — not materialized, connected, authenticated, or verified."},
-		{Message: "Context Economy v0 is a separate explicit flow. CodeGraph and Atlas Context Graph are NOT IMPLEMENTED."},
+		{Message: "MCP desired state is stored in Atlas config and materialized into selected agent MCP configs (Atlas-owned entries only)."},
+		{Message: "MCP authentication, connection, and verification may still depend on the provider or agent. Secrets are not stored."},
+		{Message: "Context Economy v0 is a separate explicit flow. CodeGraph is an optional externally installed Code Intelligence provider (not MCP; may be unavailable). Atlas Context Graph is NOT IMPLEMENTED."},
 		{Message: "Init performs no Git operations."},
 		{Message: plan.GitSafetyStatement},
 		{Message: "Secrets and credentials are not stored."},
@@ -282,46 +306,47 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 	return plan
 }
 
-func plannedReplaceTargets(root, adaptersValue string, artifacts []string) []string {
+func plannedReplaceTargets(root, adaptersValue string, artifacts []string) (targets []string, unsafe []string) {
 	artifactSet := make(map[string]bool, len(artifacts))
 	for _, artifact := range artifacts {
 		artifactSet[filepath.ToSlash(artifact)] = true
 	}
 
-	var targets []string
-	if artifactSet[config.FileAgentsMD] || fileExists(root, config.FileAgentsMD) {
-		targets = append(targets, config.FileAgentsMD)
-	}
-	if config.ChipSelected(adaptersValue, "cursor") {
-		if fileExists(root, config.FileCursorAtlasMDC) {
-			targets = append(targets, config.FileCursorAtlasMDC)
+	consider := func(rel string) {
+		present, err := atlasOwnedRuntimePresent(root, rel)
+		if err != nil {
+			unsafe = append(unsafe, "unsafe Atlas runtime path (not an ordinary replace target): "+rel+": "+err.Error())
+			return
 		}
+		if present || artifactSet[rel] {
+			targets = append(targets, rel)
+		}
+	}
+
+	consider(config.FileAgentsMD)
+	if config.ChipSelected(adaptersValue, "cursor") {
+		consider(config.FileCursorAtlasMDC)
 		for _, path := range config.AtlasAgentRuntimePaths([]string{"cursor"}) {
-			if fileExists(root, path) {
-				targets = append(targets, path)
-			}
+			consider(path)
 		}
 	}
 	if config.ChipSelected(adaptersValue, "opencode") {
-		if fileExists(root, config.FileOpenCodeAtlas) {
-			targets = append(targets, config.FileOpenCodeAtlas)
-		}
+		consider(config.FileOpenCodeAtlas)
 		for _, path := range config.AtlasAgentRuntimePaths([]string{"opencode"}) {
-			if fileExists(root, path) {
-				targets = append(targets, path)
-			}
+			consider(path)
 		}
 	}
-	return targets
+	return targets, unsafe
 }
 
-func fileExists(root, rel string) bool {
+// atlasOwnedRuntimePresent reports a regular contained Atlas runtime file.
+// missing => false,nil; unsafe symlink/non-regular => false,error.
+func atlasOwnedRuntimePresent(root, rel string) (bool, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
-		return false
+		return false, nil
 	}
-	_, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
-	return err == nil
+	return config.AtlasOwnedFileExists(root, rel)
 }
 
 func fieldValue(draft config.ConfigDraft, key string) string {
@@ -385,7 +410,7 @@ func mcpEntries(draft config.MCPDraft) []MCPPlanEntry {
 			Name:    item.Name,
 			Kind:    "built-in",
 			Enabled: true,
-			Status:  "preference recorded (not connected / not implemented)",
+			Status:  config.StatusLabel(item.Status),
 		})
 	}
 	for _, server := range draft.CustomServers {
@@ -394,7 +419,7 @@ func mcpEntries(draft config.MCPDraft) []MCPPlanEntry {
 			Kind:      "custom",
 			Transport: server.Transport.TransportLabel(),
 			Enabled:   server.Enabled,
-			Status:    "preference recorded (not connected / not implemented)",
+			Status:    config.StatusLabel(server.Status),
 		})
 	}
 	if len(out) == 0 {

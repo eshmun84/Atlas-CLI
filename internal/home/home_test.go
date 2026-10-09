@@ -1,11 +1,14 @@
 package home_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/eshmun84/Atlas-CLI/internal/assets"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 )
 
@@ -48,6 +51,44 @@ func TestInspect_DoesNotCreateHome(t *testing.T) {
 	}
 }
 
+func TestReadCanonical_PrefersEmbeddedOverDriftedHome(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "atlas-home")
+	t.Setenv(home.EnvAtlasHome, dir)
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	embedPath := "agents/base.md"
+	trusted, err := home.ReadCanonical(embedPath)
+	if err != nil || len(trusted) == 0 {
+		t.Fatalf("canonical: %v", err)
+	}
+	homeCopy := filepath.Join(dir, "assets", filepath.FromSlash(embedPath))
+	if err := os.WriteFile(homeCopy, []byte("TAMPERED HOME COPY\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := home.ReadCanonical(embedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(trusted) {
+		t.Fatalf("drifted Home must not be trusted:\ngot %q\nwant embedded", got)
+	}
+	if string(got) == "TAMPERED HOME COPY\n" {
+		t.Fatal("returned tampered Home bytes")
+	}
+	status := home.Inspect()
+	found := false
+	for _, id := range status.DriftedAssets {
+		if id == "agents/base.md" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Inspect must report drift: %#v", status.DriftedAssets)
+	}
+}
+
 func TestEnsureAndMirror_CreatesLayoutAndAssets(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "atlas-home")
 	t.Setenv(home.EnvAtlasHome, dir)
@@ -84,11 +125,40 @@ func TestEnsureAndMirror_CreatesLayoutAndAssets(t *testing.T) {
 		t.Fatal("convenience SDD contract missing")
 	}
 	status := home.Inspect()
-	if !status.Exists || !status.LayoutComplete || len(status.MissingAssets) != 0 || len(status.DriftedAssets) != 0 {
+	if !status.Exists || !status.LayoutComplete || len(status.MissingAssets) != 0 || len(status.DriftedAssets) != 0 || len(status.AssetErrors) != 0 {
 		t.Fatalf("status = %#v", status)
 	}
 	doc, present, err := home.LoadState(dir)
 	if err != nil || !present || doc.HomePath == "" || len(doc.Assets) == 0 {
 		t.Fatalf("state = %#v present=%v err=%v", doc, present, err)
+	}
+}
+
+func TestInspect_EmbeddedAssetReadFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(home.EnvAtlasHome, dir)
+	if _, err := home.EnsureAndMirror(time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	var failID string
+	home.SetReadEmbeddedAssetForTest(func(embedPath string) ([]byte, error) {
+		if failID == "" {
+			failID = embedPath
+			return nil, errors.New("injected embed read failure")
+		}
+		return assets.Content.ReadFile(embedPath)
+	})
+	t.Cleanup(func() { home.SetReadEmbeddedAssetForTest(nil) })
+
+	status := home.InspectPath(dir)
+	if len(status.AssetErrors) == 0 {
+		t.Fatal("expected AssetErrors for embedded read failure")
+	}
+	if !strings.Contains(status.AssetErrors[0], "injected embed read failure") {
+		t.Fatalf("AssetErrors = %#v", status.AssetErrors)
+	}
+	// Unrelated diagnostics still available.
+	if !status.Exists || !status.LayoutComplete {
+		t.Fatalf("partial inspect must still report layout: %#v", status)
 	}
 }

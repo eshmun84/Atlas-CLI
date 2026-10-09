@@ -3,12 +3,17 @@ package codeintel
 import (
 	"context"
 	"fmt"
-	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
+	"github.com/eshmun84/Atlas-CLI/internal/project/mutatelock"
 )
+
+// Testable seam; production always uses home.RootFingerprint.
+var rootFingerprintFn = home.RootFingerprint
 
 // RefreshOptions configures an explicit mutating Code Intelligence refresh.
 type RefreshOptions struct {
@@ -83,7 +88,6 @@ func (s *Service) Refresh(ctx context.Context, opts RefreshOptions) (RefreshOutc
 			return out, err
 		}
 	}
-	project := Project{Root: root, ID: projectID, HomePath: homePath}
 	out.StorageDir = ProviderStorageDir(homePath, projectID, s.DefaultID())
 	out.GraphDBPath = GraphDBPath(homePath, projectID, s.DefaultID())
 	out.MetadataPath = MetadataPath(homePath, projectID, s.DefaultID())
@@ -118,6 +122,23 @@ func (s *Service) Refresh(ctx context.Context, opts RefreshOptions) (RefreshOutc
 		return out, fmt.Errorf("codeintel: provider error: %s", cap.Message)
 	}
 
+	p, err := s.provider(id)
+	if err != nil {
+		out.Blocked = true
+		out.Blockers = append(out.Blockers, err.Error())
+		return out, err
+	}
+
+	lockSet, err := mutatelock.Acquire(mutatelock.Options{HomePath: homePath})
+	if err != nil {
+		out.Blocked = true
+		out.Blockers = append(out.Blockers, err.Error())
+		out.Message = err.Error()
+		return out, fmt.Errorf("codeintel: %w", err)
+	}
+	defer func() { _ = lockSet.Release() }()
+
+	// ---------- Locked: fingerprint / storage / metadata → freshness → mutate ----------
 	fp, err := ComputeSourceFingerprint(root)
 	if err != nil {
 		out.State = StateError
@@ -126,9 +147,23 @@ func (s *Service) Refresh(ctx context.Context, opts RefreshOptions) (RefreshOutc
 	}
 	out.Fingerprint = fp.Value
 
-	graphPresent := graphExists(out.GraphDBPath)
-	meta, metaPresent, metaErr := LoadMetadata(out.MetadataPath)
-	if metaErr == nil && metaPresent && graphPresent && !opts.ForceFull &&
+	graphPresent, graphErr := graphPresentSafe(homePath, out.GraphDBPath)
+	if graphErr != nil {
+		out.Blocked = true
+		out.State = StateError
+		out.Message = graphErr.Error()
+		out.Blockers = append(out.Blockers, graphErr.Error())
+		return out, graphErr
+	}
+	meta, metaPresent, metaErr := LoadMetadata(homePath, out.MetadataPath)
+	if metaErr != nil {
+		out.Blocked = true
+		out.State = StateError
+		out.Message = metaErr.Error()
+		out.Blockers = append(out.Blockers, metaErr.Error())
+		return out, metaErr
+	}
+	if metaPresent && graphPresent && !opts.ForceFull &&
 		subtleEqual(meta.SourceFingerprint, fp.Value) {
 		out.Noop = true
 		out.Mode = RefreshModeNoop
@@ -145,31 +180,35 @@ func (s *Service) Refresh(ctx context.Context, opts RefreshOptions) (RefreshOutc
 		providerMode = RefreshModeIncremental // CodeGraph default build is incremental/full-enough for empty DB
 	}
 
-	p, err := s.provider(id)
-	if err != nil {
-		out.Blocked = true
-		out.Blockers = append(out.Blockers, err.Error())
-		return out, err
-	}
-
-	if err := os.MkdirAll(out.StorageDir, 0o755); err != nil {
+	storageRel := filepath.ToSlash(filepath.Join(home.DirProjects, projectID, string(s.DefaultID())))
+	if err := fsafety.SafeMkdirAll(homePath, storageRel, home.DirPermHome); err != nil {
 		out.State = StateError
 		out.Message = err.Error()
 		return out, fmt.Errorf("codeintel: create storage: %w", err)
+	}
+
+	// Re-validate graph leaf after mkdir: absent OK; unsafe blocks provider invoke.
+	if _, err := InspectStorageLeaf(homePath, out.GraphDBPath); err != nil {
+		out.Blocked = true
+		out.State = StateError
+		out.Message = err.Error()
+		out.Blockers = append(out.Blockers, err.Error())
+		return out, err
 	}
 
 	beforeSide := snapshotCodegraphSideEffects(root)
 	prevMetaPresent := metaPresent
 
 	result, refreshErr := p.Refresh(ctx, RefreshRequest{
-		Root:   root,
-		DBPath: out.GraphDBPath,
-		Mode:   providerMode,
+		Root:     root,
+		HomePath: homePath,
+		DBPath:   out.GraphDBPath,
+		Mode:     providerMode,
 	})
 	if refreshErr != nil {
 		out.State = StateError
 		out.Message = refreshErr.Error()
-		out.Containment = containCodegraphSideEffects(root, beforeSide, started)
+		out.Containment = containCodegraphSideEffects(root, beforeSide)
 		out.Warnings = append(out.Warnings, out.Containment.Warnings...)
 		// Preserve previous metadata.
 		if prevMetaPresent {
@@ -178,10 +217,18 @@ func (s *Service) Refresh(ctx context.Context, opts RefreshOptions) (RefreshOutc
 		return out, refreshErr
 	}
 
-	if !graphExists(out.GraphDBPath) {
+	presentAfter, afterErr := graphPresentSafe(homePath, out.GraphDBPath)
+	if afterErr != nil {
+		out.State = StateError
+		out.Message = afterErr.Error()
+		out.Containment = containCodegraphSideEffects(root, beforeSide)
+		out.Warnings = append(out.Warnings, out.Containment.Warnings...)
+		return out, afterErr
+	}
+	if !presentAfter {
 		out.State = StateError
 		out.Message = "provider refresh succeeded but graph.db is missing"
-		out.Containment = containCodegraphSideEffects(root, beforeSide, started)
+		out.Containment = containCodegraphSideEffects(root, beforeSide)
 		out.Warnings = append(out.Warnings, out.Containment.Warnings...)
 		return out, fmt.Errorf("codeintel: %s", out.Message)
 	}
@@ -191,15 +238,23 @@ func (s *Service) Refresh(ctx context.Context, opts RefreshOptions) (RefreshOutc
 	if err != nil {
 		out.State = StateError
 		out.Message = err.Error()
-		out.Containment = containCodegraphSideEffects(root, beforeSide, started)
+		out.Containment = containCodegraphSideEffects(root, beforeSide)
 		out.Warnings = append(out.Warnings, out.Containment.Warnings...)
 		return out, err
 	}
 
-	out.Containment = containCodegraphSideEffects(root, beforeSide, started)
+	out.Containment = containCodegraphSideEffects(root, beforeSide)
 	out.Warnings = append(out.Warnings, out.Containment.Warnings...)
 
-	rootIdentity, _ := home.RootFingerprint(root)
+	rootIdentity, err := rootFingerprintFn(root)
+	if err != nil {
+		out.State = StateError
+		out.Message = err.Error()
+		if prevMetaPresent {
+			out.Metadata = meta
+		}
+		return out, fmt.Errorf("codeintel: project root identity: %w", err)
+	}
 	newMeta := Metadata{
 		SchemaVersion:       MetadataSchemaVersion,
 		Provider:            string(cap.Provider),
@@ -213,7 +268,7 @@ func (s *Service) Refresh(ctx context.Context, opts RefreshOptions) (RefreshOutc
 		NodesTotal:          result.NodesTotal,
 		FilesTotal:          result.FilesTotal,
 	}
-	if err := WriteMetadataAtomic(out.MetadataPath, newMeta); err != nil {
+	if err := WriteMetadataAtomic(homePath, out.MetadataPath, newMeta); err != nil {
 		out.State = StateError
 		out.Message = err.Error()
 		if prevMetaPresent {
@@ -230,6 +285,5 @@ func (s *Service) Refresh(ctx context.Context, opts RefreshOptions) (RefreshOutc
 	if result.Message != "" {
 		out.Message = result.Message
 	}
-	_ = project
 	return out, nil
 }

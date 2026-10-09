@@ -24,6 +24,9 @@ var supportedAgentsAdapters = []string{"cursor", "opencode"}
 
 var adapterMarkerRE = regexp.MustCompile(`(?m)<!--\s*ATLAS:ADAPTER:([A-Z0-9_]+):(BEGIN|END)\s*-->`)
 
+// Testable seam for bundled agent/projection assets; production uses Home then embed.
+var loadAgentsAssetFn = loadAgentsAssetDefault
+
 // AgentsMarkers reports which AGENTS.md Atlas markers are present.
 type AgentsMarkers struct {
 	BaseBegin bool
@@ -149,7 +152,8 @@ func RuntimeTargets(doc ProjectDocument) []string {
 
 // RenderAgentsMD composes AGENTS.md from the Base Atlas Contract, selected
 // adapter blocks, and a preserved ATLAS:USER section when markers are valid.
-func RenderAgentsMD(projectName string, contextGraphEnabled bool, selected []string, existing []byte) string {
+// Missing base or selected adapter assets fail closed (no fabricated fallback).
+func RenderAgentsMD(projectName string, contextGraphEnabled bool, selected []string, existing []byte) (string, error) {
 	name := strings.TrimSpace(projectName)
 	if name == "" {
 		name = "this project"
@@ -165,9 +169,9 @@ func RenderAgentsMD(projectName string, contextGraphEnabled bool, selected []str
 		graphStatus = "disabled"
 	}
 
-	baseBody, err := loadAgentsAsset("agents/base.md")
+	baseBody, err := loadAgentsAssetFn("agents/base.md")
 	if err != nil {
-		baseBody = fallbackBaseContract(name, graphStatus)
+		return "", fmt.Errorf("render AGENTS.md base contract: %w", err)
 	}
 	baseBody = applyAgentsPlaceholders(baseBody, name, graphStatus)
 
@@ -177,9 +181,9 @@ func RenderAgentsMD(projectName string, contextGraphEnabled bool, selected []str
 	fmt.Fprintf(&b, "%s\n%s\n%s\n\n", AgentsBaseBegin, strings.TrimSpace(baseBody), AgentsBaseEnd)
 
 	for _, adapter := range normalizeSelectedAdapters(selected) {
-		body, err := loadAgentsAsset("agents/adapters/" + adapter + ".md")
+		body, err := loadAgentsAssetFn("agents/adapters/" + adapter + ".md")
 		if err != nil {
-			continue
+			return "", fmt.Errorf("render AGENTS.md adapter %s: %w", adapter, err)
 		}
 		body = applyAgentsPlaceholders(strings.TrimSpace(body), name, graphStatus)
 		fmt.Fprintf(&b, "%s\n%s\n%s\n\n", AdapterBlockBegin(adapter), body, AdapterBlockEnd(adapter))
@@ -192,38 +196,39 @@ func RenderAgentsMD(projectName string, contextGraphEnabled bool, selected []str
 	} else {
 		fmt.Fprintf(&b, "%s%s%s\n", AgentsUserBegin, userBody, AgentsUserEnd)
 	}
-	return b.String()
+	return b.String(), nil
 }
 
 // RenderCursorAtlasMDC builds the minimal Cursor adapter projection.
-func RenderCursorAtlasMDC(projectName string) string {
+func RenderCursorAtlasMDC(projectName string) (string, error) {
 	return renderAdapterFile("adapter-files/cursor/atlas.mdc", projectName)
 }
 
 // RenderOpenCodeAtlas builds the minimal OpenCode adapter projection.
-func RenderOpenCodeAtlas(projectName string) string {
+func RenderOpenCodeAtlas(projectName string) (string, error) {
 	return renderAdapterFile("adapter-files/opencode/atlas.md", projectName)
 }
 
-func renderAdapterFile(rel, projectName string) string {
+func renderAdapterFile(rel, projectName string) (string, error) {
 	name := strings.TrimSpace(projectName)
 	if name == "" {
 		name = "this project"
 	}
-	body, err := loadAgentsAsset(rel)
+	body, err := loadAgentsAssetFn(rel)
 	if err != nil {
-		return fallbackAdapterProjection(rel, name)
+		return "", fmt.Errorf("render adapter projection %s: %w", rel, err)
 	}
-	return applyAgentsPlaceholders(strings.TrimSpace(body), name, "") + "\n"
+	return applyAgentsPlaceholders(strings.TrimSpace(body), name, "") + "\n", nil
 }
 
-func loadAgentsAsset(rel string) (string, error) {
-	if data, err := home.ReadCanonical(rel); err == nil {
-		return string(data), nil
-	}
-	data, err := assets.Content.ReadFile(rel)
+func loadAgentsAssetDefault(rel string) (string, error) {
+	data, err := home.ReadCanonical(rel)
 	if err != nil {
-		return "", err
+		data, embErr := assets.Content.ReadFile(rel)
+		if embErr != nil {
+			return "", fmt.Errorf("asset %s: home canonical unavailable (%v); embedded: %w", rel, err, embErr)
+		}
+		return string(data), nil
 	}
 	return string(data), nil
 }
@@ -254,23 +259,6 @@ func normalizeSelectedAdapters(selected []string) []string {
 	return out
 }
 
-func fallbackBaseContract(projectName, graphStatus string) string {
-	return fmt.Sprintf(
-		"Atlas project runtime contract for **%s**.\n\nContext Graph preference: **%s**.\nFollow human authority, scope control, and explicit Git authorization.",
-		projectName,
-		graphStatus,
-	)
-}
-
-func fallbackAdapterProjection(rel, projectName string) string {
-	switch {
-	case strings.Contains(rel, "cursor"):
-		return fmt.Sprintf("---\ndescription: Atlas Cursor entrypoint for %s\nalwaysApply: true\n---\n\n# Atlas Cursor Entrypoint\n\n- Root `%s` is the project authority; do not bypass it.\n", projectName, FileAgentsMD)
-	default:
-		return fmt.Sprintf("# Atlas OpenCode Entrypoint\n\nProject: %s\n\n- Root `%s` is the project authority; do not bypass it.\n", projectName, FileAgentsMD)
-	}
-}
-
 func extractMarkedSection(content, begin, end string) string {
 	start := strings.Index(content, begin)
 	if start < 0 {
@@ -288,11 +276,11 @@ func extractMarkedSection(content, begin, end string) string {
 func renderRuntimeFile(rel string, doc ProjectDocument, existing []byte) (string, error) {
 	switch rel {
 	case FileAgentsMD:
-		return RenderAgentsMD(doc.Project.Name, doc.ContextGraphEnabled(), doc.Adapters.Selected, existing), nil
+		return RenderAgentsMD(doc.Project.Name, doc.ContextGraphEnabled(), doc.Adapters.Selected, existing)
 	case FileCursorAtlasMDC:
-		return RenderCursorAtlasMDC(doc.Project.Name), nil
+		return RenderCursorAtlasMDC(doc.Project.Name)
 	case FileOpenCodeAtlas:
-		return RenderOpenCodeAtlas(doc.Project.Name), nil
+		return RenderOpenCodeAtlas(doc.Project.Name)
 	default:
 		if IsAtlasAgentRuntimePath(rel) {
 			return RenderAtlasAgent(filepath.Base(rel))

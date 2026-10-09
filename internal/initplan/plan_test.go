@@ -7,7 +7,8 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
 )
 
 func TestBuild_InfersNameAndExistingMode(t *testing.T) {
@@ -22,7 +23,7 @@ func TestBuild_InfersNameAndExistingMode(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	plan, err := initplan.Build(named, workspace.DiscoveryResult{RootPath: named})
+	plan, err := initplan.Build(named, inspect.Inspection{RootPath: named})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -48,7 +49,7 @@ func TestBuild_GreenfieldForEmptyDirectory(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	plan, err := initplan.Build(root, workspace.DiscoveryResult{RootPath: root})
+	plan, err := initplan.Build(root, inspect.Inspection{RootPath: root})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -68,9 +69,9 @@ func TestBuild_ExistingWhenAtlasConfigPresent(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	plan, err := initplan.Build(root, workspace.DiscoveryResult{
+	plan, err := initplan.Build(root, inspect.Inspection{
 		RootPath: root,
-		Files:    workspace.FileInfo{HasAtlasConfig: true},
+		Files:    project.FileInfo{HasAtlasConfig: true},
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -95,7 +96,7 @@ func TestBuild_SkipExistingPlannedFiles(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	plan, err := initplan.Build(root, workspace.DiscoveryResult{RootPath: root})
+	plan, err := initplan.Build(root, inspect.Inspection{RootPath: root})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -109,7 +110,7 @@ func TestBuild_DoesNotCreateFiles(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	if _, err := initplan.Build(root, workspace.DiscoveryResult{RootPath: root}); err != nil {
+	if _, err := initplan.Build(root, inspect.Inspection{RootPath: root}); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -128,7 +129,7 @@ func TestBuildWithOptions_DefaultMatchesBuild(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	result := workspace.DiscoveryResult{RootPath: root}
+	result := inspect.Inspection{RootPath: root}
 
 	base, err := initplan.Build(root, result)
 	if err != nil {
@@ -150,7 +151,7 @@ func TestBuildWithOptions_ProjectNameOverride(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	plan, err := initplan.BuildWithOptions(root, workspace.DiscoveryResult{RootPath: root}, initplan.Options{
+	plan, err := initplan.BuildWithOptions(root, inspect.Inspection{RootPath: root}, initplan.Options{
 		ProjectName: "CustomName",
 	})
 	if err != nil {
@@ -171,7 +172,7 @@ func TestBuildWithOptions_ModeOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	result := workspace.DiscoveryResult{RootPath: root}
+	result := inspect.Inspection{RootPath: root}
 
 	base, err := initplan.Build(root, result)
 	if err != nil {

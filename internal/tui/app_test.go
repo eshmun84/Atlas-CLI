@@ -12,9 +12,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/tui"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 	"gopkg.in/yaml.v3"
 )
 
@@ -79,7 +79,7 @@ func TestSidebarEnterExitQuits(t *testing.T) {
 func TestSidebarInitVsConfigure(t *testing.T) {
 	root := t.TempDir()
 	uninit := loadWorkspace(t, tui.Options{
-		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	labels := sidebarLabels(uninit)
 	if !contains(labels, "Init / Setup") || contains(labels, "Configure") || contains(labels, "MCP") || contains(labels, "Runtime Repair") {
@@ -88,7 +88,7 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 
 	writeValidAtlasConfig(t, root)
 	initd := loadWorkspace(t, tui.Options{
-		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	labels = sidebarLabels(initd)
 	if !contains(labels, "Configure") || contains(labels, "Init / Setup") || contains(labels, "MCP") {
@@ -99,7 +99,7 @@ func TestSidebarInitVsConfigure(t *testing.T) {
 	}
 
 	cfg := loadWorkspace(t, tui.Options{
-		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	view := cfg.View()
 	for _, want := range []string{
@@ -161,7 +161,7 @@ func TestConfigureMCPLoadsAndEditsInMemory(t *testing.T) {
 	})
 
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	if contains(sidebarLabels(m), "MCP") {
 		t.Fatalf("sidebar must not list MCP: %v", sidebarLabels(m))
@@ -185,21 +185,25 @@ func TestConfigureMCPLoadsAndEditsInMemory(t *testing.T) {
 			t.Fatalf("configure mcp missing %q:\n%s", want, view)
 		}
 	}
-	if !m.MCPDraft().Builtins[0].Enabled || !m.MCPDraft().Builtins[1].Enabled || !m.MCPDraft().Builtins[2].Enabled {
+	if !m.MCPDraft().Builtins[m.MCPDraft().BuiltinIndex(config.MCPBuiltinJira)].Enabled ||
+		!m.MCPDraft().Builtins[m.MCPDraft().BuiltinIndex(config.MCPBuiltinContext7)].Enabled ||
+		!m.MCPDraft().Builtins[m.MCPDraft().BuiltinIndex(config.MCPBuiltinChromeDevTools)].Enabled {
 		t.Fatalf("loaded builtins = %#v", m.MCPDraft().Builtins)
 	}
 	if len(m.MCPDraft().CustomServers) != 1 || m.MCPDraft().CustomServers[0].Name != "Internal Docs" {
 		t.Fatalf("loaded custom = %#v", m.MCPDraft().CustomServers)
 	}
 
-	jiraBefore := m.MCPDraft().Builtins[0].Enabled
+	fsBefore := m.MCPDraft().Builtins[0].Enabled
 	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("up")))
-	if m.MCPDraft().Builtins[0].Enabled != jiraBefore {
+	if m.MCPDraft().Builtins[0].Enabled != fsBefore {
 		t.Fatal("arrows mutated configure mcp")
 	}
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("enter"))) // toggle jira off
-	if m.MCPDraft().Builtins[0].Enabled {
+	if m.MCPDraft().Builtins[m.MCPDraft().BuiltinIndex(config.MCPBuiltinJira)].Enabled {
 		t.Fatal("expected jira toggled off in memory")
 	}
 	if !strings.Contains(m.View(), "[ Apply changes ]") || !strings.Contains(m.View(), "[ Close ]") {
@@ -216,13 +220,15 @@ func TestConfigureMCPLoadsAndEditsInMemory(t *testing.T) {
 		t.Fatalf("add form actions missing:\n%s", m.View())
 	}
 	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Temp MCP")}))
+	m = mcpGotoAddField(t, m, screens.MCPFocusConn)
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("npx")}))
 	m = mcpGotoFooterAction(t, m, true)
 	m = mustModel(m.Update(key("enter")))
 	if len(m.MCPDraft().CustomServers) != 2 {
 		t.Fatalf("custom after add = %#v", m.MCPDraft().CustomServers)
 	}
 	afterAdd := m.View()
-	for _, want := range []string{"[ Close ]", "[ Apply changes ]", "Temp MCP", "Apply changes (below) saves"} {
+	for _, want := range []string{"[ Close ]", "[ Apply changes ]", "Temp MCP", "Apply changes saves config"} {
 		if !strings.Contains(afterAdd, want) {
 			t.Fatalf("after Add MCP missing %q:\n%s", want, afterAdd)
 		}
@@ -261,7 +267,7 @@ func TestConfigureMCPApplyChangesAlwaysVisible(t *testing.T) {
 	root := t.TempDir()
 	writeValidAtlasConfig(t, root)
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	assertActionNearFooter(t, m.View())
 	if !strings.Contains(m.View(), "[ Close ]") || !strings.Contains(m.View(), "[ Apply changes ]") {
@@ -270,11 +276,13 @@ func TestConfigureMCPApplyChangesAlwaysVisible(t *testing.T) {
 
 	m = gotoConfigSection(t, m, "mcp")
 	m = mustModel(m.Update(key("enter")))
-	// Select Chrome DevTools (index 2).
-	m = mustModel(m.Update(key("down")))
-	m = mustModel(m.Update(key("down")))
+	// Select Chrome DevTools (index 4: filesystem, github, jira, context7, chrome).
+	for i := 0; i < 4; i++ {
+		m = mustModel(m.Update(key("down")))
+	}
 	m = mustModel(m.Update(key("enter")))
-	if !m.MCPDraft().Builtins[2].Enabled {
+	chromeIdx := m.MCPDraft().BuiltinIndex(config.MCPBuiltinChromeDevTools)
+	if chromeIdx < 0 || !m.MCPDraft().Builtins[chromeIdx].Enabled {
 		t.Fatal("chrome should be selected")
 	}
 	view := m.View()
@@ -288,6 +296,8 @@ func TestConfigureMCPApplyChangesAlwaysVisible(t *testing.T) {
 	m = mcpGotoAddButton(t, m)
 	m = mustModel(m.Update(key("enter")))
 	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Smoke Custom")}))
+	m = mcpGotoAddField(t, m, screens.MCPFocusConn)
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("npx")}))
 	m = mcpGotoFooterAction(t, m, true)
 	m = mustModel(m.Update(key("enter")))
 	view = m.View()
@@ -307,16 +317,20 @@ func TestConfigureApplyChangesPersistsMCP(t *testing.T) {
 	})
 
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m = gotoConfigSection(t, m, "mcp")
 	m = mustModel(m.Update(key("enter")))
 	if !strings.Contains(m.View(), "[ Apply changes ]") {
 		t.Fatalf("Apply changes missing on MCP open:\n%s", m.View())
 	}
-	if !m.MCPDraft().Builtins[0].Enabled {
+	jiraIdx := m.MCPDraft().BuiltinIndex(config.MCPBuiltinJira)
+	if jiraIdx < 0 || !m.MCPDraft().Builtins[jiraIdx].Enabled {
 		t.Fatal("jira should load enabled")
 	}
+	// Move from filesystem (0) to jira (2), disable; then enable context7 and chrome.
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("enter"))) // disable jira
 	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("enter"))) // enable context7
@@ -326,7 +340,7 @@ func TestConfigureApplyChangesPersistsMCP(t *testing.T) {
 	m = mustModel(m.Update(key("enter")))
 	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Ops Docs")}))
 	m = mustModel(m.Update(key("down"))) // transport
-	m = mustModel(m.Update(key("down"))) // http
+	m = mustModel(m.Update(key("down"))) // streamable_http
 	m = mustModel(m.Update(key("enter")))
 	m = mcpGotoAddField(t, m, screens.MCPFocusConn)
 	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("https://ops.example/mcp")}))
@@ -354,7 +368,7 @@ func TestConfigureApplyChangesPersistsMCP(t *testing.T) {
 	if !strings.Contains(m.View(), "Runtime files are not repaired automatically.") {
 		t.Fatalf("missing config-only honesty:\n%s", m.View())
 	}
-	if !strings.Contains(m.View(), "MCP selections record preferences") {
+	if !strings.Contains(m.View(), "MCP selections were reconciled") {
 		t.Fatalf("missing MCP honesty:\n%s", m.View())
 	}
 	if !strings.Contains(m.View(), "[ Apply changes ]") || !strings.Contains(m.View(), "[ Close ]") {
@@ -367,11 +381,13 @@ func TestConfigureApplyChangesPersistsMCP(t *testing.T) {
 	}
 	text := string(raw)
 	for _, want := range []string{
+		"filesystem:",
+		"github:",
 		"jira:",
 		"context7:",
 		"chrome_devtools:",
 		"Ops Docs",
-		"transport: http",
+		"transport: streamable_http",
 		"command_or_url: https://ops.example/mcp",
 	} {
 		if !strings.Contains(text, want) {
@@ -383,7 +399,7 @@ func TestConfigureApplyChangesPersistsMCP(t *testing.T) {
 			t.Fatalf("credentials leaked %q:\n%s", banned, text)
 		}
 	}
-	doc, err := config.LoadProjectDocument(filepath.Join(root, ".atlas", "config.yaml"))
+	doc, err := config.LoadProjectDocumentAt(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,12 +424,13 @@ func TestConfigureApplyChangesPersistsMCP(t *testing.T) {
 	m, cmd := apply(m, key("b"))
 	m = applyCmd(t, m, cmd)
 	m = loadWorkspace(t, tui.Options{
-		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
-	if m.MCPDraft().Builtins[0].Enabled {
+	if m.MCPDraft().Builtins[m.MCPDraft().BuiltinIndex(config.MCPBuiltinJira)].Enabled {
 		t.Fatal("reopen: jira should stay disabled")
 	}
-	if !m.MCPDraft().Builtins[1].Enabled || !m.MCPDraft().Builtins[2].Enabled {
+	if !m.MCPDraft().Builtins[m.MCPDraft().BuiltinIndex(config.MCPBuiltinContext7)].Enabled ||
+		!m.MCPDraft().Builtins[m.MCPDraft().BuiltinIndex(config.MCPBuiltinChromeDevTools)].Enabled {
 		t.Fatalf("reopen builtins = %#v", m.MCPDraft().Builtins)
 	}
 	if len(m.MCPDraft().CustomServers) != 1 || m.MCPDraft().CustomServers[0].Name != "Ops Docs" {
@@ -470,7 +487,7 @@ func TestCompactConfigureFooter(t *testing.T) {
 	root := t.TempDir()
 	writeValidAtlasConfig(t, root)
 	cfg := loadWorkspace(t, tui.Options{
-		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	view := cfg.View()
 	if !strings.Contains(view, "[ Close ]") {
@@ -617,7 +634,7 @@ func assertActionNearFooter(t *testing.T, view string) {
 func TestContentFitKeepsActionNearFooter(t *testing.T) {
 	root := t.TempDir()
 	initM := loadWorkspace(t, tui.Options{
-		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	initM = mustModel(initM.Update(tea.WindowSizeMsg{Width: 120, Height: 60}))
 	assertActionNearFooter(t, initM.View())
@@ -662,7 +679,7 @@ func TestContentFitKeepsActionNearFooter(t *testing.T) {
 
 	writeValidAtlasConfig(t, root)
 	cfg := loadWorkspace(t, tui.Options{
-		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	cfg = mustModel(cfg.Update(tea.WindowSizeMsg{Width: 120, Height: 60}))
 	assertActionNearFooter(t, cfg.View())
@@ -676,7 +693,7 @@ func TestContentFitKeepsActionNearFooter(t *testing.T) {
 func TestTallTerminalDoesNotOverflow(t *testing.T) {
 	root := t.TempDir()
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteHelp, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteHelp, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m = mustModel(m.Update(tea.WindowSizeMsg{Width: 120, Height: 80}))
 	view := m.View()
@@ -731,34 +748,34 @@ func TestGlobalQAndCtrlCQuit(t *testing.T) {
 	}
 	screensToQuit := []screen{
 		{"status", func(t *testing.T) tui.Model {
-			return loadWorkspace(t, tui.Options{Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+			return loadWorkspace(t, tui.Options{Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect})
 		}},
 		{"init-step-1", func(t *testing.T) tui.Model {
-			return loadWorkspace(t, tui.Options{Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+			return loadWorkspace(t, tui.Options{Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect})
 		}},
 		{"init-step-2", func(t *testing.T) tui.Model {
-			m := loadWorkspace(t, tui.Options{Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+			m := loadWorkspace(t, tui.Options{Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect})
 			return gotoInitStep2(t, m)
 		}},
 		{"review", func(t *testing.T) tui.Model {
-			m := loadWorkspace(t, tui.Options{Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+			m := loadWorkspace(t, tui.Options{Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect})
 			return gotoInitReview(t, m)
 		}},
 		{"configure", func(t *testing.T) tui.Model {
-			return loadWorkspace(t, tui.Options{Route: tui.RouteConfigure, Getwd: func() (string, error) { return configured, nil }, Discover: workspace.Discover})
+			return loadWorkspace(t, tui.Options{Route: tui.RouteConfigure, Getwd: func() (string, error) { return configured, nil }, Discover: inspect.Inspect})
 		}},
 		{"configure-mcp", func(t *testing.T) tui.Model {
-			m := loadWorkspace(t, tui.Options{Route: tui.RouteConfigure, Getwd: func() (string, error) { return configured, nil }, Discover: workspace.Discover})
+			m := loadWorkspace(t, tui.Options{Route: tui.RouteConfigure, Getwd: func() (string, error) { return configured, nil }, Discover: inspect.Inspect})
 			return gotoConfigSection(t, m, "mcp")
 		}},
 		{"status", func(t *testing.T) tui.Model {
-			return loadWorkspace(t, tui.Options{Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+			return loadWorkspace(t, tui.Options{Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect})
 		}},
 		{"doctor", func(t *testing.T) tui.Model {
-			return loadWorkspace(t, tui.Options{Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover})
+			return loadWorkspace(t, tui.Options{Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect})
 		}},
 		{"runtime-repair", func(t *testing.T) tui.Model {
-			return loadWorkspace(t, tui.Options{Route: tui.RouteRuntimeRepair, Getwd: func() (string, error) { return configured, nil }, Discover: workspace.Discover})
+			return loadWorkspace(t, tui.Options{Route: tui.RouteRuntimeRepair, Getwd: func() (string, error) { return configured, nil }, Discover: inspect.Inspect})
 		}},
 		{"help", func(t *testing.T) tui.Model {
 			return sized(tui.NewModel(tui.Options{Route: tui.RouteHelp}))
@@ -799,7 +816,7 @@ func TestQDoesNotNavigateToStatus(t *testing.T) {
 	writeValidAtlasConfig(t, root)
 	for _, route := range []tui.Route{tui.RouteInitPlan, tui.RouteConfigure, tui.RouteStatus, tui.RouteHelp} {
 		m := loadWorkspace(t, tui.Options{
-			Route: route, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+			Route: route, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 		})
 		if route == tui.RouteHelp {
 			m = sized(tui.NewModel(tui.Options{Route: tui.RouteHelp}))
@@ -818,7 +835,7 @@ func TestQDoesNotNavigateToStatus(t *testing.T) {
 	}
 
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m = gotoInitReview(t, m)
 	updated, _ := m.Update(key("q"))
@@ -831,7 +848,7 @@ func TestQDoesNotNavigateToStatus(t *testing.T) {
 func TestQInsertsInTextInputs(t *testing.T) {
 	root := t.TempDir()
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m = mustModel(m.Update(key("tab")))
 	before := m.DraftName()
@@ -845,7 +862,7 @@ func TestQInsertsInTextInputs(t *testing.T) {
 
 	writeValidAtlasConfig(t, root)
 	m = loadWorkspace(t, tui.Options{
-		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m = gotoConfigSection(t, m, "mcp")
 	m = mustModel(m.Update(key("enter")))
@@ -890,7 +907,7 @@ func TestQInsertsInTextInputs(t *testing.T) {
 func TestCtrlCQuitsWhileEditingText(t *testing.T) {
 	root := t.TempDir()
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m = mustModel(m.Update(key("tab")))
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -901,7 +918,7 @@ func TestCtrlCQuitsWhileEditingText(t *testing.T) {
 
 	writeValidAtlasConfig(t, root)
 	m = loadWorkspace(t, tui.Options{
-		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m = gotoConfigSection(t, m, "mcp")
 	m = mustModel(m.Update(key("enter")))
@@ -918,7 +935,7 @@ func TestEscBackCloseUnchanged(t *testing.T) {
 	root := t.TempDir()
 	writeValidAtlasConfig(t, root)
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m, cmd := apply(m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = applyCmd(t, m, cmd)
@@ -927,7 +944,7 @@ func TestEscBackCloseUnchanged(t *testing.T) {
 	}
 
 	m = loadWorkspace(t, tui.Options{
-		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteConfigure, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m = gotoInitFooterAction(t, m, false)
 	m, cmd = apply(m, key("enter"))
@@ -937,7 +954,7 @@ func TestEscBackCloseUnchanged(t *testing.T) {
 	}
 
 	m = loadWorkspace(t, tui.Options{
-		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m = gotoInitStep2(t, m)
 	m = gotoInitFooterAction(t, m, false)
@@ -979,7 +996,7 @@ func TestContentScrolling(t *testing.T) {
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteDoctor,
 		Getwd:    func() (string, error) { return root, nil },
-		Discover: workspace.Discover,
+		Discover: inspect.Inspect,
 	})
 	m = mustModel(m.Update(tea.WindowSizeMsg{Width: 100, Height: 24}))
 	if m.ContentOffset() != 0 {
@@ -1019,11 +1036,11 @@ func TestShellViews(t *testing.T) {
 	}
 
 	status := loadWorkspace(t, tui.Options{
-		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	assertShell(t, status.View(), "Atlas Status")
 	assertGlobalTopGap(t, status.View())
-	discovered, err := workspace.Discover(root)
+	discovered, err := inspect.Inspect(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1035,7 +1052,7 @@ func TestShellViews(t *testing.T) {
 		"Project Technology",
 		"Adapters",
 		"Governance Tools",
-		"MCP / External Context",
+		"MCP",
 		"Health",
 		"Result:",
 		"Suggested next action",
@@ -1049,14 +1066,14 @@ func TestShellViews(t *testing.T) {
 	assertNoMutation(t, root)
 
 	initM := loadWorkspace(t, tui.Options{
-		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	assertShell(t, initM.View(), "Init / Setup")
 	assertInitWizardView(t, initM.View())
 	assertNoMutation(t, root)
 
 	doc := loadWorkspace(t, tui.Options{
-		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	assertShell(t, doc.View(), "Atlas Doctor")
 	doctorContent := screens.Doctor(doctor.Evaluate(discovered), discovered)
@@ -1092,10 +1109,10 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 	before := snapshotDir(t, root)
 
 	status := loadWorkspace(t, tui.Options{
-		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	assertShell(t, status.View(), "Atlas Status")
-	discovered, err := workspace.Discover(root)
+	discovered, err := inspect.Inspect(root)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
@@ -1109,7 +1126,7 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 		"Health",
 		"Atlas Home:",
 		"Governance Tools",
-		"MCP / External Context",
+		"MCP",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("status missing %q:\n%s", want, content)
@@ -1122,7 +1139,7 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 	assertSnapshotUnchanged(t, root, before)
 
 	doc := loadWorkspace(t, tui.Options{
-		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	docView := doc.View()
 	for _, want := range []string{
@@ -1162,7 +1179,7 @@ func TestRuntimeRepairTUIApplyAndNoAutoMutation(t *testing.T) {
 
 	statusBefore := snapshotDir(t, root)
 	status := loadWorkspace(t, tui.Options{
-		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	if !strings.Contains(status.View(), "Atlas Status") {
 		t.Fatal("status")
@@ -1170,7 +1187,7 @@ func TestRuntimeRepairTUIApplyAndNoAutoMutation(t *testing.T) {
 	assertSnapshotUnchanged(t, root, statusBefore)
 
 	doc := loadWorkspace(t, tui.Options{
-		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteDoctor, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	if !strings.Contains(doc.View(), "ERROR") {
 		t.Fatalf("doctor should ERROR on missing AGENTS:\n%s", doc.View())
@@ -1178,7 +1195,7 @@ func TestRuntimeRepairTUIApplyAndNoAutoMutation(t *testing.T) {
 	assertSnapshotUnchanged(t, root, statusBefore)
 
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteRuntimeRepair, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteRuntimeRepair, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	view := m.View()
 	for _, want := range []string{"Runtime Repair", "AGENTS.md", "Apply repair"} {
@@ -1206,7 +1223,7 @@ func TestInitFocusNameModeKeyboard(t *testing.T) {
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
-		Discover: workspace.Discover,
+		Discover: inspect.Inspect,
 	})
 	if m.Focus() != tui.FocusSidebar {
 		t.Fatalf("initial focus = %v", m.Focus())
@@ -1354,7 +1371,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
-		Discover: workspace.Discover,
+		Discover: inspect.Inspect,
 	})
 	if m.InitWizardStep() != screens.InitWizardStepProject {
 		t.Fatalf("step = %d, want project setup", m.InitWizardStep())
@@ -1762,7 +1779,7 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
-		Discover: workspace.Discover,
+		Discover: inspect.Inspect,
 	})
 	if m.InitWizardStep() != screens.InitWizardStepProject {
 		t.Fatalf("start step = %d, want project", m.InitWizardStep())
@@ -1779,7 +1796,7 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		"Platform: None",
 		"Governance files: Local only",
 		"Assisted operations: Disabled",
-		"MCP preferences: 0 recorded",
+		"MCP desired state: 0 selected",
 		".atlas/config.yaml",
 		".atlas/local.yaml",
 		".atlas/state.yaml",
@@ -1797,8 +1814,10 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		"Repository creation requires explicit request.",
 		"Runtime conflicts block Init and require manual cleanup",
 		"Context Economy v0 is a separate explicit flow",
-		"CodeGraph and Atlas Context Graph are NOT",
-		"IMPLEMENTED",
+		"CodeGraph is an optional externally",
+		"Code Intelligence provider",
+		"Atlas Context Graph is",
+		"NOT IMPLEMENTED",
 		"Secrets and credentials are not stored.",
 		"Apply is the only mutation step",
 		"create/update on Apply",
@@ -1879,7 +1898,7 @@ func TestInitDeliveryPreselectsGitLocalWhenRepoDetected(t *testing.T) {
 	gitCmd("add", "README.md")
 	gitCmd("-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "seed")
 
-	disc, err := workspace.Discover(root)
+	disc, err := inspect.Inspect(root)
 	if err != nil || !disc.Git.IsRepo {
 		t.Fatalf("fixture must be a git repo: err=%v isRepo=%v", err, disc.Git.IsRepo)
 	}
@@ -1887,7 +1906,7 @@ func TestInitDeliveryPreselectsGitLocalWhenRepoDetected(t *testing.T) {
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
-		Discover: workspace.Discover,
+		Discover: inspect.Inspect,
 	})
 	m = gotoInitStep2(t, m)
 	mode, ok := m.ConfigDraft().FieldByKey("source_control.mode")
@@ -1914,7 +1933,7 @@ func TestInitEmptyProjectPreselectsNewMode(t *testing.T) {
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
-		Discover: workspace.Discover,
+		Discover: inspect.Inspect,
 	})
 	if m.InitWizardStep() != screens.InitWizardStepProject {
 		t.Fatalf("step = %d, want project", m.InitWizardStep())
@@ -1956,7 +1975,7 @@ func TestInitConflictBlocksUntilCleared(t *testing.T) {
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
-		Discover: workspace.Discover,
+		Discover: inspect.Inspect,
 	})
 	if m.InitWizardStep() != screens.InitWizardStepConflict {
 		t.Fatalf("step = %d, want conflict preflight", m.InitWizardStep())
@@ -2046,7 +2065,7 @@ func TestInitCursorConflictBlocks(t *testing.T) {
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
-		Discover: workspace.Discover,
+		Discover: inspect.Inspect,
 	})
 	if m.InitWizardStep() != screens.InitWizardStepConflict {
 		t.Fatalf("step = %d, want conflict preflight", m.InitWizardStep())
@@ -2088,7 +2107,7 @@ func TestInitReviewSummarizesSessionMCP(t *testing.T) {
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
-		Discover: workspace.Discover,
+		Discover: inspect.Inspect,
 	})
 	m = gotoInitStep2(t, m)
 	m = gotoConfigSection(t, m, "mcp")
@@ -2096,6 +2115,8 @@ func TestInitReviewSummarizesSessionMCP(t *testing.T) {
 	m = mcpGotoAddButton(t, m)
 	m = mustModel(m.Update(key("enter")))
 	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Jira Main")}))
+	m = mcpGotoAddField(t, m, screens.MCPFocusConn)
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("npx")}))
 	m = mcpGotoFooterAction(t, m, true)
 	m = mustModel(m.Update(key("enter")))
 	if len(m.MCPDraft().CustomServers) != 1 {
@@ -2104,12 +2125,11 @@ func TestInitReviewSummarizesSessionMCP(t *testing.T) {
 	m = gotoInitReview(t, m)
 	_, view := reviewVisibleText(t, m)
 	for _, want := range []string{
-		"MCP preferences: 1 recorded",
+		"MCP desired state: 1 selected",
 		"Jira Main",
 		"kind: custom",
 		"transport: stdio",
-		"preference recorded (not connected / not implemented)",
-		"connected/authenticated/verified NOT",
+		"not selected",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("mcp review missing %q:\n%s", want, view)
@@ -2123,11 +2143,14 @@ func TestInitReviewListsSelectedBuiltins(t *testing.T) {
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
-		Discover: workspace.Discover,
+		Discover: inspect.Inspect,
 	})
 	m = gotoInitStep2(t, m)
 	m = gotoConfigSection(t, m, "mcp")
 	m = mustModel(m.Update(key("enter")))
+	// Select Jira, Context7, Chrome (indices 2,3,4).
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("enter"))) // Jira
 	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("enter"))) // Context7
@@ -2139,14 +2162,12 @@ func TestInitReviewListsSelectedBuiltins(t *testing.T) {
 	m = gotoInitReview(t, m)
 	_, view := reviewVisibleText(t, m)
 	for _, want := range []string{
-		"MCP preferences: 3 recorded",
+		"MCP desired state: 3 selected",
 		"- Jira",
 		"- Context7",
 		"- Chrome DevTools",
 		"kind: built-in",
 		"enabled: true",
-		"preference recorded (not connected / not implemented)",
-		"connected/authenticated/verified NOT",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("builtin review missing %q:\n%s", want, view)
@@ -2160,7 +2181,7 @@ func TestInitStep2MCPSectionAndAdd(t *testing.T) {
 	m := loadWorkspace(t, tui.Options{
 		Route:    tui.RouteInitPlan,
 		Getwd:    func() (string, error) { return root, nil },
-		Discover: workspace.Discover,
+		Discover: inspect.Inspect,
 	})
 	m = gotoInitStep2(t, m)
 	m = gotoConfigSection(t, m, "mcp")
@@ -2179,20 +2200,24 @@ func TestInitStep2MCPSectionAndAdd(t *testing.T) {
 	}
 
 	m = mustModel(m.Update(key("enter"))) // enter MCP fields; arrows must not toggle
-	jira := m.MCPDraft().Builtins[0].Enabled
-	ctx := m.MCPDraft().Builtins[1].Enabled
+	fs := m.MCPDraft().Builtins[0].Enabled
+	gh := m.MCPDraft().Builtins[1].Enabled
 	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("up")))
-	if m.MCPDraft().Builtins[0].Enabled != jira || m.MCPDraft().Builtins[1].Enabled != ctx {
+	if m.MCPDraft().Builtins[0].Enabled != fs || m.MCPDraft().Builtins[1].Enabled != gh {
 		t.Fatal("arrows mutated init mcp")
 	}
+	m = mustModel(m.Update(key("down")))
+	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("enter"))) // Jira
 	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("enter"))) // Context7
 	m = mustModel(m.Update(key("down")))
 	m = mustModel(m.Update(key("enter"))) // Chrome
-	if !m.MCPDraft().Builtins[0].Enabled || !m.MCPDraft().Builtins[1].Enabled || !m.MCPDraft().Builtins[2].Enabled {
-		t.Fatalf("expected all built-ins: %#v", m.MCPDraft().Builtins)
+	if !m.MCPDraft().Builtins[m.MCPDraft().BuiltinIndex(config.MCPBuiltinJira)].Enabled ||
+		!m.MCPDraft().Builtins[m.MCPDraft().BuiltinIndex(config.MCPBuiltinContext7)].Enabled ||
+		!m.MCPDraft().Builtins[m.MCPDraft().BuiltinIndex(config.MCPBuiltinChromeDevTools)].Enabled {
+		t.Fatalf("expected jira/context7/chrome: %#v", m.MCPDraft().Builtins)
 	}
 
 	for i := 0; i < 8 && m.MCPListFocus() != screens.MCPFocusAddBtn; i++ {
@@ -2206,7 +2231,7 @@ func TestInitStep2MCPSectionAndAdd(t *testing.T) {
 		t.Fatalf("mode = %q", m.MCPMode())
 	}
 	addView := m.View()
-	for _, want := range []string{"Add MCP", "Name", "Transport", "Command or URL", "Arguments", "Environment references", "[ Cancel ]", "[ Add ]"} {
+	for _, want := range []string{"Add MCP", "Name", "Transport", "Command", "Arguments", "Environment references", "[ Cancel ]", "[ Add ]"} {
 		if !strings.Contains(addView, want) {
 			t.Fatalf("init add missing %q:\n%s", want, addView)
 		}
@@ -2217,6 +2242,8 @@ func TestInitStep2MCPSectionAndAdd(t *testing.T) {
 		t.Fatal("empty name should fail in init add")
 	}
 	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Init Browser")}))
+	m = mcpGotoAddField(t, m, screens.MCPFocusConn)
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("npx")}))
 	m = mcpGotoFooterAction(t, m, true)
 	m = mustModel(m.Update(key("enter")))
 	if len(m.MCPDraft().CustomServers) != 1 || m.MCPDraft().CustomServers[0].Name != "Init Browser" {
@@ -2254,13 +2281,15 @@ func TestInitStep2MCPSectionAndAdd(t *testing.T) {
 	if !strings.Contains(m.View(), "Removed Init Browser") {
 		t.Fatalf("missing remove notice:\n%s", m.View())
 	}
-	if !m.MCPDraft().Builtins[0].Enabled {
+	if !m.MCPDraft().Builtins[m.MCPDraft().BuiltinIndex(config.MCPBuiltinJira)].Enabled {
 		t.Fatal("removing custom must not disable built-ins")
 	}
 
 	m = mcpGotoAddButton(t, m)
 	m = mustModel(m.Update(key("enter")))
 	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Init Browser")}))
+	m = mcpGotoAddField(t, m, screens.MCPFocusConn)
+	m = mustModel(m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("npx")}))
 	m = mcpGotoFooterAction(t, m, true)
 	m = mustModel(m.Update(key("enter")))
 
@@ -2344,7 +2373,7 @@ func gotoConfigSection(t *testing.T, m tui.Model, sectionKey string) tui.Model {
 func TestInitContentFocusGlobalKeys(t *testing.T) {
 	root := t.TempDir()
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteInitPlan, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m = mustModel(m.Update(key("tab")))
 	// Leave the project-name text field so b remains a global Status shortcut.
@@ -2463,7 +2492,7 @@ func TestSmallTerminalView(t *testing.T) {
 func TestMinHeightOmitsTopGap(t *testing.T) {
 	root := t.TempDir()
 	m := loadWorkspace(t, tui.Options{
-		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: workspace.Discover,
+		Route: tui.RouteStatus, Getwd: func() (string, error) { return root, nil }, Discover: inspect.Inspect,
 	})
 	m = mustModel(m.Update(tea.WindowSizeMsg{Width: 80, Height: tui.MinHeight}))
 	view := m.View()

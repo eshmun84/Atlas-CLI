@@ -2,8 +2,6 @@ package assets
 
 import (
 	"fmt"
-	"io/fs"
-	"sort"
 	"strings"
 )
 
@@ -51,24 +49,4 @@ func IsAtlasAgentFilename(name string) bool {
 		}
 	}
 	return false
-}
-
-// ListRuntimeAgentFiles returns embedded runtime agent paths for diagnostics.
-func ListRuntimeAgentFiles() ([]string, error) {
-	entries, err := fs.ReadDir(Content, "agents/runtime")
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if strings.HasPrefix(name, "atlas-") && strings.HasSuffix(name, ".md") {
-			out = append(out, name)
-		}
-	}
-	sort.Strings(out)
-	return out, nil
 }

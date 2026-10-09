@@ -24,13 +24,13 @@ func TestBuildProjectDocument_FromDraftAndMCP(t *testing.T) {
 	}
 	// Branch strategy is not an Init setup decision; persist defaults to manual.
 	mcp := config.EmptyMCPDraft()
-	if !mcp.ToggleBuiltin(0) {
+	if !mcp.EnableBuiltin(config.MCPBuiltinJira) {
 		t.Fatal("jira")
 	}
-	if !mcp.ToggleBuiltin(2) {
+	if !mcp.EnableBuiltin(config.MCPBuiltinChromeDevTools) {
 		t.Fatal("chrome")
 	}
-	if _, err := mcp.AddCustom("Internal Docs", config.MCPTransportHTTP, "https://example.local/mcp", "", ""); err != nil {
+	if _, err := mcp.AddCustom("Internal Docs", config.MCPTransportStreamableHTTP, "https://example.local/mcp", "", ""); err != nil {
 		t.Fatalf("add custom: %v", err)
 	}
 	mcp.ToggleCustom(0)
@@ -69,7 +69,7 @@ func TestBuildProjectDocument_FromDraftAndMCP(t *testing.T) {
 	if !doc.MCP.Builtins.Jira.Enabled || doc.MCP.Builtins.Context7.Enabled || !doc.MCP.Builtins.ChromeDevTools.Enabled {
 		t.Fatalf("builtins = %#v", doc.MCP.Builtins)
 	}
-	if len(doc.MCP.Custom) != 1 || doc.MCP.Custom[0].Name != "Internal Docs" || doc.MCP.Custom[0].Transport != "http" {
+	if len(doc.MCP.Custom) != 1 || doc.MCP.Custom[0].Name != "Internal Docs" || doc.MCP.Custom[0].Transport != "streamable_http" {
 		t.Fatalf("custom = %#v", doc.MCP.Custom)
 	}
 	if !doc.MCP.Custom[0].Enabled {
@@ -114,7 +114,10 @@ func TestBuildLocalStateAndLockDocuments(t *testing.T) {
 		t.Fatalf("runtime state = %#v", stateRuntime)
 	}
 
-	lock := config.BuildAssetsLockDocument(nil)
+	lock, err := config.BuildAssetsLockDocument(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if lock.SchemaVersion != 1 || lock.Assets == nil || len(lock.Assets) == 0 {
 		t.Fatalf("lock = %#v", lock)
 	}
@@ -130,7 +133,10 @@ func TestBuildLocalStateAndLockDocuments(t *testing.T) {
 	if !sawRegistry {
 		t.Fatalf("registry entry missing: %#v", lock.Assets)
 	}
-	lockCursor := config.BuildAssetsLockDocument([]string{"cursor"})
+	lockCursor, err := config.BuildAssetsLockDocument([]string{"cursor"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var sawCursorAgent bool
 	for _, entry := range lockCursor.Assets {
 		if entry.ID == "agents/runtime/atlas-orchestrator.md" {
@@ -148,7 +154,10 @@ func TestBuildLocalStateAndLockDocuments(t *testing.T) {
 		t.Fatal("toggle cursor")
 	}
 	doc := config.BuildProjectDocument(draft, config.EmptyMCPDraft())
-	lockSDD := config.BuildAssetsLockDocumentFor("/tmp/atlas-home", doc, "0.1.0")
+	lockSDD, err := config.BuildAssetsLockDocumentFor("/tmp/atlas-home", doc, "0.1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if lockSDD.HomePath != "" {
 		t.Fatalf("portable assets.lock must not embed absolute HomePath: %q", lockSDD.HomePath)
 	}
@@ -264,19 +273,21 @@ func TestProjectDocument_ToMCPDraftAndApply(t *testing.T) {
 		ProjectMode: "new",
 	})
 	mcp := config.EmptyMCPDraft()
-	mcp.ToggleBuiltin(0)
-	mcp.ToggleBuiltin(1)
-	if _, err := mcp.AddCustom("Docs", config.MCPTransportHTTP, "https://example.local", "", ""); err != nil {
+	mcp.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcp.EnableBuiltin(config.MCPBuiltinGitHub)
+	if _, err := mcp.AddCustom("Docs", config.MCPTransportStreamableHTTP, "https://example.local/mcp", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	mcp.ToggleCustom(0)
 	doc := config.BuildProjectDocument(draft, mcp)
 
 	loaded := doc.ToMCPDraft()
-	if !loaded.Builtins[0].Enabled || !loaded.Builtins[1].Enabled || loaded.Builtins[2].Enabled {
+	if !loaded.Builtins[loaded.BuiltinIndex(config.MCPBuiltinFilesystem)].Enabled ||
+		!loaded.Builtins[loaded.BuiltinIndex(config.MCPBuiltinGitHub)].Enabled ||
+		loaded.Builtins[loaded.BuiltinIndex(config.MCPBuiltinJira)].Enabled {
 		t.Fatalf("builtins = %#v", loaded.Builtins)
 	}
-	if len(loaded.CustomServers) != 1 || loaded.CustomServers[0].Name != "Docs" || loaded.CustomServers[0].Transport != config.MCPTransportHTTP {
+	if len(loaded.CustomServers) != 1 || loaded.CustomServers[0].Name != "Docs" || loaded.CustomServers[0].Transport != config.MCPTransportStreamableHTTP {
 		t.Fatalf("custom = %#v", loaded.CustomServers)
 	}
 

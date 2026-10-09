@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,10 +12,14 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
+	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 )
 
-// Forbidden runtime artifact paths that Atlas must not require or expect.
+// Forbidden runtime artifact paths that Atlas must not require, expect, or mutate.
+// Status/Doctor may report coexistence; Runtime Repair Apply never moves them.
 var forbiddenRuntimeArtifacts = []string{
+	"AGENT.md",
 	"CLAUDE.md",
 	"GEMINI.md",
 	".agents",
@@ -38,10 +41,11 @@ type ForbiddenArtifactStatus struct {
 
 // AgentFileStatus is one expected Atlas-owned runtime agent file.
 type AgentFileStatus struct {
-	Adapter string
-	Path    string
-	Present bool
-	Matches bool
+	Adapter     string
+	Path        string
+	Present     bool
+	Matches     bool
+	RenderError string // canonical renderer failure (not ordinary drift)
 }
 
 // Health is a read-only snapshot of Atlas runtime materialization.
@@ -63,21 +67,26 @@ type Health struct {
 
 	AgentsExists  bool
 	AgentsMarkers config.AgentsMarkers
+	AgentsError   string // unsafe/unreadable AGENTS.md (e.g. symlink leaf)
 
 	SelectedAdapters    []string
 	ExpectedProjections []ProjectionStatus
 	ExpectedAgents      []AgentFileStatus
 
-	AgentRegistryPresent   bool
-	AgentRegistryMatches   bool
-	RuntimeManifestPresent bool
-	RuntimeManifestMatches bool
-	AssetsLockPresent      bool
-	AssetsLockMatches      bool
+	AgentRegistryPresent       bool
+	AgentRegistryMatches       bool
+	AgentRegistryRenderError   string
+	RuntimeManifestPresent     bool
+	RuntimeManifestMatches     bool
+	RuntimeManifestRenderError string
+	AssetsLockPresent          bool
+	AssetsLockMatches          bool
+	AssetsLockRenderError      string
 
-	DependsOnSDDContract bool
-	SDDContractPresent   bool
-	SDDContractMatches   bool
+	DependsOnSDDContract   bool
+	SDDContractPresent     bool
+	SDDContractMatches     bool
+	SDDContractRenderError string
 
 	ContextEconomy atlascontext.StatusSnapshot
 
@@ -116,13 +125,8 @@ func EvaluateHealth(root string, atlas project.AtlasStatus, files project.FileIn
 		Warnings:            []string{},
 	}
 
-	configPath := atlas.ConfigPath
-	if configPath == "" {
-		configPath = filepath.Join(root, config.FileConfig)
-	}
-
 	if health.ConfigExists {
-		doc, err := config.LoadProjectDocument(configPath)
+		doc, err := config.LoadProjectDocumentAt(root)
 		if err != nil {
 			health.ConfigLoads = false
 			health.ConfigError = err.Error()
@@ -144,58 +148,61 @@ func EvaluateHealth(root string, atlas project.AtlasStatus, files project.FileIn
 					health.ExpectedProjections = append(health.ExpectedProjections, ProjectionStatus{
 						Adapter: adapter,
 						Path:    path,
-						Present: project.Exists(root, path),
+						Present: atlasOwnedPresent(root, path),
 					})
 				case "opencode":
 					path := config.FileOpenCodeAtlas
 					health.ExpectedProjections = append(health.ExpectedProjections, ProjectionStatus{
 						Adapter: adapter,
 						Path:    path,
-						Present: project.Exists(root, path),
+						Present: atlasOwnedPresent(root, path),
 					})
 				}
 			}
 			for _, path := range config.AtlasAgentRuntimePaths(doc.Adapters.Selected) {
 				adapter := agentAdapterFromPath(path)
-				present := project.Exists(root, path)
-				matches := false
+				present := atlasOwnedPresent(root, path)
+				st := AgentFileStatus{Adapter: adapter, Path: path, Present: present}
 				if present {
-					expected, err := config.RenderAtlasAgent(filepath.Base(path))
-					if err == nil {
-						matches = fileMatches(root, path, expected)
+					expected, renderErr := config.RenderAtlasAgent(filepath.Base(path))
+					if renderErr != nil {
+						st.RenderError = renderErr.Error()
+					} else {
+						st.Matches = fileMatches(root, path, expected)
 					}
 				}
-				health.ExpectedAgents = append(health.ExpectedAgents, AgentFileStatus{
-					Adapter: adapter,
-					Path:    path,
-					Present: present,
-					Matches: matches,
-				})
+				health.ExpectedAgents = append(health.ExpectedAgents, st)
 			}
 
 			homePath := health.Home.Path
 			expectedRegistry := config.RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected, homePath)
-			health.AgentRegistryPresent = project.Exists(root, config.FileAgentRegistry)
+			health.AgentRegistryPresent = atlasOwnedPresent(root, config.FileAgentRegistry)
 			health.AgentRegistryMatches = health.AgentRegistryPresent && fileMatches(root, config.FileAgentRegistry, expectedRegistry)
 
 			expectedManifest, err := config.RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
-			health.RuntimeManifestPresent = project.Exists(root, config.FileRuntimeManifest)
-			if err == nil && health.RuntimeManifestPresent {
+			health.RuntimeManifestPresent = atlasOwnedPresent(root, config.FileRuntimeManifest)
+			if err != nil {
+				health.RuntimeManifestRenderError = err.Error()
+			} else if health.RuntimeManifestPresent {
 				health.RuntimeManifestMatches = fileMatches(root, config.FileRuntimeManifest, expectedManifest)
 			}
 
 			expectedLock, err := config.RenderAssetsLockYAMLFor(homePath, doc)
-			health.AssetsLockPresent = project.Exists(root, config.FileAssetsLock)
-			if err == nil && health.AssetsLockPresent {
+			health.AssetsLockPresent = atlasOwnedPresent(root, config.FileAssetsLock)
+			if err != nil {
+				health.AssetsLockRenderError = err.Error()
+			} else if health.AssetsLockPresent {
 				health.AssetsLockMatches = fileMatches(root, config.FileAssetsLock, expectedLock)
 			}
 
 			health.DependsOnSDDContract = config.DependsOnSDDOpenSpecContract(doc)
 			if health.DependsOnSDDContract {
-				health.SDDContractPresent = project.Exists(root, config.FileSDDOpenSpecContract)
+				health.SDDContractPresent = atlasOwnedPresent(root, config.FileSDDOpenSpecContract)
 				if health.SDDContractPresent {
 					expectedContract, contractErr := config.RenderSDDOpenSpecContract()
-					if contractErr == nil {
+					if contractErr != nil {
+						health.SDDContractRenderError = contractErr.Error()
+					} else {
 						health.SDDContractMatches = fileMatches(root, config.FileSDDOpenSpecContract, expectedContract)
 					}
 				}
@@ -203,10 +210,13 @@ func EvaluateHealth(root string, atlas project.AtlasStatus, files project.FileIn
 		}
 	}
 
-	statePath := filepath.Join(root, config.FileState)
-	if project.Exists(root, config.FileState) {
+	if present, err := config.AtlasOwnedFileExists(root, config.FileState); err != nil {
 		health.StateExists = true
-		state, err := config.LoadStateDocument(statePath)
+		health.StateLoads = false
+		health.StateError = err.Error()
+	} else if present {
+		health.StateExists = true
+		state, err := config.LoadStateDocumentAt(root)
 		if err != nil {
 			health.StateLoads = false
 			health.StateError = err.Error()
@@ -217,15 +227,16 @@ func EvaluateHealth(root string, atlas project.AtlasStatus, files project.FileIn
 		}
 	}
 
-	agentsPath := filepath.Join(root, config.FileAgentsMD)
-	if project.Exists(root, config.FileAgentsMD) {
-		health.AgentsExists = true
-		data, err := os.ReadFile(agentsPath)
-		if err == nil {
-			health.AgentsMarkers = config.InspectAgentsMarkers(data)
+	if data, err := readAtlasOwned(root, config.FileAgentsMD); err != nil {
+		if !os.IsNotExist(err) {
+			health.AgentsExists = true
+			health.AgentsError = err.Error()
+		} else {
+			health.AgentsExists = files.HasAgentsFile
 		}
 	} else {
-		health.AgentsExists = files.HasAgentsFile
+		health.AgentsExists = true
+		health.AgentsMarkers = config.InspectAgentsMarkers(data)
 	}
 
 	health.LegacyBackupsDirExists = project.Exists(root, config.DirBackups)
@@ -307,32 +318,45 @@ func collectRuntimeWarnings(h Health) []string {
 		switch {
 		case !agent.Present:
 			warnings = append(warnings, "expected Atlas agent missing: "+agent.Path)
+		case agent.RenderError != "":
+			warnings = append(warnings, "Atlas agent canonical render failed: "+agent.Path)
 		case !agent.Matches:
 			warnings = append(warnings, "Atlas agent content drifted: "+agent.Path)
 		}
 	}
-	if h.ConfigLoads && !h.AgentRegistryPresent {
+	if h.ConfigLoads && h.AgentRegistryRenderError != "" {
+		warnings = append(warnings, "agent registry canonical render failed")
+	} else if h.ConfigLoads && !h.AgentRegistryPresent {
 		warnings = append(warnings, "expected agent registry missing: "+config.FileAgentRegistry)
 	} else if h.ConfigLoads && h.AgentRegistryPresent && !h.AgentRegistryMatches {
 		warnings = append(warnings, "agent registry content drifted")
 	}
-	if h.ConfigLoads && !h.RuntimeManifestPresent {
+	if h.ConfigLoads && h.RuntimeManifestRenderError != "" {
+		warnings = append(warnings, "runtime manifest canonical render failed")
+	} else if h.ConfigLoads && !h.RuntimeManifestPresent {
 		warnings = append(warnings, "expected runtime manifest missing: "+config.FileRuntimeManifest)
 	} else if h.ConfigLoads && h.RuntimeManifestPresent && !h.RuntimeManifestMatches {
 		warnings = append(warnings, "runtime manifest content drifted")
 	}
-	if h.ConfigLoads && !h.AssetsLockPresent {
+	if h.ConfigLoads && h.AssetsLockRenderError != "" {
+		warnings = append(warnings, "assets lock canonical render failed")
+	} else if h.ConfigLoads && !h.AssetsLockPresent {
 		warnings = append(warnings, "expected assets lock missing: "+config.FileAssetsLock)
 	} else if h.ConfigLoads && h.AssetsLockPresent && !h.AssetsLockMatches {
 		warnings = append(warnings, "assets lock content drifted")
 	}
 	if h.ConfigLoads && h.DependsOnSDDContract {
 		switch {
+		case h.SDDContractRenderError != "":
+			warnings = append(warnings, "SDD/OpenSpec contract canonical render failed")
 		case !h.SDDContractPresent:
 			warnings = append(warnings, "expected SDD/OpenSpec contract missing: "+config.FileSDDOpenSpecContract)
 		case !h.SDDContractMatches:
 			warnings = append(warnings, "SDD/OpenSpec contract content drifted")
 		}
+	}
+	if h.AgentsError != "" {
+		warnings = append(warnings, "AGENTS.md unsafe or unreadable")
 	}
 	if h.Initialized {
 		switch h.ContextEconomy.State {
@@ -353,6 +377,9 @@ func collectRuntimeWarnings(h Health) []string {
 			}
 			if !h.Home.LayoutComplete {
 				warnings = append(warnings, "Atlas Home layout incomplete")
+			}
+			if len(h.Home.AssetErrors) > 0 {
+				warnings = append(warnings, "Atlas Home embedded asset integrity errors")
 			}
 			if len(h.Home.MissingAssets) > 0 {
 				warnings = append(warnings, "Atlas Home assets missing")
@@ -394,11 +421,20 @@ func probeCodeIntelligence(root, homePath, projectID string) codeintel.Snapshot 
 }
 
 func fileMatches(root, rel, expected string) bool {
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	data, err := readAtlasOwned(root, rel)
 	if err != nil {
 		return false
 	}
 	return string(data) == expected
+}
+
+func readAtlasOwned(root, rel string) ([]byte, error) {
+	return fsafety.ReadFileContained(root, rel)
+}
+
+func atlasOwnedPresent(root, rel string) bool {
+	ok, err := config.AtlasOwnedFileExists(root, rel)
+	return err == nil && ok
 }
 
 func agentAdapterFromPath(rel string) string {

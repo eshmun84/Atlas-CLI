@@ -18,8 +18,9 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 func main() {
@@ -95,7 +96,7 @@ func run() error {
 	}
 	fmt.Println("PASS materialization + 14 agents x2")
 
-	disc, err := workspace.Discover(root)
+	disc, err := inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
@@ -115,7 +116,7 @@ func run() error {
 	fmt.Println("PASS context economy")
 
 	before := walk(root)
-	disc, err = workspace.Discover(root)
+	disc, err = inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
@@ -142,15 +143,15 @@ func run() error {
 	if err := os.Remove(filepath.Join(root, ".atlas", "contracts", "sdd-openspec.md")); err != nil {
 		return err
 	}
-	disc, err = workspace.Discover(root)
+	disc, err = inspect.Inspect(root)
 	if err != nil {
 		return err
 	}
-	repair := workspace.BuildRuntimeRepairPlan(root, disc.Runtime)
+	repair := runtime.BuildRuntimeRepairPlan(root, disc.Runtime)
 	if !repair.NeedsApply() {
 		return fmt.Errorf("expected repair for drift")
 	}
-	if _, err := workspace.ApplyRuntimeRepair(root, repair.Signature(), now); err != nil {
+	if _, err := runtime.ApplyRuntimeRepair(root, repair.Signature(), now); err != nil {
 		return err
 	}
 

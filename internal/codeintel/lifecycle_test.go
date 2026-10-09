@@ -163,7 +163,7 @@ func TestEnrichSnapshot_Freshness(t *testing.T) {
 		RefreshedAt:       "2026-10-08T12:00:00Z",
 		RefreshMode:       "initial",
 	}
-	if err := codeintel.WriteMetadataAtomic(metaPath, meta); err != nil {
+	if err := codeintel.WriteMetadataAtomic(homePath, metaPath, meta); err != nil {
 		t.Fatal(err)
 	}
 	st.MetadataPresent = true
@@ -180,12 +180,12 @@ func TestEnrichSnapshot_Freshness(t *testing.T) {
 
 func TestWriteMetadataAtomic(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "metadata.json")
+	homeDir := t.TempDir()
+	path := filepath.Join(homeDir, "projects", "p", "codeintel", "metadata.json")
 	meta := codeintel.Metadata{
 		SchemaVersion: codeintel.MetadataSchemaVersion, Provider: "codegraph", ProjectID: "p", SourceFingerprint: "abc",
 	}
-	if err := codeintel.WriteMetadataAtomic(path, meta); err != nil {
+	if err := codeintel.WriteMetadataAtomic(homeDir, path, meta); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(path)
@@ -195,6 +195,57 @@ func TestWriteMetadataAtomic(t *testing.T) {
 	var got codeintel.Metadata
 	if err := json.Unmarshal(raw, &got); err != nil || got.Provider != "codegraph" {
 		t.Fatalf("got %#v err=%v", got, err)
+	}
+}
+
+func TestWriteMetadataAtomic_OutsideHomeRefused(t *testing.T) {
+	t.Parallel()
+	homeDir := t.TempDir()
+	outside := t.TempDir()
+	path := filepath.Join(outside, "metadata.json")
+	meta := codeintel.Metadata{
+		SchemaVersion: codeintel.MetadataSchemaVersion, Provider: "codegraph", ProjectID: "p", SourceFingerprint: "abc",
+	}
+	if err := codeintel.WriteMetadataAtomic(homeDir, path, meta); err == nil {
+		t.Fatal("expected escape error")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("must not write outside home: %v", err)
+	}
+}
+
+func TestWriteMetadataAtomic_SymlinkParentEscape(t *testing.T) {
+	t.Parallel()
+	homeDir := t.TempDir()
+	outside := t.TempDir()
+	link := filepath.Join(homeDir, "escape-link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(link, "metadata.json")
+	meta := codeintel.Metadata{
+		SchemaVersion: codeintel.MetadataSchemaVersion, Provider: "codegraph", ProjectID: "p", SourceFingerprint: "abc",
+	}
+	if err := codeintel.WriteMetadataAtomic(homeDir, path, meta); err == nil {
+		t.Fatal("expected symlink containment error")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "metadata.json")); !os.IsNotExist(err) {
+		t.Fatalf("must not write through symlink escape: %v", err)
+	}
+}
+
+func TestWriteMetadataAtomic_AlternateHome(t *testing.T) {
+	t.Parallel()
+	altHome := t.TempDir()
+	path := filepath.Join(altHome, "projects", "alt", "metadata.json")
+	meta := codeintel.Metadata{
+		SchemaVersion: codeintel.MetadataSchemaVersion, Provider: "codegraph", ProjectID: "alt", SourceFingerprint: "xyz",
+	}
+	if err := codeintel.WriteMetadataAtomic(altHome, path, meta); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -14,9 +14,10 @@ type Provider interface {
 
 // RefreshRequest is the provider-neutral refresh input.
 type RefreshRequest struct {
-	Root   string
-	DBPath string
-	Mode   RefreshMode
+	Root     string
+	HomePath string
+	DBPath   string
+	Mode     RefreshMode
 }
 
 // RefreshResult is the provider-neutral outcome of one Refresh call.

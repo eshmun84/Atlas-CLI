@@ -1,7 +1,6 @@
 package runtime_test
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,8 +10,8 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 func TestBuildRuntimeRepairPlan_HealthyNoop(t *testing.T) {
@@ -105,9 +104,9 @@ func TestApplyRuntimeRepair_PreservesUserWhenMarkersValid(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
-	applyRepair(t, root, plan.Signature(), func() time.Time {
-		return time.Date(2026, 10, 5, 15, 2, 0, 0, time.UTC)
-	})
+	if plan.NeedsApply() {
+		t.Fatalf("healthy project with developer CLAUDE.md must not need repair: %#v", plan)
+	}
 	agentsAfter, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -115,8 +114,9 @@ func TestApplyRuntimeRepair_PreservesUserWhenMarkersValid(t *testing.T) {
 	if string(agentsBefore) != string(agentsAfter) {
 		t.Fatal("valid AGENTS.md must be left unchanged")
 	}
-	if _, err := os.Stat(filepath.Join(root, "CLAUDE.md")); !os.IsNotExist(err) {
-		t.Fatal("CLAUDE.md should be quarantined")
+	got, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
+	if err != nil || string(got) != "old claude\n" {
+		t.Fatalf("CLAUDE.md must survive byte-for-byte: %q %v", got, err)
 	}
 }
 
@@ -174,7 +174,7 @@ func TestApplyRuntimeRepair_NonAtlasProjectionContentReplace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := config.RenderCursorAtlasMDC("demo")
+	want := mustRenderCursorAtlasMDC(t, "demo")
 	if string(got) != want {
 		t.Fatalf("cursor content =\n%s\nwant\n%s", got, want)
 	}
@@ -202,7 +202,7 @@ func TestApplyRuntimeRepair_NonAtlasProjectionContentReplace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = config.RenderOpenCodeAtlas("demo")
+	want = mustRenderOpenCodeAtlas(t, "demo")
 	if string(got) != want {
 		t.Fatalf("opencode content =\n%s\nwant\n%s", got, want)
 	}
@@ -229,7 +229,7 @@ func TestApplyRuntimeRepair_RejectsStalePlan(t *testing.T) {
 	}
 
 	// Mutate filesystem so the reviewed plan is stale.
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(config.RenderAgentsMD("demo", true, []string{"cursor"}, nil)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(mustRenderAgentsMD(t, "demo", true, []string{"cursor"}, nil)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	before := snapshotTree(t, root)
@@ -250,12 +250,15 @@ func TestApplyRuntimeRepair_RejectsStalePlan(t *testing.T) {
 	assertUnchangedTree(t, root, before)
 }
 
-func TestApplyRuntimeRepair_QuarantinesCompetingArtifacts(t *testing.T) {
+func TestApplyRuntimeRepair_PreservesDeveloperExternalSurfaces(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
 	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("claude\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "GEMINI.md"), []byte("gemini\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENT.md"), []byte("agent\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
@@ -273,45 +276,51 @@ func TestApplyRuntimeRepair_QuarantinesCompetingArtifacts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".cursor", "rules", "other.mdc"), []byte("keep?\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, ".cursor", "mcp.json"), []byte(`{"mcpServers":{"user-tool":{"url":"https://example.com"}}}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Induce Atlas-owned drift so Repair Apply runs while external surfaces exist.
+	if err := os.Remove(filepath.Join(root, config.FileCursorAtlasMDC)); err != nil {
+		t.Fatal(err)
+	}
 
 	fixed := time.Date(2026, 10, 5, 15, 3, 0, 0, time.UTC)
 	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
-	result := applyRepair(t, root, plan.Signature(), func() time.Time { return fixed })
-	if len(result.Quarantined) == 0 {
-		t.Fatalf("expected quarantine: %#v", result)
-	}
-	for _, path := range []string{"CLAUDE.md", "GEMINI.md", ".agents", ".claude"} {
-		if _, err := os.Stat(filepath.Join(root, path)); !os.IsNotExist(err) {
-			t.Fatalf("%s still active", path)
+	for _, q := range plan.Quarantines {
+		for _, forbidden := range []string{"CLAUDE.md", "GEMINI.md", "AGENT.md", ".agents", ".claude"} {
+			if q == forbidden {
+				t.Fatalf("plan must not quarantine developer surface %s: %#v", forbidden, plan.Quarantines)
+			}
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, ".cursor", "rules", "other.mdc")); !os.IsNotExist(err) {
-		t.Fatal("extra cursor rule still active")
+	result := applyRepair(t, root, plan.Signature(), func() time.Time { return fixed })
+	for _, path := range []string{"CLAUDE.md", "GEMINI.md", "AGENT.md"} {
+		got, err := os.ReadFile(filepath.Join(root, path))
+		if err != nil {
+			t.Fatalf("%s missing after repair: %v", path, err)
+		}
+		if len(got) == 0 {
+			t.Fatalf("%s emptied", path)
+		}
+	}
+	if got, err := os.ReadFile(filepath.Join(root, ".agents", "x.md")); err != nil || string(got) != "skill\n" {
+		t.Fatalf(".agents content must survive: %q %v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, ".claude", "x.md")); err != nil || string(got) != "x\n" {
+		t.Fatalf(".claude content must survive: %q %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".cursor", "rules", "other.mdc")); err != nil {
+		t.Fatal("extra cursor rule must survive Runtime Repair")
+	}
+	if data, err := os.ReadFile(filepath.Join(root, ".cursor", "mcp.json")); err != nil || !strings.Contains(string(data), "user-tool") {
+		t.Fatalf("user MCP must survive Runtime Repair: %q %v", data, err)
 	}
 	if _, err := os.Stat(filepath.Join(root, config.FileCursorAtlasMDC)); err != nil {
-		t.Fatal(err)
+		t.Fatal("Atlas-owned drift must still repair")
 	}
-	manifestRaw, err := os.ReadFile(homeBackupFile(t, root, result.BackupDir, "manifest.json"))
-	if err != nil {
-		t.Fatal(err)
+	if len(result.Created)+len(result.Replaced) == 0 {
+		t.Fatalf("expected Atlas restore actions: %#v", result)
 	}
-	var manifest config.BackupManifest
-	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if manifest.Reason != "runtime repair" || len(manifest.Entries) == 0 {
-		t.Fatalf("manifest = %#v", manifest)
-	}
-	for _, entry := range manifest.Entries {
-		if entry.OriginalPath == "" || entry.BackupPath == "" || entry.Action == "" || entry.Reason == "" || entry.Timestamp == "" || entry.Result == "" {
-			t.Fatalf("incomplete entry %#v", entry)
-		}
-	}
-	backed, err := os.ReadFile(homeBackupFile(t, root, result.BackupDir, "CLAUDE.md"))
-	if err != nil || string(backed) != "claude\n" {
-		t.Fatalf("quarantine backup missing: %q %v", backed, err)
-	}
-	assertDoctorRuntimeReady(t, root)
 }
 
 func TestApplyRuntimeRepair_HealthyNoopDoesNotMutate(t *testing.T) {
@@ -368,7 +377,7 @@ func TestApplyRuntimeRepair_MissingBaseBlock(t *testing.T) {
 
 func TestApplyRuntimeRepair_MissingSelectedAdapterBlock(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
-	baseOnly := config.RenderAgentsMD("demo", true, nil, []byte(
+	baseOnly := mustRenderAgentsMD(t, "demo", true, nil, []byte(
 		config.AgentsUserBegin+"\nuser note\n"+config.AgentsUserEnd,
 	))
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(baseOnly), 0o644); err != nil {
@@ -417,7 +426,7 @@ func TestApplyRuntimeRepair_DriftedSelectedAdapterBlock(t *testing.T) {
 	if strings.Contains(string(fixed), "TAMPERED") {
 		t.Fatalf("drift not repaired:\n%s", fixed)
 	}
-	want := config.RenderAgentsMD("demo", true, []string{"cursor"}, fixed)
+	want := mustRenderAgentsMD(t, "demo", true, []string{"cursor"}, fixed)
 	if string(fixed) != want {
 		t.Fatalf("repaired AGENTS.md does not match renderer")
 	}
@@ -426,7 +435,7 @@ func TestApplyRuntimeRepair_DriftedSelectedAdapterBlock(t *testing.T) {
 
 func TestApplyRuntimeRepair_RemovesUnselectedAdapterBlock(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
-	both := config.RenderAgentsMD("demo", true, []string{"cursor", "opencode"}, []byte(
+	both := mustRenderAgentsMD(t, "demo", true, []string{"cursor", "opencode"}, []byte(
 		config.AgentsUserBegin+"\nstay\n"+config.AgentsUserEnd,
 	))
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(both), 0o644); err != nil {
@@ -616,9 +625,9 @@ func homeBackupFile(t *testing.T, root, backupRel, rel string) string {
 	return filepath.Join(homePath, filepath.FromSlash(backupRel), filepath.FromSlash(rel))
 }
 
-func mustDiscover(t *testing.T, root string) workspace.DiscoveryResult {
+func mustDiscover(t *testing.T, root string) inspect.Inspection {
 	t.Helper()
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		t.Fatal(err)
 	}

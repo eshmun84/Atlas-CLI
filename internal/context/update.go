@@ -12,6 +12,8 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
+	"github.com/eshmun84/Atlas-CLI/internal/project/mutatelock"
 	"gopkg.in/yaml.v3"
 )
 
@@ -90,6 +92,9 @@ const (
 	UpdateNoopBody     = "No context update was required."
 	UpdateStaleMessage = "context plan changed; review again"
 )
+
+// contextAfterWriteHook is an optional test seam after each Home context write.
+var contextAfterWriteHook func(rel string) error
 
 // BuildUpdatePlan previews creating/updating index, capsule, and a pack.
 // Read-only: does not write files.
@@ -170,7 +175,8 @@ func BuildUpdatePlan(root string, initialized bool, state config.StateDocument, 
 		plan.NeedsWrite = true
 	case StatusPresent:
 		// Fresh: still allow explicit refresh of pack for the requested objective.
-		if _, err := os.Stat(packPath); os.IsNotExist(err) {
+		packPresent, packErr := InspectContextLeaf(homePath, ContextPackRel(id, packID))
+		if packErr != nil || !packPresent {
 			addTarget(packPath, UpdateActionCreate, "pack", "requested pack missing")
 			plan.NeedsWrite = true
 		} else {
@@ -192,6 +198,8 @@ func BuildUpdatePlan(root string, initialized bool, state config.StateDocument, 
 
 // ApplyUpdate recomputes the plan, checks signature, and writes Atlas Home context.
 // Also updates minimal .atlas/state.yaml metadata. Never writes large context into the repo.
+// Writes are transactional: any error after the first mutation restores context files,
+// Home local state, and portable .atlas/state.yaml to the pre-Apply baseline.
 func ApplyUpdate(root, expectedSignature string, state config.StateDocument, objective string, nowFn func() time.Time) (UpdateResult, error) {
 	root = filepath.Clean(strings.TrimSpace(root))
 	if root == "" || root == "." {
@@ -201,15 +209,27 @@ func ApplyUpdate(root, expectedSignature string, state config.StateDocument, obj
 	if nowFn != nil {
 		now = nowFn().UTC()
 	}
+	if expectedSignature == "" {
+		return UpdateResult{}, fmt.Errorf("context update: reviewed plan signature is required")
+	}
 
+	homePath, err := home.Resolve()
+	if err != nil {
+		return UpdateResult{}, fmt.Errorf("context update: %w", err)
+	}
+
+	lockSet, err := mutatelock.Acquire(mutatelock.Options{HomePath: homePath, Workspace: root})
+	if err != nil {
+		return UpdateResult{}, fmt.Errorf("context update: %w", err)
+	}
+	defer func() { _ = lockSet.Release() }()
+
+	// ---------- Locked: recompute plan → validate signature → render → snapshot ----------
 	initialized := state.Initialized
 	plan := BuildUpdatePlan(root, initialized, state, objective)
 	result := UpdateResult{Plan: plan, Blockers: plan.Blockers, Blocked: plan.Blocked}
 	if plan.Blocked {
 		return result, fmt.Errorf("context update blocked: %s", strings.Join(plan.Blockers, "; "))
-	}
-	if expectedSignature == "" {
-		return result, fmt.Errorf("context update: reviewed plan signature is required")
 	}
 	if expectedSignature != plan.Signature() {
 		result.Stale = true
@@ -224,16 +244,7 @@ func ApplyUpdate(root, expectedSignature string, state config.StateDocument, obj
 		return result, nil
 	}
 
-	if _, err := home.EnsureAndMirror(now); err != nil {
-		return result, fmt.Errorf("context update: %w", err)
-	}
-	if err := home.EnsureProjectLayout(plan.HomePath, plan.ProjectID); err != nil {
-		return result, fmt.Errorf("context update: %w", err)
-	}
-	if err := home.WriteProjectIdentity(plan.HomePath, plan.ProjectID, state.ProjectName, root, now); err != nil {
-		return result, fmt.Errorf("context update: %w", err)
-	}
-
+	// Preflight: render all payloads from locked observations.
 	idx, err := BuildIndex(root, state.ProjectName, now)
 	if err != nil {
 		return result, fmt.Errorf("context update: build index: %w", err)
@@ -249,16 +260,15 @@ func ApplyUpdate(root, expectedSignature string, state config.StateDocument, obj
 	if err != nil {
 		return result, err
 	}
+	stateData, err := renderPortableState(state, plan.ProjectID, idx, now)
+	if err != nil {
+		return result, err
+	}
 
-	writes := []struct {
-		path   string
-		data   string
-		kind   string
-		action string
-	}{
-		{IndexPath(plan.HomePath, plan.ProjectID), indexYAML, "index", ""},
-		{CapsulePath(plan.HomePath, plan.ProjectID), capsule, "capsule", ""},
-		{PackPath(plan.HomePath, plan.ProjectID, pack.PackID), packYAML, "pack", ""},
+	writes := []contextWrite{
+		{path: IndexPath(plan.HomePath, plan.ProjectID), data: indexYAML},
+		{path: CapsulePath(plan.HomePath, plan.ProjectID), data: capsule},
+		{path: PackPath(plan.HomePath, plan.ProjectID, pack.PackID), data: packYAML},
 	}
 	for i := range writes {
 		for _, t := range plan.Targets {
@@ -276,12 +286,60 @@ func ApplyUpdate(root, expectedSignature string, state config.StateDocument, obj
 		}
 	}
 
-	for _, w := range writes {
-		if err := os.MkdirAll(filepath.Dir(w.path), 0o755); err != nil {
-			return result, fmt.Errorf("context update: create parent for %s: %w", w.path, err)
+	// EnsureAndMirror is an idempotent global Home precondition (not undone here).
+	if _, err := home.EnsureAndMirror(now); err != nil {
+		return result, fmt.Errorf("context update: %w", err)
+	}
+	// Fail closed on corrupt/unreadable local state before any project mutation.
+	if state.Initialized {
+		if _, _, err := home.LoadProjectLocalState(plan.HomePath, plan.ProjectID); err != nil {
+			return result, fmt.Errorf("context update: %w", err)
 		}
-		if err := os.WriteFile(w.path, []byte(w.data), 0o644); err != nil {
-			return result, fmt.Errorf("context update: write %s: %w", w.path, err)
+	}
+
+	// Snapshot BEFORE any project-Home mutation (layout/identity/local/context).
+	snap, err := captureContextMutationSnapshot(root, plan.HomePath, plan.ProjectID, writes)
+	if err != nil {
+		return result, fmt.Errorf("context update: snapshot: %w", err)
+	}
+	rollback := func(cause error) (UpdateResult, error) {
+		if restoreErr := restoreContextMutationSnapshot(root, snap); restoreErr != nil {
+			return UpdateResult{}, fmt.Errorf("context update: %v (rollback failed: %v)", cause, restoreErr)
+		}
+		return UpdateResult{}, fmt.Errorf("context update: %w (rolled back context baseline)", cause)
+	}
+
+	layoutDirs, err := home.EnsureProjectLayoutCreated(plan.HomePath, plan.ProjectID)
+	snap.projectHome.Footprint.MergeDirs(layoutDirs)
+	if err != nil {
+		return rollback(err)
+	}
+	idWrote, idDirs, idErr := home.WriteProjectIdentityTracked(plan.HomePath, plan.ProjectID, state.ProjectName, root, now)
+	snap.projectHome.Footprint.MergeDirs(idDirs)
+	if idErr != nil {
+		return rollback(idErr)
+	}
+	snap.projectHome.Footprint.AddFile(idWrote)
+
+	for _, w := range writes {
+		rel, relErr := filepath.Rel(plan.HomePath, w.path)
+		if relErr != nil {
+			return rollback(fmt.Errorf("path %s: %w", w.path, relErr))
+		}
+		rel = filepath.ToSlash(rel)
+		if strings.HasPrefix(rel, "..") {
+			return rollback(fmt.Errorf("path escapes Atlas Home: %s", w.path))
+		}
+		wrote, dirs, werr := fsafety.AtomicWriteContainedTracked(plan.HomePath, rel, []byte(w.data), 0o644, home.DirPermHome, ".atlas-write-*.tmp")
+		snap.homeFootprint.MergeDirs(dirs)
+		if werr != nil {
+			return rollback(fmt.Errorf("write %s: %w", rel, werr))
+		}
+		snap.homeFootprint.AddFile(wrote)
+		if contextAfterWriteHook != nil {
+			if hookErr := contextAfterWriteHook(rel); hookErr != nil {
+				return rollback(hookErr)
+			}
 		}
 		if w.action == UpdateActionCreate {
 			result.Created = append(result.Created, w.path)
@@ -291,8 +349,10 @@ func ApplyUpdate(root, expectedSignature string, state config.StateDocument, obj
 		result.Actions = append(result.Actions, w.action+" "+w.path)
 	}
 
-	if err := updateProjectState(root, state, plan.ProjectID, idx, now); err != nil {
-		return result, err
+	if state.Initialized {
+		if err := writeContextStates(root, plan.HomePath, plan.ProjectID, idx, now, stateData, &snap); err != nil {
+			return rollback(err)
+		}
 	}
 
 	result.Index = idx
@@ -303,26 +363,86 @@ func ApplyUpdate(root, expectedSignature string, state config.StateDocument, obj
 	return result, nil
 }
 
-func updateProjectState(root string, state config.StateDocument, projectID string, idx IndexDocument, now time.Time) error {
-	statePath := filepath.Join(root, filepath.FromSlash(config.FileState))
-	if !state.Initialized {
-		// Do not create state for uninitialized projects.
+type contextWrite struct {
+	path   string
+	data   string
+	action string
+}
+
+type contextMutationSnapshot struct {
+	homePath      string
+	projectID     string
+	projectHome   home.ProjectLayoutSnapshot
+	homeFiles     []fsafety.FileSnapshot
+	portableState fsafety.FileSnapshot
+	homeFootprint fsafety.TransactionFootprint
+	rootFootprint fsafety.TransactionFootprint
+}
+
+// captureFileSnapshotFn is a test seam; production uses fsafety.CaptureFileSnapshot.
+var captureFileSnapshotFn = fsafety.CaptureFileSnapshot
+
+func captureContextMutationSnapshot(root, homePath, projectID string, writes []contextWrite) (contextMutationSnapshot, error) {
+	snap := contextMutationSnapshot{homePath: homePath, projectID: projectID}
+	projectHome, err := home.CaptureProjectLayoutSnapshot(homePath, projectID)
+	if err != nil {
+		return snap, err
+	}
+	snap.projectHome = projectHome
+	for _, w := range writes {
+		rel, err := filepath.Rel(homePath, w.path)
+		if err != nil {
+			return snap, err
+		}
+		rel = filepath.ToSlash(rel)
+		fs, err := captureFileSnapshotFn(homePath, rel)
+		if err != nil {
+			return snap, fmt.Errorf("context file %s: %w", rel, err)
+		}
+		snap.homeFiles = append(snap.homeFiles, fs)
+	}
+	ps, err := captureFileSnapshotFn(root, config.FileState)
+	if err != nil {
+		return snap, fmt.Errorf("portable state: %w", err)
+	}
+	snap.portableState = ps
+	return snap, nil
+}
+
+func restoreContextMutationSnapshot(root string, snap contextMutationSnapshot) error {
+	var errs []string
+	homeFiles := append([]fsafety.FileSnapshot(nil), snap.homeFiles...)
+	sort.Slice(homeFiles, func(i, j int) bool { return homeFiles[i].Rel < homeFiles[j].Rel })
+	for _, fs := range homeFiles {
+		wrote := snap.homeFootprint.FileByRel(fs.Rel)
+		if err := fsafety.RestoreFileSnapshot(snap.homePath, fs, wrote, snap.homeFootprint.DeletedByRel(fs.Rel)); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", fs.Rel, err))
+		}
+	}
+	if err := fsafety.RestoreCreatedDirs(snap.homePath, snap.homeFootprint); err != nil {
+		errs = append(errs, err.Error())
+	}
+	wrote := snap.rootFootprint.FileByRel(snap.portableState.Rel)
+	if err := fsafety.RestoreFileSnapshot(root, snap.portableState, wrote, snap.rootFootprint.DeletedByRel(snap.portableState.Rel)); err != nil {
+		errs = append(errs, fmt.Sprintf("portable state: %v", err))
+	}
+	if err := fsafety.RestoreCreatedDirs(root, snap.rootFootprint); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if err := home.RestoreProjectLayoutSnapshot(snap.projectHome); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if len(errs) == 0 {
 		return nil
 	}
-	stamp := now.UTC().Format(time.RFC3339)
-	homePath, err := ResolveHome()
-	if err != nil {
-		return fmt.Errorf("context update: resolve home: %w", err)
-	}
-	local, _, _ := home.LoadProjectLocalState(homePath, projectID)
-	local.ContextEconomyUpdatedAt = stamp
-	local.ContextEconomyFingerprint = idx.Fingerprint
-	if err := home.WriteProjectLocalState(homePath, projectID, local); err != nil {
-		return fmt.Errorf("context update: %w", err)
-	}
+	return fmt.Errorf("context rollback: %s", strings.Join(errs, "; "))
+}
 
-	// Transitional compatibility mirrors in portable .atlas/state.yaml.
-	// Prefer Home project-local state for machine-local timestamps/fingerprints.
+func renderPortableState(state config.StateDocument, projectID string, idx IndexDocument, now time.Time) ([]byte, error) {
+	if !state.Initialized {
+		return nil, nil
+	}
+	stamp := now.UTC().Format(time.RFC3339)
 	state.ContextEconomyUpdatedAt = stamp
 	state.ContextEconomyProjectID = projectID
 	state.ContextEconomyHomeRel = HomeRelContext(projectID)
@@ -330,15 +450,39 @@ func updateProjectState(root string, state config.StateDocument, projectID strin
 	if state.SchemaVersion == 0 {
 		state.SchemaVersion = config.PersistSchemaVersion
 	}
-	data, err := marshalYAML(state)
+	return marshalYAML(state)
+}
+
+func writeContextStates(root, homePath, projectID string, idx IndexDocument, now time.Time, stateData []byte, snap *contextMutationSnapshot) error {
+	stamp := now.UTC().Format(time.RFC3339)
+	local, _, err := home.LoadProjectLocalState(homePath, projectID)
 	if err != nil {
-		return fmt.Errorf("context update: marshal state: %w", err)
+		return fmt.Errorf("context update: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
-		return fmt.Errorf("context update: create .atlas: %w", err)
+	local.ContextEconomyUpdatedAt = stamp
+	local.ContextEconomyFingerprint = idx.Fingerprint
+	localWrote, localDirs, err := home.WriteProjectLocalStateTracked(homePath, projectID, local)
+	if snap != nil {
+		snap.projectHome.Footprint.MergeDirs(localDirs)
 	}
-	if err := os.WriteFile(statePath, data, 0o644); err != nil {
+	if err != nil {
+		return fmt.Errorf("context update: %w", err)
+	}
+	if snap != nil {
+		snap.projectHome.Footprint.AddFile(localWrote)
+	}
+	if len(stateData) == 0 {
+		return nil
+	}
+	wrote, dirs, err := fsafety.AtomicWriteContainedTracked(root, config.FileState, stateData, 0o644, 0o755, ".atlas-write-*.tmp")
+	if snap != nil {
+		snap.rootFootprint.MergeDirs(dirs)
+	}
+	if err != nil {
 		return fmt.Errorf("context update: write state: %w", err)
+	}
+	if snap != nil {
+		snap.rootFootprint.AddFile(wrote)
 	}
 	return nil
 }

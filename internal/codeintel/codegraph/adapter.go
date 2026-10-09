@@ -101,6 +101,13 @@ func (a *Adapter) Refresh(ctx context.Context, req codeintel.RefreshRequest) (co
 		return codeintel.RefreshResult{}, fmt.Errorf("codegraph: executable not found on PATH")
 	}
 
+	// Refuse unsafe graph.db leaf before invoking the external provider.
+	if req.HomePath != "" {
+		if _, err := codeintel.InspectStorageLeaf(req.HomePath, req.DBPath); err != nil {
+			return codeintel.RefreshResult{}, err
+		}
+	}
+
 	mode := req.Mode
 	var args []string
 	switch mode {
@@ -117,7 +124,15 @@ func (a *Adapter) Refresh(ctx context.Context, req codeintel.RefreshRequest) (co
 	if runErr != nil {
 		return codeintel.RefreshResult{}, fmt.Errorf("codegraph: build: %s", normalizeRunError(runErr, buildResult.Stderr))
 	}
-	if !fileExists(req.DBPath) {
+	if req.HomePath != "" {
+		leaf, leafErr := codeintel.InspectStorageLeaf(req.HomePath, req.DBPath)
+		if leafErr != nil {
+			return codeintel.RefreshResult{}, leafErr
+		}
+		if !leaf.Present {
+			return codeintel.RefreshResult{}, fmt.Errorf("codegraph: build finished but graph.db missing at %s", req.DBPath)
+		}
+	} else if !fileExistsRegular(req.DBPath) {
 		return codeintel.RefreshResult{}, fmt.Errorf("codegraph: build finished but graph.db missing at %s", req.DBPath)
 	}
 
@@ -155,11 +170,31 @@ func (a *Adapter) Status(ctx context.Context, project codeintel.Project) (codein
 		return st, err
 	}
 
-	st.GraphPresent = fileExists(st.GraphDBPath)
-	st.MetadataPresent = fileExists(st.MetadataPath)
+	if project.HomePath != "" {
+		graphLeaf, graphErr := codeintel.InspectStorageLeaf(project.HomePath, st.GraphDBPath)
+		if graphErr != nil {
+			st.State = codeintel.StateError
+			st.Message = graphErr.Error()
+			st.GraphPresent = false
+			st.MetadataPresent = false
+			return st, nil
+		}
+		st.GraphPresent = graphLeaf.Present
+		metaLeaf, metaErr := codeintel.InspectStorageLeaf(project.HomePath, st.MetadataPath)
+		if metaErr != nil {
+			st.State = codeintel.StateError
+			st.Message = metaErr.Error()
+			st.MetadataPresent = false
+			return st, nil
+		}
+		st.MetadataPresent = metaLeaf.Present
+	}
 
 	switch cap.State {
 	case codeintel.StateUnavailable, codeintel.StateIncompatible, codeintel.StateError, codeintel.StateMissing:
+		return st, nil
+	}
+	if st.State == codeintel.StateError {
 		return st, nil
 	}
 
@@ -176,13 +211,13 @@ func (a *Adapter) Status(ctx context.Context, project codeintel.Project) (codein
 	return st, nil
 }
 
-func fileExists(path string) bool {
+func fileExistsRegular(path string) bool {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return false
 	}
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 func normalizeRunError(err error, stderr []byte) string {

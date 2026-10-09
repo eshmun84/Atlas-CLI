@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -11,8 +12,19 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 )
 
+// Testable seams; production uses RenderRuntimeManifestYAML / home.ReadCanonical / embed FS.
+var (
+	renderRuntimeManifestYAMLFn = RenderRuntimeManifestYAML
+	readCanonicalAssetFn        = home.ReadCanonical
+	readEmbeddedAssetFn         = func(path string) ([]byte, error) {
+		return assets.Content.ReadFile(path)
+	}
+)
+
 // BuildAssetsLockDocumentFor builds the project assets lock with Home references.
-func BuildAssetsLockDocumentFor(homePath string, doc ProjectDocument, atlasVersion string) AssetsLockDocument {
+// Render failures (e.g. runtime manifest) abort; no empty/invalid checksum is recorded.
+// Declared bundled assets must be readable; omission from the lock is never silent.
+func BuildAssetsLockDocumentFor(homePath string, doc ProjectDocument, atlasVersion string) (AssetsLockDocument, error) {
 	ver := strings.TrimSpace(atlasVersion)
 	if ver == "" {
 		ver = version.Version
@@ -25,11 +37,14 @@ func BuildAssetsLockDocumentFor(homePath string, doc ProjectDocument, atlasVersi
 
 	// Bundled/Home-backed assets that project materialization depends on.
 	for _, asset := range home.BundledAssets() {
-		data, err := home.ReadCanonical(asset.EmbedPath)
+		data, err := readCanonicalAssetFn(asset.EmbedPath)
 		if err != nil {
-			data, err = assets.Content.ReadFile(asset.EmbedPath)
+			data, err = readEmbeddedAssetFn(asset.EmbedPath)
 			if err != nil {
-				continue
+				return AssetsLockDocument{}, fmt.Errorf(
+					"assets lock: bundled asset %s (%s): %w",
+					asset.ID, asset.EmbedPath, err,
+				)
 			}
 		}
 		entry := AssetsLockEntry{
@@ -48,7 +63,10 @@ func BuildAssetsLockDocumentFor(homePath string, doc ProjectDocument, atlasVersi
 	}
 
 	// Generated project surfaces.
-	agentsMD := RenderAgentsMD(doc.Project.Name, doc.ContextGraphEnabled(), selected, nil)
+	agentsMD, err := RenderAgentsMD(doc.Project.Name, doc.ContextGraphEnabled(), selected, nil)
+	if err != nil {
+		return AssetsLockDocument{}, err
+	}
 	entries = append(entries, AssetsLockEntry{
 		ID:           "project/AGENTS.md",
 		Family:       "contract",
@@ -66,7 +84,10 @@ func BuildAssetsLockDocumentFor(homePath string, doc ProjectDocument, atlasVersi
 		Checksum:     checksumHex([]byte(registry)),
 		ProjectPaths: []string{FileAgentRegistry},
 	})
-	manifest, _ := RenderRuntimeManifestYAML(doc.Project.Name, selected)
+	manifest, err := renderRuntimeManifestYAMLFn(doc.Project.Name, selected)
+	if err != nil {
+		return AssetsLockDocument{}, err
+	}
 	entries = append(entries, AssetsLockEntry{
 		ID:           "project/runtime-manifest.yaml",
 		Family:       "manifest",
@@ -76,18 +97,19 @@ func BuildAssetsLockDocumentFor(homePath string, doc ProjectDocument, atlasVersi
 		ProjectPaths: []string{FileRuntimeManifest},
 	})
 
-	docOut := AssetsLockDocument{
+	return AssetsLockDocument{
 		SchemaVersion: PersistSchemaVersion,
 		Assets:        entries,
-	}
-	// Do not persist absolute ATLAS_HOME into portable project files.
-	_ = homePath
-	return docOut
+	}, nil
 }
 
 // RenderAssetsLockYAMLFor marshals a fully contextual assets lock.
 func RenderAssetsLockYAMLFor(homePath string, doc ProjectDocument) (string, error) {
-	data, err := marshalYAML(BuildAssetsLockDocumentFor(homePath, doc, version.Version))
+	lockDoc, err := BuildAssetsLockDocumentFor(homePath, doc, version.Version)
+	if err != nil {
+		return "", err
+	}
+	data, err := marshalYAML(lockDoc)
 	if err != nil {
 		return "", err
 	}

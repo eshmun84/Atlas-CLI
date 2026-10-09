@@ -1,6 +1,7 @@
 # Atlas Alpha 2 release-readiness checklist
 
 Version under test: **0.1.0** (Alpha 2 release candidate).
+Toolchain: **Go 1.27.1** (required by `go.mod`; local/CI builds must satisfy that directive).
 Alpha 2 is **not** final V1.
 No git tag / GitHub release / publish unless a human explicitly approves later.
 
@@ -30,7 +31,7 @@ No git tag / GitHub release / publish unless a human explicitly approves later.
 - [x] Doctor read-only
 - [x] Runtime Repair
 - [x] Context Economy update / read-only / stale detection
-- [x] Configure config-only behavior
+- [x] Configure Apply (config.yaml + MCP reconcile; no silent non-MCP rematerialize)
 - [x] Init Home reset gate
 - [x] `ATLAS_HOME` project isolation (default `~/.atlas` untouched)
 - [x] same-name different-root isolation
@@ -77,8 +78,8 @@ Interactive TUI click-through remains optional human confirmation.
 ## Guarantees (must hold)
 
 - Status / Doctor / discovery / startup do not mutate
-- Runtime Repair remains the explicit runtime mutation path (Review → Apply)
-- Configure Apply remains config-only (no silent rematerialization)
+- Runtime Repair remains the explicit mutation path for non-MCP runtime artifacts (Review → Apply)
+- Configure Apply saves config.yaml and reconciles Atlas-owned MCP projections; it does not silently rematerialize AGENTS/rules/agents
 - Context update remains explicit
 - Init Home reset requires explicit acceptance and deletes only `$ATLAS_HOME/projects/<project-id>/`
 - Atlas Home is not created by read-only flows
@@ -95,9 +96,9 @@ Interactive TUI click-through remains optional human confirmation.
 | Status / Doctor | Read-only |
 | Runtime Repair | Explicit mutation path |
 | Context Economy v0 | File-based, explicit update |
-| CodeGraph | Not implemented |
-| Atlas Context Graph | Preference only; not implemented |
-| MCP | Preference/config only; no materialization/auth/verification |
+| CodeGraph | Optional Code Intelligence provider (externally installed; not MCP; may be unavailable) |
+| Atlas Context Graph | Preference only; NOT IMPLEMENTED |
+| MCP | Desired state + Atlas-owned projections; no auth/connection/verification; secrets not stored |
 | OpenSpec | Operational contract only; no CLI execution |
 | Git | Discovery only; no automation |
 | Skills v1 | Not implemented |
@@ -107,4 +108,4 @@ Interactive TUI click-through remains optional human confirmation.
 
 ## Out of scope for this RC
 
-Final V1, CodeGraph, Atlas Context Graph engine, MCP materialization/auth, Skills v1, marketplace/community registry, real OpenSpec CLI, Claude/Codex activation, Git automation, hooks, embeddings, daemon, new CLI commands, tag/release/publish.
+Final V1, Atlas Context Graph engine, MCP authentication/connection/verification orchestration, secret manager, Skills v1, marketplace/community registry, real OpenSpec CLI, Claude/Codex activation, Git automation, hooks, embeddings, daemon, new CLI commands, tag/release/publish.

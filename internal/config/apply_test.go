@@ -47,10 +47,10 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 		t.Fatal("source control")
 	}
 	mcp := config.EmptyMCPDraft()
-	if !mcp.ToggleBuiltin(0) {
-		t.Fatal("jira")
+	if !mcp.EnableBuiltin(config.MCPBuiltinFilesystem) {
+		t.Fatal("filesystem")
 	}
-	if _, err := mcp.AddCustom("Internal Docs", config.MCPTransportHTTP, "https://example.local/mcp", "", ""); err != nil {
+	if _, err := mcp.AddCustom("Internal Docs", config.MCPTransportStreamableHTTP, "https://example.local/mcp", "", ""); err != nil {
 		t.Fatalf("custom: %v", err)
 	}
 	mcp.ToggleCustom(0)
@@ -298,9 +298,9 @@ func TestApplyConfig_BacksUpExistingTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantBackup := filepath.ToSlash(filepath.Join("projects", id, "backups", "20261004T200000Z"))
-	if result.BackupDir != wantBackup {
-		t.Fatalf("backup dir = %q want %q", result.BackupDir, wantBackup)
+	wantPrefix := filepath.ToSlash(filepath.Join("projects", id, "backups", "20261004T200000"))
+	if !strings.HasPrefix(result.BackupDir, wantPrefix) || !strings.Contains(result.BackupDir, "-") {
+		t.Fatalf("backup dir = %q want unique stamp under %q", result.BackupDir, wantPrefix)
 	}
 	backupAbs := filepath.Join(result.HomePath, filepath.FromSlash(result.BackupDir))
 	if _, err := os.Stat(filepath.Join(root, ".atlas", "backups")); !os.IsNotExist(err) {
@@ -451,15 +451,15 @@ func TestApplyConfig_RequiresHomeResetWhenProjectDataExists(t *testing.T) {
 }
 
 func TestPersistConfigure_WritesConfigOnly(t *testing.T) {
-
+	withTempAtlasHome(t)
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
 		ProjectName: "demo",
 		ProjectMode: "existing",
 	})
 	mcp := config.EmptyMCPDraft()
-	mcp.ToggleBuiltin(0)
-	if _, err := mcp.AddCustom("Docs", config.MCPTransportSSE, "https://docs.local", "a", "HOME"); err != nil {
+	mcp.EnableBuiltin(config.MCPBuiltinJira)
+	if _, err := mcp.AddCustom("Docs", config.MCPTransportStreamableHTTP, "https://docs.local/mcp", "", "HOME"); err != nil {
 		t.Fatal(err)
 	}
 	mcp.ToggleCustom(0)
@@ -474,22 +474,23 @@ func TestPersistConfigure_WritesConfigOnly(t *testing.T) {
 	if !strings.Contains(result.Notice, "Runtime files are not repaired automatically.") {
 		t.Fatalf("missing runtime repair honesty: %q", result.Notice)
 	}
-	if !strings.Contains(result.Notice, "MCP selections record preferences") {
-		t.Fatalf("missing MCP honesty: %q", result.Notice)
+	if !strings.Contains(result.Notice, "MCP selections were reconciled") {
+		t.Fatalf("missing MCP projection notice: %q", result.Notice)
 	}
-	doc, err := config.LoadProjectDocument(filepath.Join(root, config.FileConfig))
+	doc, err := config.LoadProjectDocumentAt(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !doc.MCP.Builtins.Jira.Enabled || len(doc.MCP.Custom) != 1 || doc.MCP.Custom[0].Transport != "sse" {
+	if !doc.MCP.Builtins.Jira.Enabled || len(doc.MCP.Custom) != 1 || doc.MCP.Custom[0].Transport != "streamable_http" {
 		t.Fatalf("doc mcp = %#v", doc.MCP)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".atlas", "local.yaml")); !os.IsNotExist(err) {
 		t.Fatal("persist configure must not write local.yaml")
 	}
 	assertMissing(t, root, "AGENTS.md")
+	// No adapters selected => no native MCP projection files.
 	assertMissing(t, root, ".cursor")
-	assertMissing(t, root, ".opencode")
+	assertMissing(t, root, "opencode.json")
 	assertMissing(t, root, ".atlas/state.yaml")
 	assertMissing(t, root, "skills")
 	assertMissing(t, root, ".agents")
@@ -532,9 +533,9 @@ func TestFormatConfigureFooterNote_DefaultConfigOnly(t *testing.T) {
 	note := config.FormatConfigureFooterNote(draft)
 	for _, want := range []string{
 		"Apply saves .atlas/config.yaml.",
-		"Runtime files are not repaired or rematerialized automatically.",
+		"Runtime files (AGENTS.md, rules, agents) are not repaired or rematerialized automatically.",
 		"Context Economy payloads are not updated automatically.",
-		"MCP selections are preference/config only",
+		"MCP projections for selected adapters are reconciled on Apply",
 		"Runtime Repair and Update Context are separate flows.",
 	} {
 		if !strings.Contains(note, want) {
@@ -571,9 +572,9 @@ func TestFormatConfigureFooterNote_DocsScaffoldSelected(t *testing.T) {
 	for _, want := range []string{
 		"Apply saves .atlas/config.yaml.",
 		"docs/atlas/README.md once",
-		"Runtime files are not repaired or rematerialized automatically.",
+		"Runtime files (AGENTS.md, rules, agents) are not repaired or rematerialized automatically.",
 		"Context Economy payloads are not updated automatically.",
-		"MCP selections are preference/config only",
+		"MCP projections for selected adapters are reconciled on Apply",
 		"Runtime Repair and Update Context are separate flows.",
 	} {
 		if !strings.Contains(note, want) {

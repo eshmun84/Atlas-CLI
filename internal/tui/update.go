@@ -1200,29 +1200,44 @@ func (m Model) applyCodeIntelRefresh() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// Testable seams for CodeIntel plan prerequisites; production uses home/codeintel helpers.
+var (
+	codeIntelProjectIDFn   = home.ProjectID
+	codeIntelFingerprintFn = codeintel.ComputeSourceFingerprint
+)
+
 func buildCodeIntelPlan(disc inspect.Inspection, forceFull bool) codeintel.RefreshPlan {
 	snap := disc.Runtime.CodeIntelligence
 	name := ""
 	if disc.Atlas.Initialized() {
 		name = disc.Atlas.Config.Project.Name
 	}
-	projectID := ""
-	if id, err := home.ProjectID(disc.RootPath, name); err == nil {
-		projectID = id
+	projectID, idErr := codeIntelProjectIDFn(disc.RootPath, name)
+	if idErr != nil {
+		return codeintel.RefreshPlan{
+			Blocked:  true,
+			Blockers: []string{"project identity unavailable: " + idErr.Error()},
+			HomePath: disc.Runtime.Home.Path,
+		}
 	}
 	project := codeintel.Project{
 		Root:     disc.RootPath,
 		ID:       projectID,
 		HomePath: disc.Runtime.Home.Path,
 	}
-	fp := ""
-	if computed, err := codeintel.ComputeSourceFingerprint(disc.RootPath); err == nil {
-		fp = computed.Value
+	computed, fpErr := codeIntelFingerprintFn(disc.RootPath)
+	if fpErr != nil {
+		return codeintel.RefreshPlan{
+			Blocked:   true,
+			Blockers:  []string{"source fingerprint unavailable: " + fpErr.Error()},
+			ProjectID: projectID,
+			HomePath:  project.HomePath,
+		}
 	}
 	// Prefer enriching from live snapshot already on discovery when possible.
 	if snap.GraphDBPath == "" && project.HomePath != "" && project.ID != "" {
 		snap.GraphDBPath = codeintel.GraphDBPath(project.HomePath, project.ID, codeintel.ProviderCodeGraph)
 		snap.MetadataPath = codeintel.MetadataPath(project.HomePath, project.ID, codeintel.ProviderCodeGraph)
 	}
-	return codeintel.BuildRefreshPlan(snap, project, forceFull, fp)
+	return codeintel.BuildRefreshPlan(snap, project, forceFull, computed.Value)
 }

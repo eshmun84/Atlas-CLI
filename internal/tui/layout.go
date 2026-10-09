@@ -541,19 +541,6 @@ func (m Model) renderShell() string {
 	return panelBorder.Width(innerW).Height(innerH).AlignVertical(lipgloss.Top).Render(body)
 }
 
-func (m Model) composeRightPanel(chunk string) string {
-	chunk = strings.TrimRight(chunk, "\n")
-	action, ok := m.renderActionRow()
-	if !ok {
-		return chunk
-	}
-	action = strings.TrimRight(action, "\n")
-	if chunk == "" {
-		return action + "\n"
-	}
-	return chunk + "\n\n" + action + "\n"
-}
-
 // renderRightPanel keeps the action row outside content MaxHeight clipping so
 // Configure [ Apply changes ] stays visible under tall MCP content.
 func (m Model) renderRightPanel(contentW, viewportH, middleH int) string {

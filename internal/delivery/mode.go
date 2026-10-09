@@ -30,14 +30,3 @@ func DefaultMode(gitRepoDetected bool) Mode {
 	}
 	return ModeNone
 }
-
-// IsKnown reports whether mode is a recognized persisted value.
-func IsKnown(mode Mode) bool {
-	switch mode {
-	case ModeNone, ModeGitLocal, ModeGitGitHub,
-		ModeGitGitLab, ModeGitBitbucket, ModeGitAzureDevOps:
-		return true
-	default:
-		return false
-	}
-}

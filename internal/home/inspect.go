@@ -3,11 +3,18 @@ package home
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/eshmun84/Atlas-CLI/internal/assets"
+	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 )
+
+// Testable seam for embedded asset reads; production uses assets.Content.ReadFile.
+var readEmbeddedAssetFn = func(embedPath string) ([]byte, error) {
+	return assets.Content.ReadFile(embedPath)
+}
 
 // Status is a read-only snapshot of Atlas Home. Never mutates the filesystem.
 type Status struct {
@@ -23,6 +30,10 @@ type Status struct {
 	AssetCount     int
 	MissingAssets  []string
 	DriftedAssets  []string
+	// AssetErrors reports declared bundled assets whose embedded canonical
+	// content could not be read (integrity failure, not Home drift/missing),
+	// and Home path integrity failures (symlink root/layout/asset leaves).
+	AssetErrors []string
 }
 
 // Inspect resolves Atlas Home and reports layout/asset health without creating anything.
@@ -40,20 +51,47 @@ func Inspect() Status {
 }
 
 // InspectPath inspects a concrete Atlas Home path without creating anything.
+// Symlink-safe: never follows Home root, layout dirs, or asset leaves.
 func InspectPath(homePath string) Status {
 	status := Status{
 		Path:          homePath,
-		Exists:        Exists(homePath),
-		Writable:      Writable(homePath),
 		MissingAssets: []string{},
 		DriftedAssets: []string{},
+		AssetErrors:   []string{},
 	}
-	if !status.Exists {
+
+	rootInfo, rootErr := os.Lstat(homePath)
+	if os.IsNotExist(rootErr) {
+		status.Exists = false
+		status.Writable = Writable(homePath)
 		status.MissingAssets = assetIDs(BundledAssets())
 		return status
 	}
+	if rootErr != nil {
+		status.Exists = false
+		status.StateError = rootErr.Error()
+		status.MissingAssets = assetIDs(BundledAssets())
+		return status
+	}
+	status.Exists = true
+	if rootInfo.Mode()&os.ModeSymlink != 0 {
+		status.Writable = false
+		status.LayoutComplete = false
+		status.AssetErrors = append(status.AssetErrors, "home root is a symlink")
+		status.StateError = "atlas home root is a symlink"
+		status.MissingAssets = assetIDs(BundledAssets())
+		return status
+	}
+	if !rootInfo.IsDir() {
+		status.Writable = false
+		status.LayoutComplete = false
+		status.AssetErrors = append(status.AssetErrors, "home root is not a directory")
+		status.StateError = "atlas home root is not a directory"
+		return status
+	}
+	status.Writable = Writable(homePath)
 
-	status.LayoutComplete = layoutComplete(homePath)
+	status.LayoutComplete = layoutCompleteSafe(homePath, &status)
 	doc, present, err := LoadState(homePath)
 	status.StatePresent = present
 	if err != nil {
@@ -67,14 +105,19 @@ func InspectPath(homePath string) Status {
 	}
 
 	for _, asset := range BundledAssets() {
-		dest := AssetHomePath(homePath, asset)
-		data, err := os.ReadFile(dest)
+		rel := filepath.ToSlash(filepath.Join("assets", filepath.FromSlash(asset.EmbedPath)))
+		data, err := fsafety.ReadFileContained(homePath, rel)
 		if err != nil {
-			status.MissingAssets = append(status.MissingAssets, asset.ID)
+			if os.IsNotExist(err) {
+				status.MissingAssets = append(status.MissingAssets, asset.ID)
+				continue
+			}
+			status.AssetErrors = append(status.AssetErrors, asset.ID+": "+err.Error())
 			continue
 		}
-		want, err := assets.Content.ReadFile(asset.EmbedPath)
+		want, err := readEmbeddedAssetFn(asset.EmbedPath)
 		if err != nil {
+			status.AssetErrors = append(status.AssetErrors, asset.ID+": "+err.Error())
 			continue
 		}
 		if sha256Hex(data) != sha256Hex(want) {
@@ -84,14 +127,28 @@ func InspectPath(homePath string) Status {
 	return status
 }
 
-func layoutComplete(homePath string) bool {
+func layoutCompleteSafe(homePath string, status *Status) bool {
+	complete := true
 	for _, dir := range LayoutDirectories {
-		info, err := os.Stat(filepath.Join(homePath, dir))
-		if err != nil || !info.IsDir() {
-			return false
+		info, err := fsafety.LstatContained(homePath, dir)
+		if err != nil {
+			complete = false
+			if !os.IsNotExist(err) {
+				status.AssetErrors = append(status.AssetErrors, fmt.Sprintf("layout %s: %v", dir, err))
+			}
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			complete = false
+			status.AssetErrors = append(status.AssetErrors, "layout "+dir+" is a symlink")
+			continue
+		}
+		if !info.IsDir() {
+			complete = false
+			status.AssetErrors = append(status.AssetErrors, "layout "+dir+" is not a directory")
 		}
 	}
-	return true
+	return complete
 }
 
 func assetIDs(assets []Asset) []string {

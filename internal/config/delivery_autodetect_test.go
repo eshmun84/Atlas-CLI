@@ -10,8 +10,8 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 func TestDeliveryAutodetect_GitRepoFromDiscovery(t *testing.T) {
@@ -28,7 +28,7 @@ func TestDeliveryAutodetect_GitRepoFromDiscovery(t *testing.T) {
 
 	before := gitStatusShort(t, root)
 
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestDeliveryAutodetect_GitRepoFromDiscovery(t *testing.T) {
 		t.Fatalf("apply: %v", err)
 	}
 
-	refreshed, err := workspace.Discover(root)
+	refreshed, err := inspect.Inspect(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestDeliveryAutodetect_NoGitStaysNone(t *testing.T) {
 	}
 	before := snapshotTreeFiles(t, root)
 
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		t.Fatal(err)
 	}

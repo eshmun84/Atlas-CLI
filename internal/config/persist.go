@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/eshmun84/Atlas-CLI/internal/mcp"
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 )
 
@@ -94,7 +95,10 @@ type MCPPersist struct {
 }
 
 // MCPBuiltinsPersist is a stable, ordered built-in MCP map.
+// Unknown future builtin keys are ignored on load (schema stays explicit).
 type MCPBuiltinsPersist struct {
+	Filesystem     MCPBuiltinPersist `yaml:"filesystem"`
+	GitHub         MCPBuiltinPersist `yaml:"github"`
 	Jira           MCPBuiltinPersist `yaml:"jira"`
 	Context7       MCPBuiltinPersist `yaml:"context7"`
 	ChromeDevTools MCPBuiltinPersist `yaml:"chrome_devtools"`
@@ -106,13 +110,20 @@ type MCPBuiltinPersist struct {
 }
 
 // MCPCustomPersist is one custom MCP entry. Credentials are never stored.
+// Legacy string fields (arguments / environment_references) remain for load compatibility.
+// Prefer args / env_refs / header_refs when writing new configs.
+// header_refs values accept legacy bare env strings or {env, prefix} objects.
 type MCPCustomPersist struct {
-	Name                  string `yaml:"name"`
-	Transport             string `yaml:"transport"`
-	CommandOrURL          string `yaml:"command_or_url"`
-	Arguments             string `yaml:"arguments"`
-	EnvironmentReferences string `yaml:"environment_references"`
-	Enabled               bool   `yaml:"enabled"`
+	Name                  string                        `yaml:"name"`
+	Transport             string                        `yaml:"transport"`
+	CommandOrURL          string                        `yaml:"command_or_url"`
+	Arguments             string                        `yaml:"arguments,omitempty"`
+	Args                  []string                      `yaml:"args,omitempty"`
+	EnvironmentReferences string                        `yaml:"environment_references,omitempty"`
+	EnvRefs               []string                      `yaml:"env_refs,omitempty"`
+	HeaderRefs            map[string]mcp.HeaderValueRef `yaml:"header_refs,omitempty"`
+	AuthRequirement       string                        `yaml:"auth_requirement,omitempty"`
+	Enabled               bool                          `yaml:"enabled"`
 }
 
 // LocalDocument is machine-local .atlas/local.yaml. Secrets are never stored.
@@ -184,12 +195,27 @@ func BuildProjectDocument(draft ConfigDraft, mcp MCPDraft) ProjectDocument {
 	}
 	custom := make([]MCPCustomPersist, 0, len(mcp.CustomServers))
 	for _, server := range mcp.CustomServers {
+		args := server.Args
+		if len(args) == 0 {
+			args = splitMCPArgs(server.Arguments)
+		}
+		envRefs := server.EnvRefs
+		if len(envRefs) == 0 {
+			envRefs = splitMCPEnvRefs(server.EnvironmentReferences)
+		}
+		transport := string(NormalizeTransport(string(server.Transport)))
+		// Do not promote legacy sse to streamable_http on write if still sse in draft;
+		// new selectable transports never produce sse.
 		custom = append(custom, MCPCustomPersist{
 			Name:                  server.Name,
-			Transport:             string(NormalizeTransport(string(server.Transport))),
+			Transport:             transport,
 			CommandOrURL:          server.CommandOrURL,
-			Arguments:             server.Arguments,
-			EnvironmentReferences: server.EnvironmentReferences,
+			Arguments:             strings.Join(args, " "),
+			Args:                  append([]string(nil), args...),
+			EnvironmentReferences: strings.Join(envRefs, ","),
+			EnvRefs:               append([]string(nil), envRefs...),
+			HeaderRefs:            copyHeaderRefs(server.HeaderRefs),
+			AuthRequirement:       string(server.AuthRequirement),
 			Enabled:               server.Enabled,
 		})
 	}
@@ -233,6 +259,8 @@ func BuildProjectDocument(draft ConfigDraft, mcp MCPDraft) ProjectDocument {
 		},
 		MCP: MCPPersist{
 			Builtins: MCPBuiltinsPersist{
+				Filesystem:     MCPBuiltinPersist{Enabled: builtinEnabled(mcp, MCPBuiltinFilesystem)},
+				GitHub:         MCPBuiltinPersist{Enabled: builtinEnabled(mcp, MCPBuiltinGitHub)},
 				Jira:           MCPBuiltinPersist{Enabled: builtinEnabled(mcp, MCPBuiltinJira)},
 				Context7:       MCPBuiltinPersist{Enabled: builtinEnabled(mcp, MCPBuiltinContext7)},
 				ChromeDevTools: MCPBuiltinPersist{Enabled: builtinEnabled(mcp, MCPBuiltinChromeDevTools)},
@@ -283,7 +311,7 @@ func boolPtr(v bool) *bool {
 
 // BuildAssetsLockDocument is kept for callers that only know selected adapters.
 // Prefer BuildAssetsLockDocumentFor which includes Home metadata and checksums.
-func BuildAssetsLockDocument(selected []string) AssetsLockDocument {
+func BuildAssetsLockDocument(selected []string) (AssetsLockDocument, error) {
 	return BuildAssetsLockDocumentFor("", ProjectDocument{Adapters: AdaptersPersist{Selected: selected}}, "")
 }
 
@@ -360,6 +388,10 @@ func (d ProjectDocument) ToMCPDraft() MCPDraft {
 	for i := range draft.Builtins {
 		enabled := false
 		switch draft.Builtins[i].ID {
+		case MCPBuiltinFilesystem:
+			enabled = d.MCP.Builtins.Filesystem.Enabled
+		case MCPBuiltinGitHub:
+			enabled = d.MCP.Builtins.GitHub.Enabled
 		case MCPBuiltinJira:
 			enabled = d.MCP.Builtins.Jira.Enabled
 		case MCPBuiltinContext7:
@@ -368,24 +400,36 @@ func (d ProjectDocument) ToMCPDraft() MCPDraft {
 			enabled = d.MCP.Builtins.ChromeDevTools.Enabled
 		}
 		draft.Builtins[i].Enabled = enabled
-		if enabled {
-			draft.Builtins[i].Status = MCPStatusInMemoryOnly
-		} else {
-			draft.Builtins[i].Status = MCPStatusNotConfigured
-		}
+		draft.Builtins[i].Status = builtinStatus(draft.Builtins[i])
 	}
 	draft.CustomServers = make([]MCPServerDraft, 0, len(d.MCP.Custom))
 	for i, server := range d.MCP.Custom {
-		draft.CustomServers = append(draft.CustomServers, MCPServerDraft{
+		args := server.Args
+		if len(args) == 0 {
+			args = splitMCPArgs(server.Arguments)
+		}
+		envRefs := server.EnvRefs
+		if len(envRefs) == 0 {
+			envRefs = splitMCPEnvRefs(server.EnvironmentReferences)
+		}
+		auth := MCPAuthRequirement(server.AuthRequirement)
+		transport := NormalizeTransport(server.Transport)
+		auth = normalizeAuth(auth, transport, envRefs, server.HeaderRefs)
+		item := MCPServerDraft{
 			ID:                    fmt.Sprintf("custom-%d", i+1),
 			Name:                  server.Name,
-			Transport:             NormalizeTransport(server.Transport),
+			Transport:             transport,
 			CommandOrURL:          server.CommandOrURL,
 			Arguments:             server.Arguments,
+			Args:                  args,
 			EnvironmentReferences: server.EnvironmentReferences,
+			EnvRefs:               envRefs,
+			HeaderRefs:            copyHeaderRefs(server.HeaderRefs),
+			AuthRequirement:       auth,
 			Enabled:               server.Enabled,
-			Status:                MCPStatusInMemoryOnly,
-		})
+		}
+		item.Status = customStatus(item)
+		draft.CustomServers = append(draft.CustomServers, item)
 	}
 	return draft
 }
@@ -481,11 +525,35 @@ func (d ProjectDocument) ToConfig() Config {
 		cfg.Memory.CapsuleEnabled = true
 	}
 	cfg.ExternalContextProviders.JiraEnabled = d.MCP.Builtins.Jira.Enabled
-	cfg.ExternalContextProviders.MCPEnabled = d.MCP.Builtins.Jira.Enabled ||
+	cfg.ExternalContextProviders.MCPEnabled = d.MCP.Builtins.Filesystem.Enabled ||
+		d.MCP.Builtins.GitHub.Enabled ||
+		d.MCP.Builtins.Jira.Enabled ||
 		d.MCP.Builtins.Context7.Enabled ||
 		d.MCP.Builtins.ChromeDevTools.Enabled ||
 		len(d.MCP.Custom) > 0
 	return cfg
+}
+
+func splitMCPArgs(raw string) []string {
+	return strings.Fields(strings.TrimSpace(raw))
+}
+
+func splitMCPEnvRefs(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t'
+	})
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func fieldValue(draft ConfigDraft, key string) string {

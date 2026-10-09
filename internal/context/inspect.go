@@ -1,7 +1,6 @@
 package context
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -36,6 +35,7 @@ type InspectInput struct {
 }
 
 // Inspect reports Context Economy state without creating or mutating files.
+// Canonical/legacy index and capsule are inspected via symlink-safe Home reads.
 func Inspect(in InspectInput) StatusSnapshot {
 	snap := StatusSnapshot{
 		State: StatusNA,
@@ -68,15 +68,33 @@ func Inspect(in InspectInput) StatusSnapshot {
 	}
 	snap.ProjectID = id
 
-	dir := ResolveContextDir(homePath, id)
-	snap.ProjectDir = dir
-	snap.IndexPath = filepath.Join(dir, FileIndexYAML)
-	snap.CapsulePath = filepath.Join(dir, FileCapsuleMD)
+	indexRel, capsuleRel, resolveErr := resolveContextRels(homePath, id)
+	snap.IndexPath = filepath.Join(homePath, filepath.FromSlash(indexRel))
+	snap.CapsulePath = filepath.Join(homePath, filepath.FromSlash(capsuleRel))
+	snap.ProjectDir = filepath.Dir(snap.IndexPath)
 
-	indexInfo, indexErr := os.Stat(snap.IndexPath)
-	capsuleInfo, capsuleErr := os.Stat(snap.CapsulePath)
-	snap.IndexPresent = indexErr == nil && !indexInfo.IsDir()
-	snap.CapsulePresent = capsuleErr == nil && !capsuleInfo.IsDir()
+	if resolveErr != nil {
+		snap.State = StatusUnreadable
+		snap.Message = "context index unreadable"
+		return snap
+	}
+
+	indexPresent, indexErr := InspectContextLeaf(homePath, indexRel)
+	if indexErr != nil {
+		snap.State = StatusUnreadable
+		snap.Message = "context index unreadable"
+		return snap
+	}
+	snap.IndexPresent = indexPresent
+
+	capsulePresent, capsuleErr := InspectContextLeaf(homePath, capsuleRel)
+	if capsuleErr != nil {
+		// External/symlink/non-regular capsule is never healthy.
+		snap.State = StatusUnreadable
+		snap.Message = "context capsule unreadable"
+		return snap
+	}
+	snap.CapsulePresent = capsulePresent
 
 	if !snap.IndexPresent {
 		snap.State = StatusMissing
@@ -84,10 +102,15 @@ func Inspect(in InspectInput) StatusSnapshot {
 		return snap
 	}
 
-	idx, loadErr := LoadIndex(snap.IndexPath)
+	idx, present, loadErr := LoadIndexAt(homePath, id)
 	if loadErr != nil {
 		snap.State = StatusUnreadable
 		snap.Message = "context index unreadable"
+		return snap
+	}
+	if !present {
+		snap.State = StatusMissing
+		snap.Message = "context index missing under Atlas Home"
 		return snap
 	}
 	snap.IndexedAt = idx.IndexedAt

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/mcp"
+	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 )
 
 const BackupManifestSchemaVersion = 1
@@ -47,13 +49,14 @@ type ConflictBackup struct {
 // $ATLAS_HOME/projects/<project-id>/backups/<timestamp>/.
 // When no targets exist, it returns an empty backup dir and does not create a timestamp folder.
 // If backup fails, no target files should be written by the caller.
-func BackupExistingTargets(root, homePath, projectID string, targets []string, now time.Time) (backupDir string, manifest BackupManifest, err error) {
+// Footprint records files/dirs created under Home for identity-aware rollback.
+func BackupExistingTargets(root, homePath, projectID string, targets []string, now time.Time) (backupDir string, manifest BackupManifest, fp fsafety.TransactionFootprint, err error) {
 	root = filepath.Clean(strings.TrimSpace(root))
 	if root == "" || root == "." {
-		return "", BackupManifest{}, fmt.Errorf("backup: workspace root is required")
+		return "", BackupManifest{}, fp, fmt.Errorf("backup: workspace root is required")
 	}
 	if strings.TrimSpace(homePath) == "" || strings.TrimSpace(projectID) == "" {
-		return "", BackupManifest{}, fmt.Errorf("backup: Atlas Home project identity is required")
+		return "", BackupManifest{}, fp, fmt.Errorf("backup: Atlas Home project identity is required")
 	}
 
 	manifest = BackupManifest{
@@ -72,43 +75,42 @@ func BackupExistingTargets(root, homePath, projectID string, targets []string, n
 		rel = filepath.ToSlash(filepath.Clean(rel))
 		full, joinErr := safeJoinRuntime(root, rel)
 		if joinErr != nil {
-			return "", BackupManifest{}, joinErr
+			return "", BackupManifest{}, fp, joinErr
 		}
 		info, statErr := os.Lstat(full)
 		if os.IsNotExist(statErr) {
 			continue
 		}
 		if statErr != nil {
-			return "", BackupManifest{}, fmt.Errorf("backup: stat %s: %w", rel, statErr)
+			return "", BackupManifest{}, fp, fmt.Errorf("backup: stat %s: %w", rel, statErr)
 		}
 		if info.IsDir() {
-			return "", BackupManifest{}, fmt.Errorf("backup: %s exists as a directory; expected a file", rel)
+			return "", BackupManifest{}, fp, fmt.Errorf("backup: %s exists as a directory; expected a file", rel)
 		}
 		toBackup = append(toBackup, pending{rel: rel, full: full})
 	}
 	if len(toBackup) == 0 {
-		return "", manifest, nil
+		return "", manifest, fp, nil
 	}
 
-	if err := home.EnsureProjectLayout(homePath, projectID); err != nil {
-		return "", BackupManifest{}, err
+	layoutDirs, err := home.EnsureProjectLayoutCreated(homePath, projectID)
+	fp.MergeDirs(layoutDirs)
+	if err != nil {
+		return "", BackupManifest{}, fp, err
 	}
-	stamp := now.UTC().Format("20060102T150405Z")
-	backupAbs := home.ProjectBackupDir(homePath, projectID, stamp)
-	backupRel := home.RelHomePath(homePath, backupAbs)
-	if err := os.MkdirAll(backupAbs, 0o755); err != nil {
-		return "", BackupManifest{}, fmt.Errorf("backup: create %s: %w", backupRel, err)
+	stamp := mcp.NewBackupStamp(now)
+	backupRel := filepath.ToSlash(filepath.Join(home.DirProjects, projectID, home.ProjectDirBackups, stamp))
+	dirs, err := fsafety.SafeMkdirAllCreated(homePath, backupRel, home.DirPermHome)
+	fp.MergeDirs(dirs)
+	if err != nil {
+		return "", BackupManifest{}, fp, fmt.Errorf("backup: create %s: %w", backupRel, err)
 	}
 
 	for _, item := range toBackup {
 		destRel := filepath.ToSlash(filepath.Join(backupRel, item.rel))
-		destAbs := filepath.Join(backupAbs, filepath.FromSlash(item.rel))
-		if err := os.MkdirAll(filepath.Dir(destAbs), 0o755); err != nil {
-			return "", BackupManifest{}, fmt.Errorf("backup: create parent for %s: %w", destRel, err)
-		}
-		sum, err := copyFileWithSHA(item.full, destAbs)
-		if err != nil {
-			return "", BackupManifest{}, fmt.Errorf("backup: copy %s: %w", item.rel, err)
+		sum, werr := copyFileContainedTracked(homePath, item.full, destRel, &fp)
+		if werr != nil {
+			return "", BackupManifest{}, fp, fmt.Errorf("backup: copy %s: %w", item.rel, werr)
 		}
 		manifest.Entries = append(manifest.Entries, BackupManifestEntry{
 			OriginalPath: item.rel,
@@ -122,23 +124,23 @@ func BackupExistingTargets(root, homePath, projectID string, targets []string, n
 		})
 	}
 
-	if err := writeBackupManifest(backupAbs, manifest); err != nil {
-		return "", BackupManifest{}, err
+	if err := writeBackupManifestContainedTracked(homePath, backupRel, manifest, &fp); err != nil {
+		return "", BackupManifest{}, fp, err
 	}
-	return backupRel, manifest, nil
+	return backupRel, manifest, fp, nil
 }
 
 // BackupConflicts copies files or directories into
 // $ATLAS_HOME/projects/<project-id>/backups/<timestamp>/.
 // Directories are copied recursively. Missing paths are skipped.
 // Transitional project-local .atlas/backups/ may still exist for older installs.
-func BackupConflicts(root, homePath, projectID string, items []ConflictBackup, now time.Time) (backupDir string, manifest BackupManifest, err error) {
+func BackupConflicts(root, homePath, projectID string, items []ConflictBackup, now time.Time) (backupDir string, manifest BackupManifest, fp fsafety.TransactionFootprint, err error) {
 	root = filepath.Clean(strings.TrimSpace(root))
 	if root == "" || root == "." {
-		return "", BackupManifest{}, fmt.Errorf("backup: workspace root is required")
+		return "", BackupManifest{}, fp, fmt.Errorf("backup: workspace root is required")
 	}
 	if strings.TrimSpace(homePath) == "" || strings.TrimSpace(projectID) == "" {
-		return "", BackupManifest{}, fmt.Errorf("backup: Atlas Home project identity is required")
+		return "", BackupManifest{}, fp, fmt.Errorf("backup: Atlas Home project identity is required")
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -167,42 +169,44 @@ func BackupConflicts(root, homePath, projectID string, items []ConflictBackup, n
 			continue
 		}
 		if err := assertAllowedConflictPath(rel); err != nil {
-			return "", BackupManifest{}, err
+			return "", BackupManifest{}, fp, err
 		}
 		full, joinErr := safeJoinRoot(root, rel)
 		if joinErr != nil {
-			return "", BackupManifest{}, joinErr
+			return "", BackupManifest{}, fp, joinErr
 		}
 		info, statErr := os.Lstat(full)
 		if os.IsNotExist(statErr) {
 			continue
 		}
 		if statErr != nil {
-			return "", BackupManifest{}, fmt.Errorf("backup: stat %s: %w", rel, statErr)
+			return "", BackupManifest{}, fp, fmt.Errorf("backup: stat %s: %w", rel, statErr)
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return "", BackupManifest{}, fmt.Errorf("backup: refused symlink %s", rel)
+			return "", BackupManifest{}, fp, fmt.Errorf("backup: refused symlink %s", rel)
 		}
 		seen[rel] = struct{}{}
 		toBackup = append(toBackup, pending{item: item, rel: rel, full: full, dir: info.IsDir()})
 	}
 	if len(toBackup) == 0 {
-		return "", manifest, nil
+		return "", manifest, fp, nil
 	}
 
-	if err := home.EnsureProjectLayout(homePath, projectID); err != nil {
-		return "", BackupManifest{}, err
+	layoutDirs, err := home.EnsureProjectLayoutCreated(homePath, projectID)
+	fp.MergeDirs(layoutDirs)
+	if err != nil {
+		return "", BackupManifest{}, fp, err
 	}
-	stamp := now.Format("20060102T150405Z")
-	backupAbs := home.ProjectBackupDir(homePath, projectID, stamp)
-	backupRel := home.RelHomePath(homePath, backupAbs)
-	if err := os.MkdirAll(backupAbs, 0o755); err != nil {
-		return "", BackupManifest{}, fmt.Errorf("backup: create %s: %w", backupRel, err)
+	stamp := mcp.NewBackupStamp(now)
+	backupRel := filepath.ToSlash(filepath.Join(home.DirProjects, projectID, home.ProjectDirBackups, stamp))
+	dirs, err := fsafety.SafeMkdirAllCreated(homePath, backupRel, home.DirPermHome)
+	fp.MergeDirs(dirs)
+	if err != nil {
+		return "", BackupManifest{}, fp, fmt.Errorf("backup: create %s: %w", backupRel, err)
 	}
 
 	for _, item := range toBackup {
 		destRel := filepath.ToSlash(filepath.Join(backupRel, item.rel))
-		destAbs := filepath.Join(backupAbs, filepath.FromSlash(item.rel))
 		action := item.item.Action
 		if action == "" {
 			action = "replaced"
@@ -215,20 +219,19 @@ func BackupConflicts(root, homePath, projectID string, items []ConflictBackup, n
 		var sum string
 		if item.dir {
 			kind = "directory"
-			if err := os.MkdirAll(destAbs, 0o755); err != nil {
-				return "", BackupManifest{}, fmt.Errorf("backup: create %s: %w", destRel, err)
+			dirs, mkErr := fsafety.SafeMkdirAllCreated(homePath, destRel, home.DirPermHome)
+			fp.MergeDirs(dirs)
+			if mkErr != nil {
+				return "", BackupManifest{}, fp, fmt.Errorf("backup: create %s: %w", destRel, mkErr)
 			}
-			sum, err = copyDirWithSHA(item.full, destAbs)
+			sum, err = copyDirContainedTracked(homePath, item.full, destRel, &fp)
 			if err != nil {
-				return "", BackupManifest{}, fmt.Errorf("backup: copy dir %s: %w", item.rel, err)
+				return "", BackupManifest{}, fp, fmt.Errorf("backup: copy dir %s: %w", item.rel, err)
 			}
 		} else {
-			if err := os.MkdirAll(filepath.Dir(destAbs), 0o755); err != nil {
-				return "", BackupManifest{}, fmt.Errorf("backup: create parent for %s: %w", destRel, err)
-			}
-			sum, err = copyFileWithSHA(item.full, destAbs)
+			sum, err = copyFileContainedTracked(homePath, item.full, destRel, &fp)
 			if err != nil {
-				return "", BackupManifest{}, fmt.Errorf("backup: copy %s: %w", item.rel, err)
+				return "", BackupManifest{}, fp, fmt.Errorf("backup: copy %s: %w", item.rel, err)
 			}
 		}
 		manifest.Entries = append(manifest.Entries, BackupManifestEntry{
@@ -243,36 +246,53 @@ func BackupConflicts(root, homePath, projectID string, items []ConflictBackup, n
 		})
 	}
 
-	if err := writeBackupManifest(backupAbs, manifest); err != nil {
-		return "", BackupManifest{}, err
+	if err := writeBackupManifestContainedTracked(homePath, backupRel, manifest, &fp); err != nil {
+		return "", BackupManifest{}, fp, err
 	}
-	return backupRel, manifest, nil
+	return backupRel, manifest, fp, nil
 }
 
 // WriteBackupManifest writes manifest.json into an absolute Home backup directory.
 // backupDir may be Home-relative (projects/<id>/backups/<stamp>) or absolute.
 func WriteBackupManifest(homePath, backupDir string, manifest BackupManifest) error {
-	backupAbs := backupDir
-	if !filepath.IsAbs(backupDir) {
-		backupAbs = filepath.Join(homePath, filepath.FromSlash(backupDir))
-	}
-	return writeBackupManifest(backupAbs, manifest)
+	_, err := WriteBackupManifestTracked(homePath, backupDir, manifest)
+	return err
 }
 
-func writeBackupManifest(backupAbs string, manifest BackupManifest) error {
-	manifestPath := filepath.Join(backupAbs, "manifest.json")
+// WriteBackupManifestTracked is WriteBackupManifest plus write footprints.
+func WriteBackupManifestTracked(homePath, backupDir string, manifest BackupManifest) (fsafety.TransactionFootprint, error) {
+	var fp fsafety.TransactionFootprint
+	backupRel := backupDir
+	if filepath.IsAbs(backupDir) {
+		rel, err := filepath.Rel(homePath, backupDir)
+		if err != nil {
+			return fp, fmt.Errorf("backup: manifest path: %w", err)
+		}
+		backupRel = filepath.ToSlash(rel)
+	}
+	if err := writeBackupManifestContainedTracked(homePath, backupRel, manifest, &fp); err != nil {
+		return fp, err
+	}
+	return fp, nil
+}
+
+func writeBackupManifestContainedTracked(homePath, backupRel string, manifest BackupManifest, fp *fsafety.TransactionFootprint) error {
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return fmt.Errorf("backup: marshal manifest: %w", err)
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+	rel := filepath.ToSlash(filepath.Join(backupRel, "manifest.json"))
+	w, dirs, err := fsafety.AtomicWriteContainedTracked(homePath, rel, data, 0o600, home.DirPermHome, ".atlas-backup-*.tmp")
+	fp.MergeDirs(dirs)
+	if err != nil {
 		return fmt.Errorf("backup: write manifest: %w", err)
 	}
+	fp.AddFile(w)
 	return nil
 }
 
-func copyDirWithSHA(src, dst string) (string, error) {
+func copyDirContainedTracked(homePath, src, destRel string, fp *fsafety.TransactionFootprint) (string, error) {
 	h := sha256.New()
 	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -285,14 +305,16 @@ func copyDirWithSHA(src, dst string) (string, error) {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("refused symlink %s", rel)
 		}
-		target := filepath.Join(dst, rel)
+		targetRel := filepath.ToSlash(filepath.Join(destRel, rel))
 		if info.IsDir() {
-			return os.MkdirAll(target, 0o755)
+			dirs, mkErr := fsafety.SafeMkdirAllCreated(homePath, targetRel, home.DirPermHome)
+			fp.MergeDirs(dirs)
+			if mkErr != nil {
+				return mkErr
+			}
+			return nil
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		sum, err := copyFileWithSHA(path, target)
+		sum, err := copyFileContainedTracked(homePath, path, targetRel, fp)
 		if err != nil {
 			return err
 		}
@@ -305,25 +327,22 @@ func copyDirWithSHA(src, dst string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func copyFileWithSHA(src, dst string) (string, error) {
+func copyFileContainedTracked(homePath, src, destRel string, fp *fsafety.TransactionFootprint) (string, error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return "", err
 	}
 	defer in.Close()
-
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	data, err := io.ReadAll(in)
 	if err != nil {
 		return "", err
 	}
-	defer out.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(out, h), in); err != nil {
+	sum := sha256.Sum256(data)
+	w, dirs, err := fsafety.AtomicWriteContainedTracked(homePath, destRel, data, 0o600, home.DirPermHome, ".atlas-backup-*.tmp")
+	fp.MergeDirs(dirs)
+	if err != nil {
 		return "", err
 	}
-	if err := out.Close(); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	fp.AddFile(w)
+	return hex.EncodeToString(sum[:]), nil
 }

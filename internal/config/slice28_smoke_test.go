@@ -10,8 +10,9 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 // Slice 28 dogfooding smoke: temporary ATLAS_HOME + projects.
@@ -94,7 +95,7 @@ func TestSlice28DogfoodingTextQualitySmoke(t *testing.T) {
 	pass("existing Cursor+OpenCode: readable runtime assets")
 
 	// Context Economy update.
-	state, err := config.LoadStateDocument(filepath.Join(existing, ".atlas", "state.yaml"))
+	state, err := config.LoadStateDocumentAt(existing)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,15 +118,15 @@ func TestSlice28DogfoodingTextQualitySmoke(t *testing.T) {
 	if err := os.Remove(filepath.Join(existing, "AGENTS.md")); err != nil {
 		t.Fatal(err)
 	}
-	disc, err := workspace.Discover(existing)
+	disc, err := inspect.Inspect(existing)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rplan := workspace.BuildRuntimeRepairPlan(existing, disc.Runtime)
+	rplan := runtime.BuildRuntimeRepairPlan(existing, disc.Runtime)
 	if !rplan.NeedsApply() {
 		t.Fatal("expected repair after AGENTS.md delete")
 	}
-	if _, err := workspace.ApplyRuntimeRepair(existing, rplan.Signature(), func() time.Time { return time.Now().UTC() }); err != nil {
+	if _, err := runtime.ApplyRuntimeRepair(existing, rplan.Signature(), func() time.Time { return time.Now().UTC() }); err != nil {
 		t.Fatalf("repair: %v", err)
 	}
 	agents, err = os.ReadFile(filepath.Join(existing, "AGENTS.md"))
@@ -135,7 +136,7 @@ func TestSlice28DogfoodingTextQualitySmoke(t *testing.T) {
 	assertTextQuality(t, "repaired AGENTS.md", string(agents))
 	pass("Runtime Repair restores readable AGENTS.md")
 
-	// Configure after init: config-only honesty, no silent runtime rewrite.
+	// Configure after init: honest notices; no silent non-MCP runtime rewrite.
 	before := string(agents)
 	cfg := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
 		ProjectName:         "existing28",
@@ -144,7 +145,7 @@ func TestSlice28DogfoodingTextQualitySmoke(t *testing.T) {
 	})
 	_ = cfg.ToggleMulti("adapters.selected", "cursor")
 	mcp := config.EmptyMCPDraft()
-	mcp.ToggleBuiltin(0)
+	mcp.EnableBuiltin(config.MCPBuiltinFilesystem)
 	res, err := config.PersistConfigure(config.ApplyInput{Root: existing, Draft: cfg, MCP: mcp})
 	if err != nil {
 		t.Fatal(err)
@@ -152,8 +153,8 @@ func TestSlice28DogfoodingTextQualitySmoke(t *testing.T) {
 	if !strings.Contains(res.Notice, "Configuration changes are saved to .atlas/config.yaml.") {
 		t.Fatalf("configure notice: %q", res.Notice)
 	}
-	if !strings.Contains(res.Notice, "MCP selections record preferences") {
-		t.Fatalf("mcp honesty missing: %q", res.Notice)
+	if !strings.Contains(res.Notice, "MCP selections were reconciled") {
+		t.Fatalf("mcp projection notice missing: %q", res.Notice)
 	}
 	after, _ := os.ReadFile(filepath.Join(existing, "AGENTS.md"))
 	if string(after) != before {
@@ -166,24 +167,24 @@ func TestSlice28DogfoodingTextQualitySmoke(t *testing.T) {
 	if strings.Contains(cfgView, "Create docs/atlas/README.md") {
 		t.Fatal("Configure must not show Project Docs Scaffold control")
 	}
-	pass("Configure after init: honesty + no hidden materialization")
+	pass("Configure after init: honesty + no hidden non-MCP rematerialization")
 
 	// Status/Doctor read-only wording.
 	homeBefore := mustWalkSlice28(t, homeDir)
-	disc, err = workspace.Discover(existing)
+	disc, err = inspect.Inspect(existing)
 	if err != nil {
 		t.Fatal(err)
 	}
 	report := doctor.Evaluate(disc)
 	status := screens.StatusWithReport(disc, report)
-	for _, want := range []string{"preference recorded", "NOT IMPLEMENTED"} {
+	for _, want := range []string{"MCP", "selected"} {
 		if !strings.Contains(status, want) {
-			t.Fatalf("status missing %q", want)
+			t.Fatalf("status missing %q:\n%s", want, status)
 		}
 	}
 	docView := screens.Doctor(report, disc)
-	if !strings.Contains(docView, "NOT IMPLEMENTED") {
-		t.Fatalf("doctor missing future honesty:\n%s", docView)
+	if !strings.Contains(docView, "mcp") {
+		t.Fatalf("doctor missing mcp section:\n%s", docView)
 	}
 	if !walkEqualSlice28(homeBefore, mustWalkSlice28(t, homeDir)) {
 		t.Fatal("Status/Doctor mutated Atlas Home")

@@ -4,12 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/eshmun84/Atlas-CLI/internal/project"
-	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
+	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 )
 
 // Runtime repair action kinds.
@@ -32,15 +31,10 @@ const (
 // RepairHomePath is the plan path marker for Atlas Home refresh actions.
 const RepairHomePath = "ATLAS_HOME"
 
-var competingRuntimeRoots = []string{
-	"AGENT.md",
-	"CLAUDE.md",
-	"GEMINI.md",
-	".agents",
-	".claude",
-}
-
 // RuntimeRepairTarget is one planned create, replace, or quarantine.
+// Quarantine applies only to explicit Atlas-owned paths (e.g. unselected
+// adapter Atlas artifacts). Developer/external surfaces such as CLAUDE.md,
+// GEMINI.md, AGENT.md, .agents/, and .claude/ are never mutated by Apply.
 type RuntimeRepairTarget struct {
 	Path    string
 	Action  string
@@ -137,9 +131,11 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 		})
 		plan.Drift = append(plan.Drift, "AGENTS.md is missing")
 	} else {
-		agentsPath := filepath.Join(root, config.FileAgentsMD)
-		agentsData, readErr := os.ReadFile(agentsPath)
+		agentsData, readErr := fsafety.ReadFileContained(root, config.FileAgentsMD)
 		markers := health.AgentsMarkers
+		if health.AgentsError != "" && readErr == nil {
+			readErr = fmt.Errorf("%s", health.AgentsError)
+		}
 		switch {
 		case readErr != nil:
 			addRepairTarget(&plan, RuntimeRepairTarget{
@@ -178,12 +174,17 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 			})
 			plan.Drift = append(plan.Drift, "AGENTS.md has unselected adapter block")
 		default:
-			expected := config.RenderAgentsMD(
+			expected, renderErr := config.RenderAgentsMD(
 				health.Document.Project.Name,
 				health.Document.ContextGraphEnabled(),
 				health.SelectedAdapters,
 				agentsData,
 			)
+			if renderErr != nil {
+				plan.Blocked = true
+				plan.Blockers = append(plan.Blockers, renderErr.Error())
+				break
+			}
 			if string(agentsData) != expected {
 				addRepairTarget(&plan, RuntimeRepairTarget{
 					Path:   config.FileAgentsMD,
@@ -203,10 +204,12 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 	}
 
 	for _, proj := range health.ExpectedProjections {
-		rootDir := adapterRoot(proj.Adapter)
-		keep := atlasOwnedAdapterKeepSet(proj.Adapter)
-		extras := extraAdapterFiles(root, rootDir, keep)
-		expected := expectedAdapterContent(proj.Adapter, health.Document.Project.Name)
+		expected, renderErr := expectedAdapterContent(proj.Adapter, health.Document.Project.Name)
+		if renderErr != nil {
+			plan.Blocked = true
+			plan.Blockers = append(plan.Blockers, renderErr.Error())
+			continue
+		}
 		switch {
 		case !proj.Present:
 			addRepairTarget(&plan, RuntimeRepairTarget{
@@ -228,17 +231,9 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 			})
 			plan.Drift = append(plan.Drift, "non-Atlas adapter projection content: "+proj.Path)
 		}
-		for _, extra := range extras {
-			addRepairTarget(&plan, RuntimeRepairTarget{
-				Path:    extra,
-				Action:  RepairActionQuarantine,
-				Kind:    RepairKindConflict,
-				Reason:  "non-Atlas content under selected adapter path " + rootDir,
-				Adapter: proj.Adapter,
-				Backup:  true,
-			})
-			plan.Drift = append(plan.Drift, "competing adapter file: "+extra)
-		}
+		// Runtime Repair never walks adapter trees to quarantine developer MCP,
+		// settings, or non-Atlas rules. Only Atlas-owned projection/agent paths
+		// are created/replaced above / removed when unselected below.
 	}
 
 	for _, agent := range health.ExpectedAgents {
@@ -293,39 +288,54 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 		}
 	}
 
-	if !selected["cursor"] && project.Exists(root, ".cursor") {
-		addRepairTarget(&plan, RuntimeRepairTarget{
-			Path:   ".cursor",
-			Action: RepairActionQuarantine,
-			Kind:   RepairKindConflict,
-			Reason: "unselected adapter runtime surface .cursor",
-			Backup: true,
-		})
-		plan.Drift = append(plan.Drift, "unselected adapter path present: .cursor")
-	}
-	if !selected["opencode"] && project.Exists(root, ".opencode") {
-		addRepairTarget(&plan, RuntimeRepairTarget{
-			Path:   ".opencode",
-			Action: RepairActionQuarantine,
-			Kind:   RepairKindConflict,
-			Reason: "unselected adapter runtime surface .opencode",
-			Backup: true,
-		})
-		plan.Drift = append(plan.Drift, "unselected adapter path present: .opencode")
-	}
-
-	for _, path := range competingRuntimeRoots {
-		if project.Exists(root, path) {
-			addRepairTarget(&plan, RuntimeRepairTarget{
-				Path:   path,
-				Action: RepairActionQuarantine,
-				Kind:   RepairKindConflict,
-				Reason: "competing runtime artifact " + path,
-				Backup: true,
-			})
-			plan.Drift = append(plan.Drift, "competing runtime artifact: "+path)
+	// When an adapter is unselected, quarantine only Atlas-owned artifacts under
+	// that surface. Never remove the whole tree (MCP configs / user settings stay).
+	if !selected["cursor"] {
+		for _, path := range atlasOwnedPathsUnderAdapter("cursor") {
+			present, err := config.AtlasOwnedFileExists(root, path)
+			if err != nil {
+				plan.Blocked = true
+				plan.Blockers = append(plan.Blockers, "unsafe Atlas-owned Cursor runtime path: "+path+": "+err.Error())
+				continue
+			}
+			if present {
+				addRepairTarget(&plan, RuntimeRepairTarget{
+					Path:    path,
+					Action:  RepairActionQuarantine,
+					Kind:    RepairKindConflict,
+					Reason:  "unselected Atlas-owned Cursor runtime artifact",
+					Adapter: "cursor",
+					Backup:  true,
+				})
+				plan.Drift = append(plan.Drift, "unselected Atlas artifact present: "+path)
+			}
 		}
 	}
+	if !selected["opencode"] {
+		for _, path := range atlasOwnedPathsUnderAdapter("opencode") {
+			present, err := config.AtlasOwnedFileExists(root, path)
+			if err != nil {
+				plan.Blocked = true
+				plan.Blockers = append(plan.Blockers, "unsafe Atlas-owned OpenCode runtime path: "+path+": "+err.Error())
+				continue
+			}
+			if present {
+				addRepairTarget(&plan, RuntimeRepairTarget{
+					Path:    path,
+					Action:  RepairActionQuarantine,
+					Kind:    RepairKindConflict,
+					Reason:  "unselected Atlas-owned OpenCode runtime artifact",
+					Adapter: "opencode",
+					Backup:  true,
+				})
+				plan.Drift = append(plan.Drift, "unselected Atlas artifact present: "+path)
+			}
+		}
+	}
+
+	// Developer/external runtime surfaces (CLAUDE.md, GEMINI.md, AGENT.md,
+	// .agents/, .claude/) are reported by Status/Doctor as coexistence only.
+	// Runtime Repair Apply never quarantines or deletes them.
 
 	if health.Initialized && !health.StateExists {
 		plan.Warnings = append(plan.Warnings, ".atlas/state.yaml missing; Apply will refresh state metadata")
@@ -349,19 +359,19 @@ func ShowRuntimeRepair(root string, atlas project.AtlasStatus, health Health) bo
 	return plan.NeedsApply() || plan.Blocked
 }
 
-func expectedAdapterContent(adapter, projectName string) string {
+func expectedAdapterContent(adapter, projectName string) (string, error) {
 	switch adapter {
 	case "cursor":
 		return config.RenderCursorAtlasMDC(projectName)
 	case "opencode":
 		return config.RenderOpenCodeAtlas(projectName)
 	default:
-		return ""
+		return "", nil
 	}
 }
 
 func adapterProjectionMatches(root, rel, expected string) bool {
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	data, err := fsafety.ReadFileContained(root, rel)
 	if err != nil {
 		return false
 	}
@@ -388,58 +398,17 @@ func addRepairTarget(plan *RuntimeRepairPlan, target RuntimeRepairTarget) {
 	}
 }
 
-func adapterRoot(adapter string) string {
+func atlasOwnedPathsUnderAdapter(adapter string) []string {
+	var out []string
 	switch adapter {
 	case "cursor":
-		return ".cursor"
+		out = append(out, config.FileCursorAtlasMDC)
 	case "opencode":
-		return ".opencode"
-	default:
-		return ""
+		out = append(out, config.FileOpenCodeAtlas)
 	}
-}
-
-func atlasOwnedAdapterKeepSet(adapter string) map[string]bool {
-	keep := map[string]bool{}
-	switch adapter {
-	case "cursor":
-		keep[config.FileCursorAtlasMDC] = true
-	case "opencode":
-		keep[config.FileOpenCodeAtlas] = true
-	}
-	for _, path := range config.AtlasAgentRuntimePaths([]string{adapter}) {
-		keep[path] = true
-	}
-	return keep
-}
-
-func extraAdapterFiles(root, dir string, keep map[string]bool) []string {
-	if dir == "" || !project.Exists(root, dir) {
-		return nil
-	}
-	var extras []string
-	base := filepath.Join(root, filepath.FromSlash(dir))
-	_ = filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if keep[rel] {
-			return nil
-		}
-		// Developer-owned non-Atlas agents are never quarantined or rewritten.
-		if config.IsDeveloperAgentRuntimePath(rel) {
-			return nil
-		}
-		extras = append(extras, rel)
-		return nil
-	})
-	sort.Strings(extras)
-	return extras
+	out = append(out, config.AtlasAgentRuntimePaths([]string{adapter})...)
+	sort.Strings(out)
+	return out
 }
 
 func addAtlasSurfaceRepair(plan *RuntimeRepairPlan, present, matches bool, path, label string) {

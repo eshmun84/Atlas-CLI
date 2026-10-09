@@ -67,20 +67,6 @@ func IsAtlasAgentRuntimePath(rel string) bool {
 	return dir == DirCursorAgents || dir == DirOpenCodeAgents
 }
 
-// IsDeveloperAgentRuntimePath reports whether rel is a non-Atlas agent under an adapter agents dir.
-func IsDeveloperAgentRuntimePath(rel string) bool {
-	clean := filepath.ToSlash(filepath.Clean(rel))
-	dir := filepath.ToSlash(filepath.Dir(clean))
-	base := filepath.Base(clean)
-	if dir != DirCursorAgents && dir != DirOpenCodeAgents {
-		return false
-	}
-	if !strings.HasSuffix(base, ".md") {
-		return false
-	}
-	return !assets.IsAtlasAgentFilename(base)
-}
-
 // DependsOnSDDOpenSpecContract reports whether the project expects the
 // SDD/OpenSpec operational contract to be present and resolvable.
 func DependsOnSDDOpenSpecContract(doc ProjectDocument) bool {
@@ -102,6 +88,12 @@ func RenderSDDOpenSpecContract() (string, error) {
 	return strings.TrimSuffix(string(data), "\n") + "\n", nil
 }
 
+// Testable seams for RenderAtlasAgent; production uses Home then embed.
+var (
+	readCanonicalAgentFn = home.ReadCanonical
+	readRuntimeAgentFn   = assets.ReadRuntimeAgent
+)
+
 // RenderAtlasAgent returns agent content for materialization.
 // Prefers Atlas Home canonical copy, then embedded bundled fallback.
 func RenderAtlasAgent(filename string) (string, error) {
@@ -109,11 +101,11 @@ func RenderAtlasAgent(filename string) (string, error) {
 	if !assets.IsAtlasAgentFilename(name) {
 		return "", fmt.Errorf("unknown atlas agent %q", filename)
 	}
-	data, err := home.ReadCanonical("agents/runtime/" + name)
+	data, err := readCanonicalAgentFn("agents/runtime/" + name)
 	if err != nil {
-		body, readErr := assets.ReadRuntimeAgent(name)
+		body, readErr := readRuntimeAgentFn(name)
 		if readErr != nil {
-			return "", err
+			return "", fmt.Errorf("atlas agent %s: home canonical unavailable (%v); embedded: %w", name, err, readErr)
 		}
 		return strings.TrimSuffix(body, "\n") + "\n", nil
 	}
@@ -248,33 +240,6 @@ func RenderRuntimeManifestYAML(projectName string, selected []string) (string, e
 		return "", err
 	}
 	return string(data), nil
-}
-
-// RenderAssetsLockYAML marshals a lock for selected adapters without a Home path.
-// Prefer RenderAssetsLockYAMLFor when Atlas Home is known.
-func RenderAssetsLockYAML(selected []string) (string, error) {
-	return RenderAssetsLockYAMLFor("", ProjectDocument{Adapters: AdaptersPersist{Selected: selected}})
-}
-
-// AtlasOwnedAssetPaths returns project-relative Atlas-owned paths for diagnostics.
-func AtlasOwnedAssetPaths(selected []string) []string {
-	adapters := normalizeSelectedAdapters(selected)
-	out := []string{
-		FileAgentsMD,
-		FileAgentRegistry,
-		FileRuntimeManifest,
-		FileSDDOpenSpecContract,
-	}
-	for _, adapter := range adapters {
-		switch adapter {
-		case "cursor":
-			out = append(out, FileCursorAtlasMDC)
-		case "opencode":
-			out = append(out, FileOpenCodeAtlas)
-		}
-	}
-	out = append(out, AtlasAgentRuntimePaths(selected)...)
-	return out
 }
 
 func agentKind(id string) string {

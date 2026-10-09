@@ -39,7 +39,7 @@ These are not Atlas CLI commands.
 ` + helpHead.Render("Runtime Repair") + `
   Available after initialization. Review runtime drift, then Apply repair.
   Status, Doctor, discovery, and Configure Apply never repair automatically.
-  Conflicts (including competing AGENTS/adapter/skill surfaces) are backed up/quarantined before Atlas writes replacements.
+  Atlas-owned drift is backed up under Atlas Home before replace/quarantine. Developer surfaces (CLAUDE.md, GEMINI.md, .agents/, .claude/) are never moved by Repair.
   Backup is mandatory. No skip, merge, or silent delete.
 
 ` + helpHead.Render("MCP") + `

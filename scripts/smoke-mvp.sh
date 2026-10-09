@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Atlas Alpha 2 release-readiness smoke.
 # Automates build, local install (temp PREFIX), version, CLI routing,
-# empty/Git+README surfaces, init/materialization, Configure config-only,
+# empty/Git+README surfaces, init/materialization, Configure (config + MCP reconcile),
 # Home reset gate, same-name isolation, Atlas Home, Context Economy,
 # status/doctor, and runtime repair in temporary workspaces with
 # ATLAS_HOME isolation. Interactive TUI navigation is listed as manual
@@ -128,7 +128,7 @@ fi
 
 log
 log "-- focused package regression --"
-if go test ./internal/config/ ./internal/workspace/ ./internal/doctor/ ./internal/home/ ./internal/context/ ./internal/tui/ ./internal/tui/screens/ -count=1; then
+if go test ./internal/config/ ./internal/doctor/ ./internal/home/ ./internal/context/ ./internal/tui/ ./internal/tui/screens/ -count=1; then
   ok "focused package tests"
 else
   bad "focused package tests"
@@ -180,8 +180,9 @@ Manual TUI / Alpha 2 smoke (not fully automated — requires an interactive term
        .atlas/assets.lock.yaml
        .atlas/contracts/sdd-openspec.md
   4. Sidebar shows Configure, Status, Doctor, Runtime Repair, Context Economy.
-  5. Configure → adapter/MCP preference change → Apply writes config.yaml only;
-     Runtime Repair recommended when runtime impact; no silent rematerialize.
+  5. Configure → adapter/MCP change → Apply saves config.yaml and reconciles
+     Atlas-owned MCP projections; Runtime Repair still required for non-MCP
+     runtime artifacts; no silent AGENTS/rules/agents rematerialize.
   6. Context Economy → Review → Apply Update → verify
        $ATLAS_HOME/projects/<id>/context/{index.yaml,capsule.md,packs/…}
        and .atlas/state.yaml refs. No product-repo context/ directory.

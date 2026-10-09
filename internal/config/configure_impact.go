@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 )
 
 // Configure impact / honesty copy shared by Configure Apply and Review.
@@ -14,7 +16,8 @@ const (
 
 	ConfigureRepairHint  = "Run Runtime Repair when adapter/runtime assets need to be updated."
 	ConfigureContextHint = "Run Update Context when project context should be refreshed."
-	ConfigureMCPHint     = "MCP selections record preferences/config only until materialization/auth/verification exists."
+	ConfigureMCPHint     = "MCP selections were reconciled into selected agent MCP projections (Atlas-owned entries only)."
+	ConfigureMCPSkipHint = "No MCP projection changes were required."
 
 	configureFooterDocsScaffold = "Project docs scaffold is selected: Apply may also create docs/atlas/README.md once if missing."
 )
@@ -41,9 +44,9 @@ func formatConfigureFooterNote(docsScaffoldSelected bool) string {
 		lines = append(lines, configureFooterDocsScaffold)
 	}
 	lines = append(lines,
-		"Runtime files are not repaired or rematerialized automatically.",
+		"Runtime files (AGENTS.md, rules, agents) are not repaired or rematerialized automatically.",
 		"Context Economy payloads are not updated automatically.",
-		"MCP selections are preference/config only — not materialized, connected, authenticated, or verified.",
+		"MCP projections for selected adapters are reconciled on Apply (Atlas-owned entries only).",
 		"Runtime Repair and Update Context are separate flows.",
 	)
 	return strings.Join(lines, "\n")
@@ -69,7 +72,8 @@ type ConfigureImpact struct {
 	ConfigOnly           bool
 	RuntimeRepairNeeded  bool
 	ContextUpdateHint    bool
-	MCPPreferenceOnly    bool
+	MCPPreferenceOnly    bool // retained for compatibility; false when MCPProjected
+	MCPProjected         bool
 	DocsScaffoldSelected bool
 	DocsCreated          []string
 	DocsSkipped          []string
@@ -81,8 +85,7 @@ type ConfigureImpact struct {
 // previous may be zero-value when no prior config existed.
 func AnalyzeConfigureImpact(previous, next ProjectDocument, mcpChanged bool) ConfigureImpact {
 	impact := ConfigureImpact{
-		ConfigOnly:        true,
-		MCPPreferenceOnly: mcpChanged || mcpPreferencePresent(next),
+		ConfigOnly: true,
 	}
 
 	prevAdapters := JoinChips(previous.Adapters.Selected)
@@ -101,6 +104,9 @@ func AnalyzeConfigureImpact(previous, next ProjectDocument, mcpChanged bool) Con
 	}
 
 	impact.DocsScaffoldSelected = next.Project.DocsScaffold
+	if mcpChanged || mcpPreferencePresent(next) {
+		impact.MCPProjected = true
+	}
 
 	impact.Lines = impact.NoticeLines()
 	return impact
@@ -118,8 +124,10 @@ func (i ConfigureImpact) NoticeLines() []string {
 	if i.ContextUpdateHint {
 		lines = append(lines, ConfigureContextHint)
 	}
-	if i.MCPPreferenceOnly {
+	if i.MCPProjected && !i.MCPPreferenceOnly {
 		lines = append(lines, ConfigureMCPHint)
+	} else if i.MCPPreferenceOnly {
+		lines = append(lines, ConfigureMCPSkipHint)
 	}
 	for _, path := range i.DocsCreated {
 		lines = append(lines, "Created project docs scaffold: "+path)
@@ -143,7 +151,8 @@ func FormatConfigureNotice(impact ConfigureImpact) string {
 }
 
 func mcpPreferencePresent(doc ProjectDocument) bool {
-	if doc.MCP.Builtins.Jira.Enabled || doc.MCP.Builtins.Context7.Enabled || doc.MCP.Builtins.ChromeDevTools.Enabled {
+	b := doc.MCP.Builtins
+	if b.Filesystem.Enabled || b.GitHub.Enabled || b.Jira.Enabled || b.Context7.Enabled || b.ChromeDevTools.Enabled {
 		return true
 	}
 	for _, custom := range doc.MCP.Custom {
@@ -166,8 +175,11 @@ func EnsureProjectDocsScaffold(root string, selected bool) (created, skipped []s
 		return nil, nil, fmt.Errorf("project docs: workspace root is required")
 	}
 	rel := FileProjectDocsREADME
-	full := filepath.Join(root, filepath.FromSlash(rel))
-	if info, statErr := os.Stat(full); statErr == nil {
+	full, joinErr := fsafety.ContainedJoin(root, rel)
+	if joinErr != nil {
+		return nil, nil, fmt.Errorf("project docs: %w", joinErr)
+	}
+	if info, statErr := os.Lstat(full); statErr == nil {
 		if info.IsDir() {
 			return nil, nil, fmt.Errorf("project docs: %s exists as a directory", rel)
 		}
@@ -175,10 +187,7 @@ func EnsureProjectDocsScaffold(root string, selected bool) (created, skipped []s
 	} else if !os.IsNotExist(statErr) {
 		return nil, nil, fmt.Errorf("project docs: stat %s: %w", rel, statErr)
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return nil, nil, fmt.Errorf("project docs: create parent: %w", err)
-	}
-	if err := os.WriteFile(full, []byte(ProjectDocsScaffoldContent), 0o644); err != nil {
+	if err := fsafety.AtomicWriteContained(root, rel, []byte(ProjectDocsScaffoldContent), 0o644); err != nil {
 		return nil, nil, fmt.Errorf("project docs: write %s: %w", rel, err)
 	}
 	return []string{rel}, nil, nil

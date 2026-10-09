@@ -1,10 +1,13 @@
 package codeintel_test
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/codeintel"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
@@ -114,6 +117,139 @@ func TestComputeSourceFingerprint_GitHEADAndDirty(t *testing.T) {
 		t.Fatal("subsequent dirty content change must change fingerprint")
 	}
 }
+
+func TestComputeSourceFingerprint_BeyondFormerCap(t *testing.T) {
+	root := t.TempDir()
+	const n = 4001
+	for i := 0; i < n; i++ {
+		mustWrite(t, filepath.Join(root, fmt.Sprintf("f%05d.go", i)), fmt.Sprintf("package f%d\n", i))
+	}
+	before, err := codeintel.ComputeSourceFingerprint(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Files < n {
+		t.Fatalf("files=%d want >= %d", before.Files, n)
+	}
+	mustWrite(t, filepath.Join(root, fmt.Sprintf("f%05d.go", n-1)), "package mutated\n")
+	after, err := codeintel.ComputeSourceFingerprint(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Value == after.Value {
+		t.Fatal("mutation beyond former 4000-file cap must change fingerprint")
+	}
+}
+
+func TestComputeSourceFingerprint_HashFailure(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "ok.go"), "package ok\n")
+	blocked := filepath.Join(root, "blocked.go")
+	mustWrite(t, blocked, "package blocked\n")
+	if err := os.Chmod(blocked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o644) })
+	_, err := codeintel.ComputeSourceFingerprint(root)
+	if err == nil {
+		t.Fatal("expected hash/read failure")
+	}
+}
+
+func TestComputeSourceFingerprint_WalkError(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "ok.go"), "package ok\n")
+	codeintel.SetFingerprintWalkForTest(func(string, filepath.WalkFunc) error {
+		return errors.New("injected walk failure")
+	})
+	t.Cleanup(func() { codeintel.SetFingerprintWalkForTest(nil) })
+	_, err := codeintel.ComputeSourceFingerprint(root)
+	if err == nil {
+		t.Fatal("expected walk error")
+	}
+}
+
+func TestComputeSourceFingerprint_RelError(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "ok.go"), "package ok\n")
+	codeintel.SetFingerprintRelForTest(func(string, string) (string, error) {
+		return "", errors.New("injected rel failure")
+	})
+	t.Cleanup(func() { codeintel.SetFingerprintRelForTest(nil) })
+	_, err := codeintel.ComputeSourceFingerprint(root)
+	if err == nil {
+		t.Fatal("expected rel error")
+	}
+}
+
+func TestComputeSourceFingerprint_Deterministic(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "a.go"), "package a\n")
+	mustWrite(t, filepath.Join(root, "b.go"), "package b\n")
+	a, err := codeintel.ComputeSourceFingerprint(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := codeintel.ComputeSourceFingerprint(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Value == "" || a.Value != b.Value || a.Files != b.Files {
+		t.Fatalf("deterministic mismatch %#v vs %#v", a, b)
+	}
+}
+
+func TestComputeSourceFingerprint_SymlinkSourceRefused(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	ext := filepath.Join(outside, "ext.go")
+	mustWrite(t, ext, "package ext\nfunc Secret(){}\n")
+	if err := os.Symlink(ext, filepath.Join(root, "linked.go")); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(root, "ok.go"), "package ok\n")
+	_, err := codeintel.ComputeSourceFingerprint(root)
+	if err == nil {
+		t.Fatal("expected symlink source error")
+	}
+	// External target must not contribute: fingerprint of ok-only tree differs
+	// from a tree that included symlink content if it had been followed.
+	alone := t.TempDir()
+	mustWrite(t, filepath.Join(alone, "ok.go"), "package ok\n")
+	fpAlone, err := codeintel.ComputeSourceFingerprint(alone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fpAlone.Files != 1 {
+		t.Fatalf("alone files=%d", fpAlone.Files)
+	}
+}
+
+func TestComputeSourceFingerprint_DisappearanceDuringHash(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "ok.go"), "package ok\n")
+	codeintel.SetFingerprintWalkForTest(func(walkRoot string, walkFn filepath.WalkFunc) error {
+		return walkFn(filepath.Join(walkRoot, "ghost.go"), &fakeFileInfo{name: "ghost.go", size: 12}, nil)
+	})
+	t.Cleanup(func() { codeintel.SetFingerprintWalkForTest(nil) })
+	_, err := codeintel.ComputeSourceFingerprint(root)
+	if err == nil {
+		t.Fatal("expected hash disappearance error")
+	}
+}
+
+type fakeFileInfo struct {
+	name string
+	size int64
+}
+
+func (f *fakeFileInfo) Name() string       { return f.name }
+func (f *fakeFileInfo) Size() int64        { return f.size }
+func (f *fakeFileInfo) Mode() os.FileMode  { return 0o644 }
+func (f *fakeFileInfo) ModTime() time.Time { return time.Unix(0, 0) }
+func (f *fakeFileInfo) IsDir() bool        { return false }
+func (f *fakeFileInfo) Sys() any           { return nil }
 
 func mustWrite(t *testing.T, path, body string) {
 	t.Helper()

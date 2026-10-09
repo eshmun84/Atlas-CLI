@@ -14,7 +14,6 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 func TestInspection_ComposesProjectAndRuntime(t *testing.T) {
@@ -149,7 +148,7 @@ func TestInspection_WorkspaceFacadeCompatible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	viaWorkspace, err := workspace.Discover(root)
+	viaWorkspace, err := inspect.Inspect(root)
 	if err != nil {
 		t.Fatal(err)
 	}

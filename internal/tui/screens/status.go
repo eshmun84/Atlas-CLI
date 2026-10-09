@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
@@ -181,29 +182,42 @@ func writeStatusGovernance(b *strings.Builder, result inspect.Inspection) {
 }
 
 func writeStatusMCP(b *strings.Builder, result inspect.Inspection) {
-	fmt.Fprintln(b, statusHead.Render("MCP / External Context"))
+	fmt.Fprintln(b, statusHead.Render("MCP"))
 	rt := result.Runtime
 	if !rt.ConfigLoads {
 		fmt.Fprintln(b, "  "+statusNo.Render("n/a (Atlas not configured)"))
 		fmt.Fprintln(b)
 		return
 	}
-	mcp := rt.Document.MCP
-	writeMCPBuiltin(b, "jira", mcp.Builtins.Jira.Enabled)
-	writeMCPBuiltin(b, "context7", mcp.Builtins.Context7.Enabled)
-	writeMCPBuiltin(b, "chrome_devtools", mcp.Builtins.ChromeDevTools.Enabled)
-	if len(mcp.Custom) == 0 {
-		fmt.Fprintf(b, "  Custom MCP: %s\n", statusNo.Render("none"))
-	} else {
-		for _, custom := range mcp.Custom {
-			state := "preference recorded"
-			if !custom.Enabled {
-				state = "not selected"
-			}
-			fmt.Fprintf(b, "  Custom %s: %s · %s\n", custom.Name, statusYes.Render(state), statusInfo.Render("connected/authenticated/verified NOT IMPLEMENTED"))
+	health, err := config.InspectMCPHealth(result.RootPath, rt.Document)
+	if err != nil {
+		fmt.Fprintf(b, "  %s\n", statusFail.Render(err.Error()))
+		fmt.Fprintln(b)
+		return
+	}
+	fmt.Fprintf(b, "  %d selected\n", health.SelectedCount)
+	if len(health.Adapters) == 0 {
+		fmt.Fprintf(b, "  %s\n", statusNo.Render("no MCP-capable adapters selected"))
+	}
+	for _, adapter := range health.Adapters {
+		label := string(adapter.Adapter)
+		switch adapter.Status {
+		case "materialized":
+			fmt.Fprintf(b, "  %s: %s\n", label, statusYes.Render(fmt.Sprintf("%d/%d materialized", adapter.Materialized, adapter.Selected)))
+		case "blocked":
+			fmt.Fprintf(b, "  %s: %s\n", label, statusFail.Render("blocked"))
+		case "drifted":
+			fmt.Fprintf(b, "  %s: %s\n", label, statusWarn.Render("drifted"))
+		case "malformed":
+			fmt.Fprintf(b, "  %s: %s\n", label, statusFail.Render("malformed"))
+		case "missing":
+			fmt.Fprintf(b, "  %s: %s\n", label, statusWarn.Render("missing"))
+		case "empty":
+			fmt.Fprintf(b, "  %s: %s\n", label, statusNo.Render("none"))
+		default:
+			fmt.Fprintf(b, "  %s: %s\n", label, statusInfo.Render(string(adapter.Status)))
 		}
 	}
-	fmt.Fprintf(b, "  Credentials / auth: %s\n", statusInfo.Render("NOT IMPLEMENTED"))
 	fmt.Fprintln(b)
 }
 
@@ -266,14 +280,6 @@ func statusResultStyle(report doctor.Report) lipgloss.Style {
 	}
 }
 
-func writeMCPBuiltin(b *strings.Builder, name string, enabled bool) {
-	if enabled {
-		fmt.Fprintf(b, "  %s: %s · %s\n", name, statusYes.Render("preference recorded"), statusInfo.Render("connected/authenticated/verified NOT IMPLEMENTED"))
-		return
-	}
-	fmt.Fprintf(b, "  %s: %s\n", name, statusNo.Render("not selected"))
-}
-
 func projectDisplayName(result inspect.Inspection) string {
 	if result.Runtime.ConfigLoads && strings.TrimSpace(result.Runtime.Document.Project.Name) != "" {
 		return result.Runtime.Document.Project.Name
@@ -309,11 +315,6 @@ func detectedModeLabel(result inspect.Inspection) string {
 		return "new"
 	}
 	return "existing"
-}
-
-// SuggestedAction returns the executive next-step hint for Status Health.
-func SuggestedAction(result inspect.Inspection) string {
-	return suggestedAction(result)
 }
 
 func suggestedAction(result inspect.Inspection) string {
@@ -471,13 +472,6 @@ func displayOrDash(v string) string {
 func displayOrNone(v string) string {
 	if strings.TrimSpace(v) == "" {
 		return statusNo.Render("none")
-	}
-	return v
-}
-
-func displayOrUnknown(v string) string {
-	if strings.TrimSpace(v) == "" {
-		return "unknown"
 	}
 	return v
 }

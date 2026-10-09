@@ -33,7 +33,7 @@ var bannedTokens = []string{
 func TestRenderAgentsMD_TextQuality(t *testing.T) {
 	t.Parallel()
 
-	got := config.RenderAgentsMD("DemoProject", true, []string{"cursor", "opencode"}, nil)
+	got := mustRenderAgentsMD(t, "DemoProject", true, []string{"cursor", "opencode"}, nil)
 	assertTextQuality(t, "AGENTS.md", got)
 
 	if strings.Count(got, "# Atlas Project Runtime Contract") != 1 {
@@ -50,9 +50,11 @@ func TestRenderAgentsMD_TextQuality(t *testing.T) {
 		"Context Economy v0",
 		"CodeGraph",
 		"Atlas Context Graph",
-		"not implemented",
+		"NOT IMPLEMENTED",
+		"optional externally installed Code Intelligence provider",
 		".atlas/contracts/sdd-openspec.md",
-		"Do not invent graph or CodeGraph context",
+		"Do not invent CodeGraph results",
+		"Do not invent graph context",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q", want)
@@ -70,7 +72,7 @@ func TestRenderAgentsMD_PreservesUserAndAdapterSelection(t *testing.T) {
 
 	user := "\nKeep my notes.\n"
 	existing := config.AgentsUserBegin + user + config.AgentsUserEnd
-	got := config.RenderAgentsMD("Demo", true, []string{"cursor"}, []byte(existing))
+	got := mustRenderAgentsMD(t, "Demo", true, []string{"cursor"}, []byte(existing))
 	begin := strings.Index(got, config.AgentsUserBegin)
 	end := strings.Index(got, config.AgentsUserEnd)
 	if begin < 0 || end < 0 {
@@ -88,7 +90,7 @@ func TestRenderAgentsMD_PreservesUserAndAdapterSelection(t *testing.T) {
 func TestAdapterProjections_TextQuality(t *testing.T) {
 	t.Parallel()
 
-	cursor := config.RenderCursorAtlasMDC("Demo")
+	cursor := mustRenderCursorAtlasMDC(t, "Demo")
 	assertTextQuality(t, "cursor atlas.mdc", cursor)
 	assertContains(t, cursor,
 		"AGENTS.md",
@@ -97,7 +99,7 @@ func TestAdapterProjections_TextQuality(t *testing.T) {
 		".atlas/config.yaml",
 	)
 
-	opencode := config.RenderOpenCodeAtlas("Demo")
+	opencode := mustRenderOpenCodeAtlas(t, "Demo")
 	assertTextQuality(t, "opencode atlas.md", opencode)
 	assertContains(t, opencode,
 		"AGENTS.md",

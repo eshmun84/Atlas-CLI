@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -50,6 +51,12 @@ type IndexFile struct {
 
 const indexSchemaVersion = 1
 
+// Testable seams; production uses filepath.Walk / filepath.Rel.
+var (
+	indexWalkFn = filepath.Walk
+	indexRelFn  = filepath.Rel
+)
+
 // BuildIndex walks the project root and builds a deterministic index. Read-only.
 func BuildIndex(root string, projectName string, now time.Time) (IndexDocument, error) {
 	abs, err := filepath.Abs(root)
@@ -91,16 +98,15 @@ func BuildIndex(root string, projectName string, now time.Time) (IndexDocument, 
 	var files []IndexFile
 	fp := sha256.New()
 
-	err = filepath.Walk(abs, func(path string, info os.FileInfo, walkErr error) error {
+	err = indexWalkFn(abs, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
-			if os.IsNotExist(walkErr) {
-				return nil
-			}
+			// Disappearing traversal entries fail closed — never declare fresh
+			// from partial evidence.
 			return walkErr
 		}
-		rel, relErr := filepath.Rel(abs, path)
+		rel, relErr := indexRelFn(abs, path)
 		if relErr != nil {
-			return nil
+			return fmt.Errorf("rel %s: %w", path, relErr)
 		}
 		rel = filepath.ToSlash(rel)
 		if rel == "." {
@@ -121,21 +127,33 @@ func BuildIndex(root string, projectName string, now time.Time) (IndexDocument, 
 			idx.IgnoredFiles++
 			return nil
 		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if skipFingerprint(rel) {
+				idx.IgnoredFiles++
+				return nil
+			}
+			return fmt.Errorf("context index: refusing symlink file %s", rel)
+		}
 		if info.Size() > MaxFileBytes {
 			idx.IgnoredFiles++
 			return nil
+		}
+		kind := classifyPath(rel)
+		entry := IndexFile{Path: rel, Kind: kind, Size: info.Size()}
+		// Content-based freshness fingerprint covers every relevant file,
+		// even when stored Entries are capped. Does not depend on mtime.
+		if !skipFingerprint(rel) {
+			sum, hashErr := hashIndexFile(path)
+			if hashErr != nil {
+				return fmt.Errorf("context index: hash %s: %w", rel, hashErr)
+			}
+			fmt.Fprintf(fp, "f\x00%s\x00%s\n", rel, sum)
 		}
 		if len(files) >= MaxIndexedEntries {
 			idx.Truncated = true
 			return nil
 		}
-		kind := classifyPath(rel)
-		entry := IndexFile{Path: rel, Kind: kind, Size: info.Size()}
 		files = append(files, entry)
-		// Exclude self-mutating Atlas metadata from freshness fingerprint.
-		if !skipFingerprint(rel) {
-			fmt.Fprintf(fp, "f\x00%s\x00%d\x00%d\n", rel, info.Size(), info.ModTime().UTC().Unix())
-		}
 		return nil
 	})
 	if err != nil {
@@ -173,19 +191,6 @@ func BuildIndex(root string, projectName string, now time.Time) (IndexDocument, 
 	return idx, nil
 }
 
-// LoadIndex loads an index.yaml from disk. Read-only.
-func LoadIndex(path string) (IndexDocument, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return IndexDocument{}, err
-	}
-	var idx IndexDocument
-	if err := yaml.Unmarshal(data, &idx); err != nil {
-		return IndexDocument{}, fmt.Errorf("context index: parse %s: %w", path, err)
-	}
-	return idx, nil
-}
-
 // RenderIndexYAML marshals an index deterministically.
 func RenderIndexYAML(idx IndexDocument) (string, error) {
 	var buf strings.Builder
@@ -206,6 +211,29 @@ func skipFingerprint(rel string) bool {
 	// mark the product tree fingerprint stale. Runtime drift is tracked separately.
 	clean := filepath.ToSlash(rel)
 	return clean == ".atlas" || strings.HasPrefix(clean, ".atlas/")
+}
+
+func hashIndexFile(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("refusing symlink")
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("not a regular file")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, io.LimitReader(f, MaxFileBytes+1)); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func classifyPath(rel string) string {

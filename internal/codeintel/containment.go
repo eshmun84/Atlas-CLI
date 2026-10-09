@@ -10,6 +10,9 @@ import (
 // Known CodeGraph side-effect under the product repo (not Atlas Home).
 const knownJournalRel = ".codegraph/changes.journal"
 
+// Testable seam; production uses filepath.Walk.
+var filepathWalkFn = filepath.Walk
+
 // ContainmentReport describes side-effect cleanup after a refresh.
 type ContainmentReport struct {
 	PreexistingDir bool
@@ -25,6 +28,7 @@ type containmentSnapshot struct {
 	journalMod     time.Time
 	journalSize    int64
 	otherFiles     []string
+	warnings       []string
 }
 
 func snapshotCodegraphSideEffects(root string) containmentSnapshot {
@@ -35,11 +39,19 @@ func snapshotCodegraphSideEffects(root string) containmentSnapshot {
 		return snap
 	}
 	snap.dirExisted = true
-	_ = filepath.Walk(dir, func(path string, fi os.FileInfo, walkErr error) error {
-		if walkErr != nil || fi == nil || fi.IsDir() {
+	walkErr := filepathWalkFn(dir, func(path string, fi os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			snap.warnings = append(snap.warnings, "containment: walk .codegraph: "+walkErr.Error())
 			return nil
 		}
-		rel, _ := filepath.Rel(root, path)
+		if fi == nil || fi.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			snap.warnings = append(snap.warnings, "containment: rel path: "+relErr.Error())
+			return nil
+		}
 		rel = filepath.ToSlash(rel)
 		if rel == knownJournalRel {
 			snap.journalExisted = true
@@ -50,17 +62,21 @@ func snapshotCodegraphSideEffects(root string) containmentSnapshot {
 		snap.otherFiles = append(snap.otherFiles, rel)
 		return nil
 	})
+	if walkErr != nil {
+		snap.warnings = append(snap.warnings, "containment: walk .codegraph: "+walkErr.Error())
+	}
 	return snap
 }
 
 // containCodegraphSideEffects removes only the known journal when safe.
-func containCodegraphSideEffects(root string, before containmentSnapshot, startedAt time.Time) ContainmentReport {
+func containCodegraphSideEffects(root string, before containmentSnapshot) ContainmentReport {
 	report := ContainmentReport{
 		PreexistingDir: before.dirExisted,
 		Preserved:      append([]string(nil), before.otherFiles...),
+		Warnings:       append([]string(nil), before.warnings...),
 	}
 	journalPath := filepath.Join(root, filepath.FromSlash(knownJournalRel))
-	info, err := os.Stat(journalPath)
+	_, err := os.Stat(journalPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			report.Warnings = append(report.Warnings, "containment: cannot stat journal: "+err.Error())
@@ -69,7 +85,8 @@ func containCodegraphSideEffects(root string, before containmentSnapshot, starte
 	}
 
 	// Unknown new files under .codegraph → warn, never delete.
-	afterOthers := listOtherCodegraphFiles(root)
+	afterOthers, afterWarns := listOtherCodegraphFiles(root)
+	report.Warnings = append(report.Warnings, afterWarns...)
 	for _, rel := range afterOthers {
 		known := false
 		for _, prev := range before.otherFiles {
@@ -85,19 +102,12 @@ func containCodegraphSideEffects(root string, before containmentSnapshot, starte
 		}
 	}
 
-	canRemoveJournal := false
-	switch {
-	case !before.journalExisted:
-		// Created during this invocation.
-		canRemoveJournal = true
-	case before.journalExisted:
-		// Preexisting journal: only remove if clearly rewritten after start AND
-		// we still refuse when prior content ownership is ambiguous — preserve.
-		_ = info
-		_ = startedAt
+	// Conservative journal policy: only remove journals created during this
+	// invocation. Preexisting journals are always preserved.
+	canRemoveJournal := !before.journalExisted
+	if before.journalExisted {
 		report.Warnings = append(report.Warnings,
 			"containment: preexisting .codegraph/changes.journal preserved")
-		canRemoveJournal = false
 	}
 
 	if !canRemoveJournal {
@@ -124,19 +134,29 @@ func containCodegraphSideEffects(root string, before containmentSnapshot, starte
 	return report
 }
 
-func listOtherCodegraphFiles(root string) []string {
-	var out []string
+func listOtherCodegraphFiles(root string) (files []string, warnings []string) {
 	dir := filepath.Join(root, ".codegraph")
-	_ = filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
-		if err != nil || fi == nil || fi.IsDir() {
+	walkErr := filepathWalkFn(dir, func(path string, fi os.FileInfo, err error) error {
+		if err != nil {
+			warnings = append(warnings, "containment: walk .codegraph: "+err.Error())
 			return nil
 		}
-		rel, _ := filepath.Rel(root, path)
+		if fi == nil || fi.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			warnings = append(warnings, "containment: rel path: "+relErr.Error())
+			return nil
+		}
 		rel = filepath.ToSlash(rel)
 		if rel != knownJournalRel {
-			out = append(out, rel)
+			files = append(files, rel)
 		}
 		return nil
 	})
-	return out
+	if walkErr != nil {
+		warnings = append(warnings, "containment: walk .codegraph: "+walkErr.Error())
+	}
+	return files, warnings
 }

@@ -72,5 +72,5 @@ Before broad repository reads, check Context Economy artifacts when present unde
 
 Distinguish context surfaces honestly:
 - **Context Economy v0** — implemented, file-based index/capsule/packs under Atlas Home. Refresh only via the explicit Context Economy Update flow.
-- **CodeGraph** — future optional external code-layer provider; not implemented.
-- **Atlas Context Graph** — future broader graph model; not implemented. Config may record a compatibility preference (`context.graph.enabled` = **{{CONTEXT_GRAPH_STATUS}}**), but there is no graph engine, database, embeddings index, or semantic search. Do not invent graph or CodeGraph context. Prefer Context Economy surfaces, then targeted files.
+- **CodeGraph** — optional externally installed Code Intelligence provider. Atlas manages project-scoped lifecycle/freshness when available. Not MCP. May be unavailable if the executable is missing or incompatible. Do not invent CodeGraph results.
+- **Atlas Context Graph** — NOT IMPLEMENTED. Config may record a compatibility preference (`context.graph.enabled` = **{{CONTEXT_GRAPH_STATUS}}**), but there is no graph engine, database, embeddings index, or semantic search. Do not invent graph context. Prefer Context Economy surfaces, then Code Intelligence when available, then targeted files.

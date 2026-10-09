@@ -55,7 +55,7 @@ func Doctor(report doctor.Report, result inspect.Inspection) string {
 		checks := grouped[section]
 		fmt.Fprintln(&b, docHead.Render(section))
 		if section == "MCP / External Context" {
-			writeDoctorMCP(&b, checks, result)
+			writeDoctorMCP(&b, checks)
 			fmt.Fprintln(&b)
 			continue
 		}
@@ -73,40 +73,14 @@ func Doctor(report doctor.Report, result inspect.Inspection) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func writeDoctorMCP(b *strings.Builder, checks []doctor.Check, result inspect.Inspection) {
+func writeDoctorMCP(b *strings.Builder, checks []doctor.Check) {
+	if len(checks) == 0 {
+		fmt.Fprintln(b, "  "+docInfo.Render("INFO")+" mcp: n/a")
+		return
+	}
 	for _, check := range checks {
 		fmt.Fprintf(b, "  %s %s: %s\n", doctorBadge(check.Severity), check.Name, check.Message)
 	}
-	if !result.Runtime.ConfigLoads {
-		if len(checks) == 0 {
-			fmt.Fprintln(b, "  "+docInfo.Render("INFO")+" mcp: n/a (Atlas not configured)")
-		}
-		return
-	}
-	mcp := result.Runtime.Document.MCP
-	writeDoctorMCPLine(b, "mcp jira", mcp.Builtins.Jira.Enabled)
-	writeDoctorMCPLine(b, "mcp context7", mcp.Builtins.Context7.Enabled)
-	writeDoctorMCPLine(b, "mcp chrome_devtools", mcp.Builtins.ChromeDevTools.Enabled)
-	if len(mcp.Custom) == 0 {
-		fmt.Fprintf(b, "  %s mcp custom: none\n", docInfo.Render("INFO"))
-	} else {
-		for _, custom := range mcp.Custom {
-			if custom.Enabled {
-				fmt.Fprintf(b, "  %s mcp custom %s: preference recorded · connected/authenticated/verified NOT IMPLEMENTED\n", docInfo.Render("INFO"), custom.Name)
-			} else {
-				fmt.Fprintf(b, "  %s mcp custom %s: not selected\n", docInfo.Render("INFO"), custom.Name)
-			}
-		}
-	}
-	fmt.Fprintf(b, "  %s mcp auth: NOT IMPLEMENTED\n", docInfo.Render("INFO"))
-}
-
-func writeDoctorMCPLine(b *strings.Builder, name string, enabled bool) {
-	if enabled {
-		fmt.Fprintf(b, "  %s %s: preference recorded · connected/authenticated/verified NOT IMPLEMENTED\n", docInfo.Render("INFO"), name)
-		return
-	}
-	fmt.Fprintf(b, "  %s %s: not selected\n", docInfo.Render("INFO"), name)
 }
 
 func doctorSectionFor(name string) string {

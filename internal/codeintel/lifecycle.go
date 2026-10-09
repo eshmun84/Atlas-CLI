@@ -1,11 +1,7 @@
 package codeintel
 
 import (
-	"fmt"
-	"os"
 	"strings"
-
-	"github.com/eshmun84/Atlas-CLI/internal/home"
 )
 
 // DecideRefreshMode selects the mutating refresh mode from read-only evidence.
@@ -45,19 +41,41 @@ func EnrichSnapshot(project Project, st ProjectStatus) Snapshot {
 		return snap
 	}
 
-	if !st.GraphPresent {
+	if strings.TrimSpace(st.GraphDBPath) != "" {
+		if project.HomePath == "" {
+			snap.GraphPresent = false
+			snap.State = StateError
+			snap.Freshness = FreshnessError
+			snap.FreshnessReason = "Atlas Home path required for storage inspection"
+			snap.Message = snap.FreshnessReason
+			return snap
+		}
+		leaf, err := InspectStorageLeaf(project.HomePath, st.GraphDBPath)
+		if err != nil {
+			snap.GraphPresent = false
+			snap.State = StateError
+			snap.Freshness = FreshnessError
+			snap.FreshnessReason = err.Error()
+			snap.Message = err.Error()
+			return snap
+		}
+		snap.GraphPresent = leaf.Present
+	}
+
+	if !snap.GraphPresent {
 		snap.Freshness = FreshnessMissing
 		snap.FreshnessReason = "Atlas-owned graph.db not present"
 		return snap
 	}
 
-	meta, present, metaErr := LoadMetadata(st.MetadataPath)
+	meta, present, metaErr := LoadMetadata(project.HomePath, st.MetadataPath)
 	snap.MetadataPresent = present
 	if metaErr != nil {
 		snap.MetadataValid = false
 		snap.Freshness = FreshnessError
 		snap.FreshnessReason = metaErr.Error()
 		snap.Message = metaErr.Error()
+		snap.State = StateError
 		return snap
 	}
 	if !present {
@@ -86,31 +104,12 @@ func EnrichSnapshot(project Project, st ProjectStatus) Snapshot {
 	return snap
 }
 
-// ResolveProject fills HomePath / ID when missing using read-only helpers.
-// Does not create Atlas Home.
-func ResolveProject(root, projectName string) (Project, error) {
-	root = strings.TrimSpace(root)
-	if root == "" {
-		return Project{}, fmt.Errorf("codeintel: project root is required")
-	}
-	homePath, err := home.Resolve()
+func graphPresentSafe(homePath, path string) (bool, error) {
+	leaf, err := InspectStorageLeaf(homePath, path)
 	if err != nil {
-		homePath = ""
+		return false, err
 	}
-	id, err := home.ProjectID(root, projectName)
-	if err != nil {
-		return Project{}, err
-	}
-	return Project{Root: root, ID: id, HomePath: homePath}, nil
-}
-
-func graphExists(path string) bool {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return false
-	}
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
+	return leaf.Present, nil
 }
 
 func subtleEqual(a, b string) bool {

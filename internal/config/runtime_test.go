@@ -34,7 +34,7 @@ func TestRuntimeTargets(t *testing.T) {
 func TestRenderAgentsMD_BaseOnly(t *testing.T) {
 	t.Parallel()
 
-	got := config.RenderAgentsMD("Demo", true, nil, nil)
+	got := mustRenderAgentsMD(t, "Demo", true, nil, nil)
 	assertContains(t, got,
 		"# Atlas Project Runtime Contract",
 		config.AgentsBaseBegin,
@@ -56,7 +56,8 @@ func TestRenderAgentsMD_BaseOnly(t *testing.T) {
 		"context.graph.enabled` = **enabled**",
 		"Context Economy v0",
 		"CodeGraph",
-		"not implemented",
+		"NOT IMPLEMENTED",
+		"optional externally installed Code Intelligence provider",
 		"Do not add `Co-Authored-By`",
 		"Do not invent missing project facts",
 		"explicit human request",
@@ -76,7 +77,7 @@ func TestRenderAgentsMD_BaseOnly(t *testing.T) {
 func TestRenderAgentsMD_CursorOnly(t *testing.T) {
 	t.Parallel()
 
-	got := config.RenderAgentsMD("Demo", true, []string{"cursor"}, nil)
+	got := mustRenderAgentsMD(t, "Demo", true, []string{"cursor"}, nil)
 	assertContains(t, got,
 		config.AgentsBaseBegin,
 		config.AdapterBlockBegin("cursor"),
@@ -93,7 +94,7 @@ func TestRenderAgentsMD_CursorOnly(t *testing.T) {
 func TestRenderAgentsMD_OpenCodeOnly(t *testing.T) {
 	t.Parallel()
 
-	got := config.RenderAgentsMD("Demo", false, []string{"opencode"}, nil)
+	got := mustRenderAgentsMD(t, "Demo", false, []string{"opencode"}, nil)
 	assertContains(t, got,
 		config.AgentsBaseBegin,
 		config.AdapterBlockBegin("opencode"),
@@ -111,7 +112,7 @@ func TestRenderAgentsMD_OpenCodeOnly(t *testing.T) {
 func TestRenderAgentsMD_CursorAndOpenCode(t *testing.T) {
 	t.Parallel()
 
-	got := config.RenderAgentsMD("Demo", true, []string{"opencode", "cursor"}, nil)
+	got := mustRenderAgentsMD(t, "Demo", true, []string{"opencode", "cursor"}, nil)
 	cursorAt := strings.Index(got, config.AdapterBlockBegin("cursor"))
 	openAt := strings.Index(got, config.AdapterBlockBegin("opencode"))
 	if cursorAt < 0 || openAt < 0 || cursorAt > openAt {
@@ -128,7 +129,7 @@ func TestRenderAgentsMD_PreservesUserExactly(t *testing.T) {
 
 	userBody := "\n  Keep leading indent\n\n- first item\n- second item\n\nTrailing blank line kept:\n  \n"
 	existing := config.AgentsUserBegin + userBody + config.AgentsUserEnd
-	got := config.RenderAgentsMD("Demo", true, []string{"cursor"}, []byte(existing))
+	got := mustRenderAgentsMD(t, "Demo", true, []string{"cursor"}, []byte(existing))
 
 	begin := strings.Index(got, config.AgentsUserBegin)
 	end := strings.Index(got, config.AgentsUserEnd)
@@ -140,7 +141,7 @@ func TestRenderAgentsMD_PreservesUserExactly(t *testing.T) {
 		t.Fatalf("USER body not preserved exactly\nwant %q\ngot  %q", userBody, gotBody)
 	}
 
-	again := config.RenderAgentsMD("Demo", true, []string{"cursor"}, []byte(got))
+	again := mustRenderAgentsMD(t, "Demo", true, []string{"cursor"}, []byte(got))
 	begin = strings.Index(again, config.AgentsUserBegin)
 	end = strings.Index(again, config.AgentsUserEnd)
 	if begin < 0 || end < 0 || end < begin {
@@ -159,7 +160,7 @@ func TestRenderAgentsMD_PreservesUserExactly(t *testing.T) {
 func TestRenderAgentsMD_IgnoresUnselectedAndUnsupported(t *testing.T) {
 	t.Parallel()
 
-	got := config.RenderAgentsMD("Demo", true, []string{"cursor", "claude", "Codex", "OpenCode"}, nil)
+	got := mustRenderAgentsMD(t, "Demo", true, []string{"cursor", "claude", "Codex", "OpenCode"}, nil)
 	assertContains(t, got, config.AdapterBlockBegin("cursor"))
 	assertNotContains(t, got,
 		config.AdapterBlockBegin("opencode"),
@@ -171,7 +172,7 @@ func TestRenderAgentsMD_IgnoresUnselectedAndUnsupported(t *testing.T) {
 func TestRenderAdapterProjections(t *testing.T) {
 	t.Parallel()
 
-	cursor := config.RenderCursorAtlasMDC("Demo")
+	cursor := mustRenderCursorAtlasMDC(t, "Demo")
 	assertContains(t, cursor,
 		"alwaysApply: true",
 		"Atlas Cursor Entrypoint",
@@ -187,7 +188,7 @@ func TestRenderAdapterProjections(t *testing.T) {
 		"## Cursor Adapter Guidance",
 	)
 
-	opencode := config.RenderOpenCodeAtlas("Demo")
+	opencode := mustRenderOpenCodeAtlas(t, "Demo")
 	assertContains(t, opencode,
 		"Atlas OpenCode Entrypoint",
 		".opencode/atlas.md",
@@ -207,7 +208,7 @@ func TestRenderAdapterProjections(t *testing.T) {
 func TestInspectAgentsMarkers_V2(t *testing.T) {
 	t.Parallel()
 
-	complete := config.InspectAgentsMarkers([]byte(config.RenderAgentsMD("demo", true, []string{"cursor"}, nil)))
+	complete := config.InspectAgentsMarkers([]byte(mustRenderAgentsMD(t, "demo", true, []string{"cursor"}, nil)))
 	if !complete.Complete() || !complete.HasAdapter("cursor") || complete.HasAdapter("opencode") {
 		t.Fatalf("complete markers = %#v", complete)
 	}

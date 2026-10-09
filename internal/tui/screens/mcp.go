@@ -21,9 +21,39 @@ const (
 	MCPFocusConn      = "connection"
 	MCPFocusArgs      = "args"
 	MCPFocusEnv       = "env"
+	MCPFocusAuth      = "auth"
+	MCPFocusHeader    = "header"
+	MCPFocusHeaderEnv = "header_env"
+	MCPFocusPrefix    = "prefix"
 	MCPFocusCancel    = "cancel"
 	MCPFocusSubmit    = "submit"
 )
+
+// MCPAuthModes returns selectable remote authentication modes for Add Custom.
+func MCPAuthModes() []config.MCPAuthRequirement {
+	return []config.MCPAuthRequirement{
+		config.MCPAuthNone,
+		config.MCPAuthEnvironmentReference,
+		config.MCPAuthOAuthExternal,
+		config.MCPAuthProviderManaged,
+	}
+}
+
+// MCPAuthLabel returns a short UI label for an auth mode.
+func MCPAuthLabel(auth config.MCPAuthRequirement) string {
+	switch auth {
+	case config.MCPAuthNone:
+		return "None"
+	case config.MCPAuthEnvironmentReference:
+		return "Environment header"
+	case config.MCPAuthOAuthExternal:
+		return "External OAuth"
+	case config.MCPAuthProviderManaged:
+		return "Provider managed"
+	default:
+		return string(auth)
+	}
+}
 
 var (
 	mcpTitle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("51"))
@@ -43,6 +73,8 @@ type MCPView struct {
 	ActiveIndex       int
 	TransportFocus    int
 	TransportSelected config.MCPTransport
+	AuthFocus         int
+	AuthSelected      config.MCPAuthRequirement
 	Initialized       bool
 	ContentFocused    bool
 	ListFocus         string
@@ -51,13 +83,16 @@ type MCPView struct {
 	ConnectionView    string
 	ArgsView          string
 	EnvView           string
+	HeaderView        string
+	HeaderEnvView     string
+	PrefixView        string
 	Error             string
 	Notice            string
 	Embedded          bool
 	ShowAddRow        bool
 }
 
-// RenderMCP renders the MCP configuration foundation screen.
+// RenderMCP renders the MCP configuration screen.
 func RenderMCP(view MCPView) string {
 	if view.Mode == MCPModeAdd {
 		return renderMCPAdd(view)
@@ -84,15 +119,15 @@ func renderMCPList(view MCPView) string {
 		title += "  " + mcpMuted.Render("[sidebar focus]")
 	}
 	fmt.Fprintln(&b, title)
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("MCP selections record preferences only."))
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("connected / authenticated / verified = NOT IMPLEMENTED."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("External capabilities projected to selected agents on Apply."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("Atlas-owned entries only; developer MCP configs are preserved."))
 	fmt.Fprintln(&b)
 
 	if view.Initialized {
-		fmt.Fprintln(&b, "  "+mcpBody.Render("Preferences are persisted to .atlas/config.yaml on Apply — not connected."))
+		fmt.Fprintln(&b, "  "+mcpBody.Render("Apply saves .atlas/config.yaml and reconciles MCP projections."))
 	} else {
 		fmt.Fprintln(&b, "  "+mcpBody.Render("Atlas is not initialized yet."))
-		fmt.Fprintln(&b, "  "+mcpBody.Render("MCP preferences are draft-only until Init Apply."))
+		fmt.Fprintln(&b, "  "+mcpBody.Render("MCP selections are draft-only until Init Apply."))
 	}
 	fmt.Fprintln(&b)
 	fmt.Fprint(&b, renderMCPListBody(view))
@@ -107,7 +142,7 @@ func renderMCPListBody(view MCPView) string {
 		if item.Enabled {
 			mark = "[x]"
 		}
-		line := mark + " " + item.Name
+		line := fmt.Sprintf("%s %-16s %s", mark, item.Name, config.StatusLabel(item.Status))
 		focused := view.ContentFocused && view.ListFocus == MCPFocusBuiltins && i == view.ActiveIndex
 		writeMCPCheckRow(&b, line, focused, item.Enabled)
 	}
@@ -122,7 +157,7 @@ func renderMCPListBody(view MCPView) string {
 			if server.Enabled {
 				mark = "[x]"
 			}
-			line := fmt.Sprintf("%s %s        %s         %s",
+			line := fmt.Sprintf("%s %-16s %-16s %s",
 				mark, server.Name, server.Transport.TransportLabel(), config.StatusLabel(server.Status))
 			focused := view.ContentFocused && view.ListFocus == MCPFocusCustom && i == view.ActiveIndex
 			writeMCPCheckRow(&b, line, focused, server.Enabled)
@@ -140,7 +175,7 @@ func renderMCPListBody(view MCPView) string {
 	}
 	if view.Embedded && view.Initialized {
 		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "  "+mcpMuted.Render("Close discards unsaved changes. Apply changes (below) saves .atlas/config.yaml."))
+		fmt.Fprintln(&b, "  "+mcpMuted.Render("Close discards unsaved changes. Apply changes saves config and MCP projections."))
 	}
 	if view.Notice != "" {
 		fmt.Fprintln(&b)
@@ -170,7 +205,7 @@ func renderMCPAdd(view MCPView) string {
 		title += "  " + mcpMuted.Render("[sidebar focus]")
 	}
 	fmt.Fprintln(&b, title)
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("Preference only — not connected or authenticated."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("Custom external MCP. Secrets are never stored — use env/header references only."))
 	fmt.Fprintln(&b)
 	fmt.Fprint(&b, renderMCPAddFields(view))
 	return strings.TrimRight(b.String(), "\n")
@@ -178,6 +213,8 @@ func renderMCPAdd(view MCPView) string {
 
 func renderMCPAddFields(view MCPView) string {
 	var b strings.Builder
+	http := view.TransportSelected == config.MCPTransportStreamableHTTP || view.TransportSelected == config.MCPTransportHTTP
+
 	fmt.Fprintln(&b, mcpSection.Render("Name"))
 	writeMCPTextField(&b, view.NameView, "(required)", view.ContentFocused && view.AddFocus == MCPFocusName)
 	fmt.Fprintln(&b)
@@ -195,22 +232,56 @@ func renderMCPAddFields(view MCPView) string {
 	}
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, mcpSection.Render("Command or URL"))
-	writeMCPTextField(&b, view.ConnectionView, "(optional, not validated)", view.ContentFocused && view.AddFocus == MCPFocusConn)
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("Command or URL is not validated. Connection is NOT IMPLEMENTED."))
+	connLabel := "Command"
+	connHint := "(required for stdio)"
+	if http {
+		connLabel = "URL"
+		connHint = "(required https://...)"
+	}
+	fmt.Fprintln(&b, mcpSection.Render(connLabel))
+	writeMCPTextField(&b, view.ConnectionView, connHint, view.ContentFocused && view.AddFocus == MCPFocusConn)
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, mcpSection.Render("Arguments"))
-	writeMCPTextField(&b, view.ArgsView, "(optional)", view.ContentFocused && view.AddFocus == MCPFocusArgs)
-	fmt.Fprintln(&b)
+	if !http {
+		fmt.Fprintln(&b, mcpSection.Render("Arguments"))
+		writeMCPTextField(&b, view.ArgsView, "(optional, space-separated)", view.ContentFocused && view.AddFocus == MCPFocusArgs)
+		fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, mcpSection.Render("Environment references"))
-	writeMCPTextField(&b, view.EnvView, "(optional)", view.ContentFocused && view.AddFocus == MCPFocusEnv)
-	fmt.Fprintln(&b)
+		fmt.Fprintln(&b, mcpSection.Render("Environment references"))
+		writeMCPTextField(&b, view.EnvView, "(optional names, e.g. API_TOKEN)", view.ContentFocused && view.AddFocus == MCPFocusEnv)
+		fmt.Fprintln(&b)
+	} else {
+		fmt.Fprintln(&b, mcpSection.Render("Authentication"))
+		for i, auth := range MCPAuthModes() {
+			checked := auth == view.AuthSelected
+			mark := "[ ]"
+			if checked {
+				mark = "[x]"
+			}
+			line := mark + " " + MCPAuthLabel(auth)
+			focused := view.ContentFocused && view.AddFocus == MCPFocusAuth && i == view.AuthFocus
+			writeMCPCheckRow(&b, line, focused, checked)
+		}
+		fmt.Fprintln(&b)
+
+		if view.AuthSelected == config.MCPAuthEnvironmentReference {
+			fmt.Fprintln(&b, mcpSection.Render("Header name"))
+			writeMCPTextField(&b, view.HeaderView, "(e.g. Authorization)", view.ContentFocused && view.AddFocus == MCPFocusHeader)
+			fmt.Fprintln(&b)
+
+			fmt.Fprintln(&b, mcpSection.Render("Environment variable"))
+			writeMCPTextField(&b, view.HeaderEnvView, "(e.g. GITHUB_TOKEN)", view.ContentFocused && view.AddFocus == MCPFocusHeaderEnv)
+			fmt.Fprintln(&b)
+
+			fmt.Fprintln(&b, mcpSection.Render("Optional prefix"))
+			writeMCPTextField(&b, view.PrefixView, `(e.g. Bearer )`, view.ContentFocused && view.AddFocus == MCPFocusPrefix)
+			fmt.Fprintln(&b)
+		}
+	}
 
 	fmt.Fprintln(&b, mcpSection.Render("Notes"))
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("No credentials are stored. Authenticated / verified = NOT IMPLEMENTED."))
-	fmt.Fprintln(&b, "  "+mcpMuted.Render("This custom MCP is preference recorded until Apply persists config.yaml."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("No credentials are stored. Auth uses env refs, agent OAuth, or provider-managed flows."))
+	fmt.Fprintln(&b, "  "+mcpMuted.Render("Apply projects Atlas-owned entries into selected agent MCP configs."))
 	if view.Error != "" {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "  "+mcpFail.Render(view.Error))

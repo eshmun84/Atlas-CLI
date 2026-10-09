@@ -152,12 +152,13 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 			{
 				Key:         "mcp",
 				Title:       "MCP",
-				Description: "Preference/config only — not materialized, connected, authenticated, or verified.",
+				Description: "Desired state in Atlas config; Atlas-owned projections materialize to selected agents. Auth/connection/verification may still depend on the provider or agent. Secrets are not stored.",
 				Fields:      nil,
 			},
 			{
 				// Hidden from SelectorSections; retained so persist/load keep remote + branch_strategy + memory.
-				// Context Economy is a separate explicit flow. CodeGraph and Atlas Context Graph are not Configure choices.
+				// Context Economy is a separate explicit flow. Code Intelligence/CodeGraph is a separate surface.
+				// Atlas Context Graph remains NOT IMPLEMENTED and is not a Configure choice.
 				Key:         "compat",
 				Title:       "Compatibility",
 				Description: "Internal compatibility fields — not shown in Init/Configure selectors.",
@@ -165,7 +166,7 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 					field("source_control.default_remote", "Default remote", "Not an Init setup decision.", remote, remote, FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 					field("source_control.branch_strategy", "Branch strategy", "Not an Init setup decision. Atlas does not configure GitFlow.", "manual", "manual", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 					field("memory.strategy", "Memory strategy", "Always-on local Atlas-managed memory; not an Init setup choice.", "sqlite_plus_context_capsule", "sqlite_plus_context_capsule", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, true, false),
-					field("context.graph.enabled", "Atlas Context Graph preference", "Compatibility only. Atlas Context Graph is NOT IMPLEMENTED. Context Economy v0 is the separate file-based flow. CodeGraph is a future external provider, not selectable here.", "true", "true", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
+					field("context.graph.enabled", "Atlas Context Graph preference", "Compatibility only. Atlas Context Graph is NOT IMPLEMENTED. Context Economy v0 is the separate file-based flow. CodeGraph is an optional Code Intelligence provider managed outside Configure.", "true", "true", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 				},
 			},
 		},

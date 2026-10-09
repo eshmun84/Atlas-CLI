@@ -12,7 +12,8 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 )
 
 // Slice 27 Configure/Context/MCP/docs smoke (temporary ATLAS_HOME). Run with:
@@ -55,7 +56,7 @@ func TestSlice27ConfigureContextMCPDocsSmoke(t *testing.T) {
 
 	homeSnap := mustWalk(t, homeDir)
 	atlasSnap := mustWalk(t, filepath.Join(root, ".atlas"))
-	disc, err := workspace.Discover(root)
+	disc, err := inspect.Inspect(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,43 +98,53 @@ func TestSlice27ConfigureContextMCPDocsSmoke(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".opencode/atlas.md")); !os.IsNotExist(err) {
 		t.Fatal("Configure silently materialized OpenCode")
 	}
-	pass("Configure adapter change: config-only + Runtime Repair recommended; runtime untouched")
+	pass("Configure adapter change: config+MCP reconcile + Runtime Repair recommended; non-MCP runtime untouched")
 
 	mcp := config.EmptyMCPDraft()
-	mcp.ToggleBuiltin(0)
-	mcp.ToggleBuiltin(1)
+	mcp.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcp.EnableBuiltin(config.MCPBuiltinGitHub)
+	agentsBeforeMCP, _ := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	cursorBeforeMCP, _ := os.ReadFile(filepath.Join(root, ".cursor/rules/atlas.mdc"))
 	res, err = config.PersistConfigure(config.ApplyInput{Root: root, Draft: cfgDraft, MCP: mcp})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(res.Notice, "MCP selections record preferences") {
-		t.Fatalf("missing MCP honesty: %q", res.Notice)
+	if !strings.Contains(res.Notice, "MCP selections were reconciled") {
+		t.Fatalf("missing MCP projection notice: %q", res.Notice)
 	}
-	doc, err := config.LoadProjectDocument(filepath.Join(root, config.FileConfig))
+	doc, err := config.LoadProjectDocumentAt(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !doc.MCP.Builtins.Jira.Enabled || !doc.MCP.Builtins.Context7.Enabled {
+	if !doc.MCP.Builtins.Filesystem.Enabled || !doc.MCP.Builtins.GitHub.Enabled {
 		t.Fatalf("MCP prefs not recorded: %#v", doc.MCP.Builtins)
 	}
-	for _, rel := range []string{".mcp", "mcp.json", ".cursor/mcp.json"} {
-		if _, err := os.Stat(filepath.Join(root, rel)); !os.IsNotExist(err) {
-			t.Fatalf("unexpected MCP path %s", rel)
-		}
+	if _, err := os.Stat(filepath.Join(root, ".cursor/mcp.json")); err != nil {
+		t.Fatalf("expected Cursor MCP projection: %v", err)
 	}
-	pass("Configure MCP: preference recorded only; no materialization")
+	if _, err := os.Stat(filepath.Join(root, "opencode.json")); err != nil {
+		t.Fatalf("expected OpenCode MCP projection: %v", err)
+	}
+	agentsAfterMCP, _ := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	cursorAfterMCP, _ := os.ReadFile(filepath.Join(root, ".cursor/rules/atlas.mdc"))
+	if string(agentsAfterMCP) != string(agentsBeforeMCP) || string(cursorAfterMCP) != string(cursorBeforeMCP) {
+		t.Fatal("Configure MCP rematerialized non-MCP runtime")
+	}
+	pass("Configure MCP: projections reconciled; non-MCP runtime untouched")
 
 	plan := initplan.BuildReview(initplan.ReviewInput{Draft: draft, MCP: mcp, Root: root})
 	var warnings string
 	for _, w := range plan.Warnings {
 		warnings += w.Message + "\n"
 	}
-	if !strings.Contains(warnings, "Context Economy v0") || !strings.Contains(warnings, "NOT IMPLEMENTED") {
+	if !strings.Contains(warnings, "Context Economy v0") ||
+		!strings.Contains(warnings, "CodeGraph is an optional") ||
+		!strings.Contains(warnings, "Atlas Context Graph is NOT IMPLEMENTED") {
 		t.Fatalf("review Context honesty missing: %s", warnings)
 	}
 	pass("Context Economy / CodeGraph / Context Graph language is honest")
 
-	doc, _ = config.LoadProjectDocument(filepath.Join(root, config.FileConfig))
+	doc, _ = config.LoadProjectDocumentAt(root)
 	if doc.Project.DocsScaffold {
 		t.Fatal("docs scaffold unexpectedly on")
 	}
@@ -190,12 +201,12 @@ func TestSlice27ConfigureContextMCPDocsSmoke(t *testing.T) {
 	}
 	pass("Existing docs/ not overwritten by Configure")
 
-	disc, err = workspace.Discover(root)
+	disc, err = inspect.Inspect(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rplan := workspace.BuildRuntimeRepairPlan(root, disc.Runtime)
-	if _, err := workspace.ApplyRuntimeRepair(root, rplan.Signature(), func() time.Time { return time.Now().UTC() }); err != nil {
+	rplan := runtime.BuildRuntimeRepairPlan(root, disc.Runtime)
+	if _, err := runtime.ApplyRuntimeRepair(root, rplan.Signature(), func() time.Time { return time.Now().UTC() }); err != nil {
 		t.Fatalf("runtime repair: %v", err)
 	}
 	got, _ = os.ReadFile(docsPath)
@@ -242,7 +253,7 @@ func TestSlice27ConfigureContextMCPDocsSmoke(t *testing.T) {
 
 	homeSnap = mustWalk(t, homeDir)
 	docsBefore, _ := os.ReadFile(docsPath)
-	disc, _ = workspace.Discover(root)
+	disc, _ = inspect.Inspect(root)
 	_ = doctor.Evaluate(disc)
 	if !walkEqual(homeSnap, mustWalk(t, homeDir)) {
 		t.Fatal("Status/Doctor mutated home after Configure")

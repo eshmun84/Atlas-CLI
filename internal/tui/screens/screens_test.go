@@ -13,8 +13,10 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
+	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/project"
+	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
-	"github.com/eshmun84/Atlas-CLI/internal/workspace"
 )
 
 func TestScreenTitles(t *testing.T) {
@@ -23,14 +25,14 @@ func TestScreenTitles(t *testing.T) {
 	if !strings.Contains(screens.Help(), "Atlas Help") {
 		t.Fatal("help")
 	}
-	if !strings.Contains(screens.Status(workspace.DiscoveryResult{RootPath: "/tmp"}), "Atlas Status") {
+	if !strings.Contains(screens.Status(inspect.Inspection{RootPath: "/tmp"}), "Atlas Status") {
 		t.Fatal("status")
 	}
-	if !strings.Contains(screens.Doctor(doctor.Report{}, workspace.DiscoveryResult{}), "Atlas Doctor") {
+	if !strings.Contains(screens.Doctor(doctor.Report{}, inspect.Inspection{}), "Atlas Doctor") {
 		t.Fatal("doctor")
 	}
 	if !strings.Contains(screens.RenderRuntimeRepair(screens.RepairView{
-		Plan: workspace.RuntimeRepairPlan{Healthy: true},
+		Plan: runtime.RuntimeRepairPlan{Healthy: true},
 	}), "Runtime Repair") {
 		t.Fatal("repair")
 	}
@@ -169,7 +171,8 @@ func TestRenderReview(t *testing.T) {
 		"Init performs no Git operations.",
 		"No repository, branch, commit, push, pull request, merge or remote operation",
 		"Runtime conflicts block Init and require manual cleanup",
-		"Context Economy v0 is a separate explicit flow. CodeGraph and Atlas Context Graph are NOT IMPLEMENTED.",
+		"Context Economy v0 is a separate explicit flow. CodeGraph is an optional externally installed Code Intelligence provider",
+		"Atlas Context Graph is NOT IMPLEMENTED.",
 		"[content focus]",
 	} {
 		if !strings.Contains(view, want) {
@@ -375,7 +378,7 @@ func TestConfigFormFinalSections(t *testing.T) {
 			ContentFocused: true,
 		},
 	})
-	for _, want := range []string{"Built-in MCPs", "[ ] Jira", "[ ] Context7", "[ ] Chrome DevTools", "Custom MCPs", "[ Add MCP ]"} {
+	for _, want := range []string{"Built-in MCPs", "[ ] Filesystem", "[ ] GitHub", "[ ] Jira", "[ ] Context7", "[ ] Chrome DevTools", "Custom MCPs", "[ Add MCP ]"} {
 		if !strings.Contains(mcp, want) {
 			t.Fatalf("init mcp section missing %q:\n%s", want, mcp)
 		}
@@ -394,7 +397,8 @@ func TestContextEconomyWordingHonesty(t *testing.T) {
 	})
 	for _, want := range []string{
 		"Context Economy v0: implemented, file-based, explicit Update under Atlas Home.",
-		"CodeGraph and Atlas Context Graph: NOT IMPLEMENTED.",
+		"CodeGraph: optional Code Intelligence provider (externally installed; not MCP; may be unavailable).",
+		"Atlas Context Graph: NOT IMPLEMENTED.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
@@ -402,6 +406,7 @@ func TestContextEconomyWordingHonesty(t *testing.T) {
 	}
 	for _, banned := range []string{
 		"Context Economy is the Atlas Context Graph",
+		"CodeGraph and Atlas Context Graph: NOT IMPLEMENTED",
 		"CodeGraph enabled",
 		"graph engine ready",
 	} {
@@ -430,7 +435,7 @@ func TestConfigureViewFinalSections(t *testing.T) {
 		"Delivery",
 		"MCP",
 		"Close discards unsaved changes. Apply saves .atlas/config.yaml.",
-		"Runtime files are not repaired or rematerialized automatically.",
+		"Runtime files (AGENTS.md, rules, agents) are not repaired or rematerialized automatically.",
 		"Context Economy payloads are not updated automatically.",
 		"Runtime Repair and Update Context are separate flows.",
 	} {
@@ -482,9 +487,9 @@ func TestConfigureViewDocsScaffoldFooterHonesty(t *testing.T) {
 	for _, want := range []string{
 		"Apply saves .atlas/config.yaml.",
 		"docs/atlas/README.md once",
-		"Runtime files are not repaired or rematerialized automatically.",
+		"Runtime files (AGENTS.md, rules, agents) are not repaired or rematerialized automatically.",
 		"Context Economy payloads are not updated automatically.",
-		"MCP selections are preference/config only",
+		"MCP projections for selected adapters are reconciled on Apply",
 		"Runtime Repair and Update Context are separate flows.",
 	} {
 		if !strings.Contains(view, want) {
@@ -510,11 +515,12 @@ func TestRenderMCP(t *testing.T) {
 	})
 	for _, want := range []string{
 		"MCP",
-		"MCP selections record preferences only.",
-		"NOT IMPLEMENTED",
+		"External capabilities projected to selected agents on Apply.",
 		"Atlas is not initialized yet.",
 		"draft-only until Init Apply",
 		"Built-in MCPs",
+		"[ ] Filesystem",
+		"[ ] GitHub",
 		"[ ] Jira",
 		"[ ] Context7",
 		"[ ] Chrome DevTools",
@@ -535,20 +541,20 @@ func TestRenderMCP(t *testing.T) {
 		TransportSelected: config.MCPTransportStdio,
 		AddFocus:          screens.MCPFocusName,
 	})
-	for _, want := range []string{"Add MCP", "Name", "Transport", "[x] stdio", "[ ] http", "[ ] sse", "Command or URL", "Arguments", "Environment references"} {
+	for _, want := range []string{"Add MCP", "Name", "Transport", "[x] stdio", "[ ] streamable_http", "Command", "Arguments", "Environment references"} {
 		if !strings.Contains(add, want) {
 			t.Fatalf("add form missing %q:\n%s", want, add)
 		}
 	}
-	for _, banned := range []string{"Kind", "[ ] Jira", "[ ] Context7", "[ ] Chrome DevTools", "[x] Custom"} {
+	for _, banned := range []string{"Kind", "[ ] Jira", "[ ] Context7", "[ ] Chrome DevTools", "[x] Custom", "[ ] sse"} {
 		if strings.Contains(add, banned) {
 			t.Fatalf("add form unexpected %q:\n%s", banned, add)
 		}
 	}
 
 	draft := config.DefaultMCPDraft()
-	draft.ToggleBuiltin(0)
-	if _, err := draft.AddCustom("My Browser MCP", config.MCPTransportStdio, "", "", ""); err != nil {
+	draft.EnableBuiltin(config.MCPBuiltinJira)
+	if _, err := draft.AddCustom("My Browser MCP", config.MCPTransportStdio, "npx", "-y demo", ""); err != nil {
 		t.Fatal(err)
 	}
 	draft.ToggleCustom(0)
@@ -565,7 +571,7 @@ func TestRenderMCP(t *testing.T) {
 		"My Browser MCP",
 		"stdio",
 		"[x]",
-		"preference recorded",
+		"configured",
 	} {
 		if !strings.Contains(active, want) {
 			t.Fatalf("initialized view missing %q:\n%s", want, active)
@@ -585,25 +591,25 @@ func sectionIndex(draft config.ConfigDraft, key string) int {
 func TestStatusGitTechLibraries(t *testing.T) {
 	t.Parallel()
 
-	view := screens.Status(workspace.DiscoveryResult{
+	view := screens.Status(inspect.Inspection{
 		RootPath: "/tmp/demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo:           true,
 			CurrentBranch:    "feature/x",
 			DefaultRemote:    "origin",
 			DefaultRemoteURL: "https://example.com/demo.git",
 			DefaultBranch:    "main",
 		},
-		Technologies: []workspace.Technology{
+		Technologies: []project.Technology{
 			{Name: "Go", Source: "go.mod", Confidence: "high"},
 		},
-		Libraries: []workspace.Library{
+		Libraries: []project.Library{
 			{Name: "Bubble Tea", Module: "github.com/charmbracelet/bubbletea"},
 		},
-		Atlas: workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
-		Runtime: workspace.RuntimeHealth{
+		Atlas: project.AtlasStatus{State: project.AtlasStateNotInitialized},
+		Runtime: runtime.Health{
 			SelectedAdapters: []string{"cursor"},
-			ExpectedProjections: []workspace.ProjectionStatus{
+			ExpectedProjections: []runtime.ProjectionStatus{
 				{Adapter: "cursor", Path: ".cursor/rules/atlas.mdc", Present: true},
 			},
 			ContextGraphReadable: true,
@@ -633,7 +639,7 @@ func TestStatusGitTechLibraries(t *testing.T) {
 		"Adapters",
 		"Source Control / Delivery Tools",
 		"Health",
-		"MCP / External Context",
+		"MCP",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
@@ -650,17 +656,17 @@ func TestStatusGitTechLibraries(t *testing.T) {
 func TestStatusRemoteDefaultBranchUnknownLocally(t *testing.T) {
 	t.Parallel()
 
-	view := stripANSI(screens.Status(workspace.DiscoveryResult{
+	view := stripANSI(screens.Status(inspect.Inspection{
 		RootPath: "/tmp/demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo:           true,
 			CurrentBranch:    "feature/x",
 			DefaultRemote:    "origin",
 			DefaultRemoteURL: "https://example.com/demo.git",
 			// DefaultBranch empty: origin/main|develop|staging exist but origin/HEAD does not.
-			Remotes: []workspace.GitRemote{{Name: "origin", URL: "https://example.com/demo.git"}},
+			Remotes: []project.GitRemote{{Name: "origin", URL: "https://example.com/demo.git"}},
 		},
-		Atlas: workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
+		Atlas: project.AtlasStatus{State: project.AtlasStateNotInitialized},
 	}))
 	if !strings.Contains(view, "Remote default branch: unknown locally") {
 		t.Fatalf("expected unknown locally, got:\n%s", view)
@@ -676,15 +682,15 @@ func TestStatusRemoteDefaultBranchUnknownLocally(t *testing.T) {
 func TestStatusRemoteDefaultBranchResolved(t *testing.T) {
 	t.Parallel()
 
-	view := stripANSI(screens.Status(workspace.DiscoveryResult{
+	view := stripANSI(screens.Status(inspect.Inspection{
 		RootPath: "/tmp/demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo:        true,
 			CurrentBranch: "feature/x",
 			DefaultRemote: "origin",
 			DefaultBranch: "main",
 		},
-		Atlas: workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
+		Atlas: project.AtlasStatus{State: project.AtlasStateNotInitialized},
 	}))
 	if !strings.Contains(view, "Remote default branch: main") {
 		t.Fatalf("expected main, got:\n%s", view)
@@ -694,13 +700,13 @@ func TestStatusRemoteDefaultBranchResolved(t *testing.T) {
 func TestStatusEmptyRemoteIsNone(t *testing.T) {
 	t.Parallel()
 
-	view := stripANSI(screens.Status(workspace.DiscoveryResult{
+	view := stripANSI(screens.Status(inspect.Inspection{
 		RootPath: "/tmp/demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo:        true,
 			CurrentBranch: "main",
 		},
-		Atlas: workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
+		Atlas: project.AtlasStatus{State: project.AtlasStateNotInitialized},
 	}))
 	for _, want := range []string{
 		"Default remote:",
@@ -726,15 +732,15 @@ func TestStatusEmptyRemoteIsNone(t *testing.T) {
 func TestStatusHealthMatchesDoctorReport(t *testing.T) {
 	t.Parallel()
 
-	result := workspace.DiscoveryResult{
+	result := inspect.Inspection{
 		RootPath: "/tmp/existing-demo",
-		Git: workspace.GitInfo{
+		Git: project.GitInfo{
 			IsRepo:        true,
 			CurrentBranch: "main",
 		},
-		Files: workspace.FileInfo{HasReadme: true},
-		Atlas: workspace.AtlasStatus{State: workspace.AtlasStateNotInitialized},
-		Runtime: workspace.RuntimeHealth{
+		Files: project.FileInfo{HasReadme: true},
+		Atlas: project.AtlasStatus{State: project.AtlasStateNotInitialized},
+		Runtime: runtime.Health{
 			ConfigExists: false,
 			Home: home.Status{
 				Path:           "/tmp/atlas-home-incomplete",
@@ -744,7 +750,7 @@ func TestStatusHealthMatchesDoctorReport(t *testing.T) {
 				MissingAssets:  []string{"agents/base.md", "contracts/sdd-openspec.md"},
 			},
 		},
-		Tools: []workspace.ToolInfo{
+		Tools: []project.ToolInfo{
 			{Name: "git", Available: true},
 			{Name: "openspec", Available: false},
 		},
@@ -793,7 +799,7 @@ func TestStatusHealthMatchesDoctorLiveWorkspace(t *testing.T) {
 	}
 	before := snapshotTree(t, root)
 
-	result, err := workspace.Discover(root)
+	result, err := inspect.Inspect(root)
 	if err != nil {
 		t.Fatal(err)
 	}

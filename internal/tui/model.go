@@ -86,12 +86,17 @@ type Model struct {
 	mcpAddFocus       string
 	mcpTransportFocus int
 	mcpTransport      config.MCPTransport
+	mcpAuthFocus      int
+	mcpAuth           config.MCPAuthRequirement
 	mcpAddError       string
 	mcpNotice         string
 	mcpNameInput      textinput.Model
 	mcpConnInput      textinput.Model
 	mcpArgsInput      textinput.Model
 	mcpEnvInput       textinput.Model
+	mcpHeaderInput    textinput.Model
+	mcpHeaderEnvInput textinput.Model
+	mcpPrefixInput    textinput.Model
 
 	unknownCommand  string
 	plan            initplan.Plan
@@ -172,10 +177,15 @@ func NewModel(opts Options) Model {
 		mcpAddFocus:       screens.MCPFocusName,
 		mcpTransport:      config.MCPTransportStdio,
 		mcpTransportFocus: 0,
+		mcpAuth:           config.MCPAuthNone,
+		mcpAuthFocus:      0,
 		mcpNameInput:      newTextInput("name"),
 		mcpConnInput:      newTextInput("command or url"),
 		mcpArgsInput:      newTextInput("arguments"),
 		mcpEnvInput:       newTextInput("environment references"),
+		mcpHeaderInput:    newTextInput("header name"),
+		mcpHeaderEnvInput: newTextInput("environment variable"),
+		mcpPrefixInput:    newTextInput("optional prefix"),
 		unknownCommand:    opts.UnknownCommand,
 		getwd:             getwd,
 		discover:          discover,
@@ -236,10 +246,8 @@ func (m Model) ConfigPanel() string                   { return m.configPanel }
 func (m Model) ConfigFooterIndex() int                { return m.configFooterIdx }
 func (m Model) MCPDraft() config.MCPDraft             { return m.mcpDraft }
 func (m Model) MCPMode() string                       { return m.mcpMode }
-func (m Model) MCPIndex() int                         { return m.mcpIndex }
 func (m Model) MCPListFocus() string                  { return m.mcpListFocus }
 func (m Model) MCPAddError() string                   { return m.mcpAddError }
-func (m Model) MCPNotice() string                     { return m.mcpNotice }
 func (m Model) MCPAddFocus() string                   { return m.mcpAddFocus }
 func (m Model) MCPAddName() string                    { return m.mcpNameInput.Value() }
 func (m Model) MCPAddConn() string                    { return m.mcpConnInput.Value() }
@@ -248,9 +256,6 @@ func (m Model) MCPAddEnv() string                     { return m.mcpEnvInput.Val
 func (m Model) RepairApplied() bool                   { return m.repairApplied }
 func (m Model) RepairMessage() string                 { return m.repairMessage }
 func (m Model) RepairPlan() runtime.RuntimeRepairPlan { return m.repairPlan }
-func (m Model) ContextApplied() bool                  { return m.contextApplied }
-func (m Model) ContextMessage() string                { return m.contextMessage }
-func (m Model) ContextPlan() atlascontext.UpdatePlan  { return m.contextPlan }
 func (m Model) NameCursor() int                       { return m.nameInput.Position() }
 func (m Model) Quitting() bool                        { return m.quitting }
 
@@ -377,6 +382,9 @@ func (m *Model) syncMCPInputFocus() {
 	setInputFocus(&m.mcpConnInput, active && m.mcpAddFocus == screens.MCPFocusConn)
 	setInputFocus(&m.mcpArgsInput, active && m.mcpAddFocus == screens.MCPFocusArgs)
 	setInputFocus(&m.mcpEnvInput, active && m.mcpAddFocus == screens.MCPFocusEnv)
+	setInputFocus(&m.mcpHeaderInput, active && m.mcpAddFocus == screens.MCPFocusHeader)
+	setInputFocus(&m.mcpHeaderEnvInput, active && m.mcpAddFocus == screens.MCPFocusHeaderEnv)
+	setInputFocus(&m.mcpPrefixInput, active && m.mcpAddFocus == screens.MCPFocusPrefix)
 }
 
 func setInputFocus(ti *textinput.Model, focused bool) {
@@ -392,6 +400,8 @@ func (m *Model) resetMCPAddForm() {
 	m.mcpAddFocus = screens.MCPFocusName
 	m.mcpTransport = config.MCPTransportStdio
 	m.mcpTransportFocus = 0
+	m.mcpAuth = config.MCPAuthNone
+	m.mcpAuthFocus = 0
 	m.mcpAddError = ""
 	m.mcpNotice = ""
 	m.mcpFooterIdx = 0
@@ -403,6 +413,12 @@ func (m *Model) resetMCPAddForm() {
 	m.mcpArgsInput.CursorEnd()
 	m.mcpEnvInput.SetValue("")
 	m.mcpEnvInput.CursorEnd()
+	m.mcpHeaderInput.SetValue("")
+	m.mcpHeaderInput.CursorEnd()
+	m.mcpHeaderEnvInput.SetValue("")
+	m.mcpHeaderEnvInput.CursorEnd()
+	m.mcpPrefixInput.SetValue("")
+	m.mcpPrefixInput.CursorEnd()
 	m.syncMCPInputFocus()
 }
 
@@ -456,6 +472,8 @@ func (m Model) mcpView() screens.MCPView {
 		ActiveIndex:       m.mcpIndex,
 		TransportFocus:    m.mcpTransportFocus,
 		TransportSelected: m.mcpTransport,
+		AuthFocus:         m.mcpAuthFocus,
+		AuthSelected:      m.mcpAuth,
 		Initialized:       m.Initialized(),
 		ContentFocused:    m.focus == FocusContent,
 		ListFocus:         m.mcpListFocus,
@@ -464,6 +482,9 @@ func (m Model) mcpView() screens.MCPView {
 		ConnectionView:    m.mcpConnInput.View(),
 		ArgsView:          m.mcpArgsInput.View(),
 		EnvView:           m.mcpEnvInput.View(),
+		HeaderView:        m.mcpHeaderInput.View(),
+		HeaderEnvView:     m.mcpHeaderEnvInput.View(),
+		PrefixView:        m.mcpPrefixInput.View(),
 		Error:             m.mcpAddError,
 		Notice:            m.mcpNotice,
 	}
@@ -531,7 +552,7 @@ func (m *Model) rebuildConfigDraft(mode config.ConfigMode, includeBack, includeN
 	if m.discovery.Atlas.Initialized() {
 		// Persisted config wins over discovery-based Delivery defaults for both
 		// Init (re-run) and Configure. Configure also reseeds setup identity.
-		if doc, err := config.LoadProjectDocument(m.discovery.Atlas.ConfigPath); err == nil {
+		if doc, err := config.LoadProjectDocumentAt(m.discovery.RootPath); err == nil {
 			persisted = &doc
 		}
 		if mode == config.ConfigModeConfigure {

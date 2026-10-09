@@ -6,23 +6,29 @@ import (
 	"testing"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
-func TestSaveLoadRoundTrip(t *testing.T) {
+func TestLoadRoundTripFromFixture(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".atlas"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	original := config.DefaultConfig("roundtrip")
 	original.Project.Description = "slice-2 roundtrip"
 	original.Project.Technologies = []string{"go"}
-
-	if err := config.Save(path, original); err != nil {
-		t.Fatalf("save: %v", err)
+	data, err := yaml.Marshal(&original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(config.FileConfig)), data, 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	loaded, err := config.Load(path)
+	loaded, err := config.LoadAt(root)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -44,55 +50,20 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSaveCreatesParentDirectories(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".atlas", "nested", "config.yaml")
-
-	cfg := config.DefaultConfig("nested")
-	if err := config.Save(path, cfg); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat saved config: %v", err)
-	}
-	if info.IsDir() {
-		t.Fatal("expected a file, got directory")
-	}
-}
-
-func TestSaveRejectsInvalidConfig(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-
-	cfg := config.DefaultConfig("bad")
-	cfg.Project.Name = ""
-
-	if err := config.Save(path, cfg); err == nil {
-		t.Fatal("expected save to reject invalid config")
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("config file should not exist, stat err = %v", err)
-	}
-}
-
 func TestLoadRejectsInvalidConfig(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".atlas"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	invalidYAML := []byte("project:\n  name: \"\"\n  mode: greenfield\n")
-	if err := os.WriteFile(path, invalidYAML, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(config.FileConfig)), invalidYAML, 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	if _, err := config.Load(path); err == nil {
+	if _, err := config.LoadAt(root); err == nil {
 		t.Fatal("expected load to reject invalid config")
 	}
 }
@@ -100,13 +71,15 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 func TestLoadStateDocument_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state.yaml")
-	raw := []byte("schema_version: 1\ninitialized: true\nruntime_materialized: true\nruntime_materialized_at: \"2026-10-05T12:00:00Z\"\napplied_at: \"2026-10-05T12:00:00Z\"\natlas_version: 0.1.0\nproject_name: demo\n")
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".atlas"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	state, err := config.LoadStateDocument(path)
+	raw := []byte("schema_version: 1\ninitialized: true\nruntime_materialized: true\nruntime_materialized_at: \"2026-10-05T12:00:00Z\"\napplied_at: \"2026-10-05T12:00:00Z\"\natlas_version: 0.1.0\nproject_name: demo\n")
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(config.FileState)), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state, err := config.LoadStateDocumentAt(root)
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
@@ -118,7 +91,7 @@ func TestLoadStateDocument_RoundTrip(t *testing.T) {
 func TestInspectAgentsMarkers(t *testing.T) {
 	t.Parallel()
 
-	complete := config.InspectAgentsMarkers([]byte(config.RenderAgentsMD("demo", true, nil, nil)))
+	complete := config.InspectAgentsMarkers([]byte(mustRenderAgentsMD(t, "demo", true, nil, nil)))
 	if !complete.Complete() {
 		t.Fatalf("complete markers = %#v", complete)
 	}

@@ -31,20 +31,6 @@ func NewService(providers ...Provider) *Service {
 	return s
 }
 
-// Register adds or replaces a provider.
-func (s *Service) Register(p Provider) {
-	if s == nil || p == nil {
-		return
-	}
-	if s.providers == nil {
-		s.providers = map[ProviderID]Provider{}
-	}
-	s.providers[p.ID()] = p
-	if s.defaultID == "" {
-		s.defaultID = p.ID()
-	}
-}
-
 // DefaultID returns the default provider id.
 func (s *Service) DefaultID() ProviderID {
 	if s == nil {

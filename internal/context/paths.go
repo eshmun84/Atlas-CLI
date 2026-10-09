@@ -1,7 +1,6 @@
 package context
 
 import (
-	"os"
 	"path/filepath"
 
 	"github.com/eshmun84/Atlas-CLI/internal/home"
@@ -53,15 +52,19 @@ func PackPath(homePath, projectID, packID string) string {
 	return filepath.Join(PacksDir(homePath, projectID), packID+".yaml")
 }
 
-// ResolveContextDir picks the canonical Context Economy directory when present,
-// otherwise falls back to the transitional legacy path for read-only inspection.
+// ResolveContextDir picks the canonical Context Economy directory when a safe
+// regular index leaf is present; otherwise falls back to the transitional legacy
+// path for read-only inspection. Symlinked/escaped indexes are refused (not treated
+// as present).
 func ResolveContextDir(homePath, projectID string) string {
 	canonical := ProjectDir(homePath, projectID)
-	if fileExists(filepath.Join(canonical, FileIndexYAML)) {
+	present, err := InspectContextLeaf(homePath, ContextIndexRel(projectID))
+	if err == nil && present {
 		return canonical
 	}
 	legacy := LegacyProjectDir(homePath, projectID)
-	if fileExists(filepath.Join(legacy, FileIndexYAML)) {
+	legacyPresent, legacyErr := InspectContextLeaf(homePath, LegacyContextIndexRel(projectID))
+	if legacyErr == nil && legacyPresent {
 		return legacy
 	}
 	return canonical
@@ -75,9 +78,4 @@ func HomeRelContext(projectID string) string {
 // ResolveHome returns the Atlas Home path without creating directories.
 func ResolveHome() (string, error) {
 	return home.Resolve()
-}
-
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
 }
