@@ -23,6 +23,7 @@ var doctorSectionOrder = []string{
 	"Git",
 	"Atlas Configuration",
 	"Atlas Runtime",
+	"SDD",
 	"Adapters",
 	"Atlas Home",
 	"Context",
@@ -105,8 +106,12 @@ func doctorSectionFor(name string) string {
 		return "MCP / External Context"
 	case name == "tool go":
 		return "Workspace"
+	case name == "sdd openspec contract":
+		return "Atlas Runtime"
+	case strings.HasPrefix(name, "sdd"):
+		return "SDD"
 	default:
-		// runtime materialization, agents*, registry/manifest/lock, sdd, backups, forbidden
+		// runtime materialization, agents*, registry/manifest/lock, backups, forbidden
 		return "Atlas Runtime"
 	}
 }

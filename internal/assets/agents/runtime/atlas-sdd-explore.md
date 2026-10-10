@@ -55,7 +55,7 @@ Before wide repo reads, prefer Atlas Home Context Economy capsule/index/packs wh
 
 ## Relation to OpenSpec / SDD
 
-Do not execute real OpenSpec CLI commands or invent command output.
+Do not execute real OpenSpec CLI commands or invent command output. OpenSpec is the authoritative change store when present; do not duplicate its artifacts into Atlas evidence. Update project docs only when the change requires it.
 
 ## Hard prohibitions
 

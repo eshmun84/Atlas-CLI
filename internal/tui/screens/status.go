@@ -13,6 +13,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
+	"github.com/eshmun84/Atlas-CLI/internal/sdd"
 )
 
 var (
@@ -52,6 +53,7 @@ func StatusWithReport(result inspect.Inspection, report doctor.Report) string {
 	writeStatusTechnology(&b, result)
 	writeStatusAdapters(&b, result)
 	writeStatusGovernance(&b, result)
+	writeStatusSDD(&b, result)
 	writeStatusMCP(&b, result)
 	writeStatusHealth(&b, result, report)
 
@@ -178,6 +180,14 @@ func writeStatusGovernance(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintf(b, "  Evidence required: %s\n", yesNo(gov.EvidenceRequired))
 	fmt.Fprintf(b, "  OpenSpec CLI: %s\n", toolAvailability(result.Tools, "openspec"))
 	fmt.Fprintf(b, "  OpenSpec execution: %s\n", statusInfo.Render("NOT IMPLEMENTED"))
+	fmt.Fprintln(b)
+}
+
+func writeStatusSDD(b *strings.Builder, result inspect.Inspection) {
+	fmt.Fprintln(b, statusHead.Render("SDD"))
+	for _, line := range sdd.StatusLines(result.SDD) {
+		fmt.Fprintf(b, "  %s\n", line)
+	}
 	fmt.Fprintln(b)
 }
 

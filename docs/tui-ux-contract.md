@@ -67,8 +67,9 @@ Sections, in order:
 4. **Project Technology** — detected stack and libraries. PATH tool `go` appears only when the project stack includes Go.
 5. **Adapters** — selected adapters and high-level projection health (`selected` / `materialized` / `missing` / `NOT SELECTED` for inactive adapters).
 6. **Governance Tools** — workflow/spec-engine preferences and OpenSpec CLI availability (`NOT IMPLEMENTED` where Atlas does not run OpenSpec).
-7. **MCP** — selected MCP count and per-adapter projection health (`materialized` / `drifted` / `missing` / `malformed`). Read-only; no auth or network.
-8. **Health** — PASS/WARNING/ERROR counts and result label from the same `doctor.Evaluate` summary as Doctor, optional compact “Needs attention” list (top warnings/errors only), Atlas Home presence (not path-primary), Context Economy state, suggested next action. Status must not show a clean PASS when Doctor has warnings or errors.
+7. **SDD** — concise Spec Engine presence from the Inspection snapshot (`SDD: none` or `SDD: OpenSpec` plus active change summary). Read-only; does not copy OpenSpec artifacts.
+8. **MCP** — selected MCP count and per-adapter projection health (`materialized` / `drifted` / `missing` / `malformed`). Read-only; no auth or network.
+9. **Health** — PASS/WARNING/ERROR counts and result label from the same `doctor.Evaluate` summary as Doctor, optional compact “Needs attention” list (top warnings/errors only), Atlas Home presence (not path-primary), Context Economy state, suggested next action. Status must not show a clean PASS when Doctor has warnings or errors.
 
 Status must **not** list full runtime artifact inventories (those belong in Doctor / Runtime Repair).
 
@@ -81,10 +82,11 @@ Sections, in order:
 3. **Git**
 4. **Atlas Configuration**
 5. **Atlas Runtime** — includes runtime file / marker / lock / contract detail.
-6. **Adapters** — projections and Atlas agent pack health.
-7. **Atlas Home** — path, presence, writability, layout, assets (detail lives here, not as Status primary).
-8. **Context** — Context Economy v0 (implemented, file-based) separately from CodeGraph / Code Intelligence (optional externally installed provider; not MCP; may be unavailable) and Atlas Context Graph preference (`NOT IMPLEMENTED`).
-9. **MCP / External Context** — definition validity, projection presence/drift, ownership conflicts, malformed native config, missing prerequisites/env refs. Read-only; no auth, install, or network.
+6. **SDD** — Spec Engine detection, active/archived change summary, malformed/unsafe/ambiguous layout findings. Read-only; never repairs or mutates OpenSpec.
+7. **Adapters** — projections and Atlas agent pack health.
+8. **Atlas Home** — path, presence, writability, layout, assets (detail lives here, not as Status primary).
+9. **Context** — Context Economy v0 (implemented, file-based) separately from CodeGraph / Code Intelligence (optional externally installed provider; not MCP; may be unavailable) and Atlas Context Graph preference (`NOT IMPLEMENTED`).
+10. **MCP / External Context** — definition validity, projection presence/drift, ownership conflicts, malformed native config, missing prerequisites/env refs. Read-only; no auth, install, or network.
 
 Doctor remains read-only and never repairs.
 

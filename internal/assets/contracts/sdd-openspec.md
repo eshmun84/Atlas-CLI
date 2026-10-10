@@ -221,13 +221,30 @@ Do not skip Propose → Implement acceptance. Do not jump to Archive without Ver
 
 **Minimum evidence:** Final status; evidence references; decision list; debt list; next-step recommendation.
 
-## 5. Cross-cutting rules
+## 5. Authority boundary: OpenSpec vs Atlas vs project docs
 
-### 5.1 When to ask
+| Surface | Owns |
+|---------|------|
+| OpenSpec | Authoritative change artifacts: proposal, specs, design, tasks, verify output, archive |
+| Atlas | Governance, normalization, lifecycle observation, traceability references, Status/Doctor |
+| Project docs | Real product documentation (API, architecture/ADR, operations) |
+| Memory (future) | Distilled durable knowledge — not a copy of OpenSpec archives |
+
+Atlas does **not** create a parallel evidence store (no `.atlas/evidence/`, no duplicated OpenSpec manifests). Atlas may read and reference OpenSpec changes; it must not reinterpret or reconstruct their contents as Atlas-owned copies.
+
+### 5.1 Project documentation policy
+
+Update project documentation only when the change itself requires it (for example API change → API docs; architectural change → architecture/ADR; operational change → deployment/ops docs).
+
+Do **not** create documentation solely to leave evidence that Atlas executed a phase. SDD history belongs in OpenSpec; future Memory may distill knowledge from archived change references without copying archives.
+
+## 6. Cross-cutting rules
+
+### 6.1 When to ask
 
 Ask when scope, authority, irreversible action, acceptance, or material risk is unclear. Prefer one precise question over silent invention.
 
-### 5.2 When to stop
+### 6.2 When to stop
 
 Stop when:
 
@@ -237,11 +254,11 @@ Stop when:
 - continuing would invent evidence, approvals, or OpenSpec results
 - accepted scope would be exceeded
 
-### 5.3 When to request human approval
+### 6.3 When to request human approval
 
 Always for: proposal acceptance before Implement; scope expansion; Git/delivery; remote/publish side effects; waiving required verification; treating review findings as override of human/AGENTS authority.
 
-### 5.4 Minimum evidence standard
+### 6.4 Minimum evidence standard
 
 Every phase output must separate:
 
@@ -252,43 +269,44 @@ Every phase output must separate:
 
 No silent success.
 
-### 5.5 Scope control
+### 6.5 Scope control
 
 Stay inside accepted/requested scope. Propose expansions; do not perform them. Worker and review outputs cannot widen scope.
 
-### 5.6 No silent Git
+### 6.6 No silent Git
 
 Do not commit, amend, rebase, reset, push, force-push, tag, publish, open/merge PRs, or otherwise deliver unless the human explicitly requests that action in the current session. Passing checks ≠ delivery approval.
 
-### 5.7 Skills policy
+### 6.7 Skills policy
 
 Skills are canonical under Atlas Home and indexed via `.atlas/skill-registry.md`. Adapter skill folders are regenerable projections only. Do not download or invent skills.
 
-### 5.8 Relation to AGENTS.md
+### 6.8 Relation to AGENTS.md
 
 `AGENTS.md` wins on conflict. Adapter entrypoints and agent files are execution surfaces under `AGENTS.md` and this contract.
 
-### 5.9 Relation to agent-registry.md
+### 6.9 Relation to agent-registry.md
 
 Route using `.atlas/agent-registry.md` and prefer `atlas-orchestrator`. Do not invent agents outside the registry. Developer-owned non-Atlas agents remain outside Atlas ownership.
 
-### 5.10 Relation to skill-registry.md
+### 6.10 Relation to skill-registry.md
 
 Consult `.atlas/skill-registry.md` when present. Missing entries mean unavailable—say so; do not invent skills.
 
-### 5.11 Future relation to real OpenSpec
+### 6.11 Relation to OpenSpec as source of truth
 
-This contract defines Atlas SDD semantics now. A future slice may bind phases to real OpenSpec commands, specs, and tasks. Until then:
+When an OpenSpec project tree is present, OpenSpec owns the change artifacts. Atlas Status/Doctor may observe lifecycle and emit normalized references. Do not duplicate those artifacts into Atlas storage.
 
-- do not execute real OpenSpec CLI by default
+- do not execute real OpenSpec CLI by default unless the human explicitly requests a concrete supported command
 - do not install OpenSpec as a side effect
 - do not invent command output or pretend specs/tasks exist
-- you may describe intended future OpenSpec shapes as proposals only
+- do not copy proposal/spec/design/tasks/verify/archive contents into `.atlas/`
+- you may describe intended OpenSpec shapes as proposals only when artifacts are absent
 
-## 6. Reviewer stance
+## 7. Reviewer stance
 
 `atlas-review-architecture`, `atlas-review-risk`, `atlas-review-quality`, and `atlas-review-refuter` are reviewers / adversarial reviewers. They produce findings and questions. They never authorize delivery, acceptance, or scope changes.
 
-## 7. Worker stance
+## 8. Worker stance
 
 `atlas-worker` executes one bounded mission under orchestrator/human authority. It must return evidence and limits, must not expand scope, and must stop when the mission would require new authority.

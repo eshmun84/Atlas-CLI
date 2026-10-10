@@ -55,7 +55,7 @@ Before wide repo reads, prefer Atlas Home Context Economy capsule/index/packs wh
 
 ## Relation to OpenSpec / SDD
 
-Do not invent OpenSpec/SDD command results. Do not declare verification via tooling that was not run.
+Do not invent OpenSpec/SDD command results. Do not declare verification via tooling that was not run. OpenSpec is the authoritative change store when present; do not duplicate its artifacts into Atlas evidence. Update project docs only when the change requires it.
 
 ## Hard prohibitions
 

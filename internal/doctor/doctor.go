@@ -10,6 +10,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
+	"github.com/eshmun84/Atlas-CLI/internal/sdd"
 )
 
 // Report is the full doctor diagnostics result.
@@ -70,6 +71,7 @@ func Evaluate(result inspect.Inspection) Report {
 	checks = append(checks, evaluateRemoteDefaultBranch(result.Git)...)
 
 	checks = append(checks, evaluateRuntime(result.Runtime)...)
+	checks = append(checks, evaluateSDD(result.SDD)...)
 	checks = append(checks, evaluateHome(result.Runtime)...)
 
 	hasGo := false
@@ -690,6 +692,126 @@ func evaluateRuntime(h runtime.Health) []Check {
 		})
 	}
 
+	return checks
+}
+
+// evaluateSDD emits read-only Spec-Driven Development checks from the
+// Inspection.SDD overview. Never probes the filesystem again.
+// Issues are always processed — including when no engine is selected
+// (e.g. unsafe/symlinked Spec Engine root).
+func evaluateSDD(ov sdd.Overview) []Check {
+	var checks []Check
+	switch {
+	case ov.EngineConflict:
+		msg := "multiple engines present without explicit selection"
+		for _, issue := range ov.Issues {
+			if issue.Kind == sdd.IssueAmbiguous && strings.TrimSpace(issue.Message) != "" {
+				msg = issue.Message
+				break
+			}
+		}
+		checks = append(checks, Check{
+			Severity: SeverityFail,
+			Name:     "sdd engine",
+			Message:  msg,
+		})
+	case ov.HasEngine():
+		label := strings.TrimSpace(ov.Presence.Label)
+		if label == "" {
+			label = string(ov.Presence.Engine)
+		}
+		checks = append(checks, Check{
+			Severity: SeverityPass,
+			Name:     "sdd engine",
+			Message:  label + " detected",
+		})
+		activeMsg := "none"
+		switch n := len(ov.Active); {
+		case n == 1:
+			id := strings.TrimSpace(ov.Active[0].ChangeID)
+			if id == "" {
+				id = "(unnamed)"
+			}
+			activeMsg = id
+		case n > 1:
+			activeMsg = fmt.Sprintf("%d active", n)
+		}
+		checks = append(checks, Check{
+			Severity: SeverityPass,
+			Name:     "sdd active changes",
+			Message:  activeMsg,
+		})
+		if n := len(ov.Archived); n > 0 {
+			checks = append(checks, Check{
+				Severity: SeverityInfo,
+				Name:     "sdd archived changes",
+				Message:  fmt.Sprintf("%d archived", n),
+			})
+		}
+	default:
+		checks = append(checks, Check{
+			Severity: SeverityInfo,
+			Name:     "sdd engine",
+			Message:  "none detected",
+		})
+	}
+
+	// Always surface detection/listing issues (unsafe must stay FAIL).
+	checks = append(checks, sddIssueChecks(ov.Issues)...)
+
+	for _, ref := range ov.Active {
+		if ref.Ambiguous {
+			checks = append(checks, Check{
+				Severity: SeverityWarn,
+				Name:     "sdd ambiguous change",
+				Message:  ref.ChangeID + ": ambiguous state",
+			})
+		}
+		for _, note := range ref.Issues {
+			if strings.Contains(note, "symlink") {
+				checks = append(checks, Check{
+					Severity: SeverityFail,
+					Name:     "sdd unsafe path",
+					Message:  ref.ChangeID + ": " + note,
+				})
+			}
+		}
+	}
+	return checks
+}
+
+func sddIssueChecks(issues []sdd.Issue) []Check {
+	var checks []Check
+	for _, issue := range issues {
+		// Conflict engine message is already summarized on "sdd engine".
+		if issue.Kind == sdd.IssueAmbiguous && strings.Contains(issue.Message, "multiple spec engines") {
+			continue
+		}
+		name := "sdd layout"
+		sev := SeverityWarn
+		switch issue.Kind {
+		case sdd.IssueUnsafe:
+			name = "sdd unsafe path"
+			sev = SeverityFail
+		case sdd.IssueAmbiguous:
+			name = "sdd ambiguous change"
+			sev = SeverityWarn
+		case sdd.IssueMalformed:
+			name = "sdd malformed layout"
+			sev = SeverityFail
+		case sdd.IssueIncomplete:
+			name = "sdd incomplete state"
+			sev = SeverityWarn
+		case sdd.IssueInfo:
+			name = "sdd"
+			sev = SeverityInfo
+		}
+		msg := strings.TrimSpace(issue.Message)
+		if issue.Change != "" {
+			msg = issue.Change + ": " + msg
+		}
+		checks = append(checks, Check{Severity: sev, Name: name, Message: msg})
+	}
 	return checks
 }
 

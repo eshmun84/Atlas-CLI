@@ -25,6 +25,8 @@ func TestBundledSDDOpenSpecContractEmbedded(t *testing.T) {
 		"### 4.6 Implement",
 		"### 4.7 Verify",
 		"### 4.8 Archive",
+		"Authority boundary: OpenSpec vs Atlas vs project docs",
+		"Project documentation policy",
 		"No silent Git",
 		"agent-registry.md",
 		"skill-registry.md",

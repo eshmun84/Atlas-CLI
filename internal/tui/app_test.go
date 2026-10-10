@@ -1052,6 +1052,7 @@ func TestShellViews(t *testing.T) {
 		"Project Technology",
 		"Adapters",
 		"Governance Tools",
+		"SDD",
 		"MCP",
 		"Health",
 		"Result:",
