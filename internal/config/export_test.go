@@ -7,6 +7,12 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 )
 
+// SetAfterSkillsReconcileHookForTest installs a test-only seam after successful
+// skill projection reconcile in ApplyConfig / PersistConfigure.
+func SetAfterSkillsReconcileHookForTest(fn func() error) {
+	afterSkillsReconcileHook = fn
+}
+
 // RestoreConfigureFilesForTest exposes configure rollback for fail-closed tests.
 func RestoreConfigureFilesForTest(root string, homePath, projectID string, ownershipExists bool, ownershipRaw []byte, ownershipMode os.FileMode) error {
 	return restoreConfigureFiles(root, configureMutationSnapshot{

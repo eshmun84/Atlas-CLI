@@ -465,6 +465,71 @@ func evaluateRuntime(h runtime.Health) []Check {
 			})
 		}
 		switch {
+		case h.SkillRegistryRenderError != "":
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "skill registry",
+				Message:  "canonical render failed",
+			})
+		case !h.SkillRegistryPresent:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "skill registry",
+				Message:  config.FileSkillRegistry + " missing",
+			})
+		case !h.SkillRegistryMatches:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "skill registry",
+				Message:  "content drifted",
+			})
+		default:
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "skill registry",
+				Message:  config.FileSkillRegistry + " present",
+			})
+		}
+		if !h.Skills.CatalogReadable {
+			msg := "catalog unreadable"
+			if h.Skills.CatalogError != "" {
+				msg = h.Skills.CatalogError
+			}
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "skills catalog",
+				Message:  msg,
+			})
+		} else {
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "skills catalog",
+				Message:  fmt.Sprintf("%d package(s) available", len(h.Skills.Available)),
+			})
+		}
+		counts := h.Skills.SummaryCounts()
+		switch {
+		case counts["conflict"] > 0:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "skills projections",
+				Message:  fmt.Sprintf("%d conflict(s) preserved", counts["conflict"]),
+			})
+		case counts["missing"]+counts["stale"]+counts["drifted"]+counts["invalid"]+counts["unsupported"] > 0:
+			checks = append(checks, Check{
+				Severity: SeverityFail,
+				Name:     "skills projections",
+				Message: fmt.Sprintf("not ready (missing=%d stale=%d drifted=%d invalid=%d unsupported=%d)",
+					counts["missing"], counts["stale"], counts["drifted"], counts["invalid"], counts["unsupported"]),
+			})
+		case len(h.Skills.Projections) > 0:
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "skills projections",
+				Message:  fmt.Sprintf("%d ready", counts["ready"]),
+			})
+		}
+		switch {
 		case h.RuntimeManifestRenderError != "":
 			checks = append(checks, Check{
 				Severity: SeverityFail,

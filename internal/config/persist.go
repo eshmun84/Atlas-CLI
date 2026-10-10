@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/mcp"
+	"github.com/eshmun84/Atlas-CLI/internal/skills"
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 )
 
@@ -31,6 +32,18 @@ type ProjectDocument struct {
 	Memory        MemoryPersist        `yaml:"memory"`
 	Context       ContextPersist       `yaml:"context"`
 	MCP           MCPPersist           `yaml:"mcp"`
+	Skills        SkillsPersist        `yaml:"skills"`
+}
+
+// SkillsPersist is persisted exact skill pins (no provider projection paths).
+type SkillsPersist struct {
+	Enabled []SkillPinPersist `yaml:"enabled"`
+}
+
+// SkillPinPersist is one exact skill version pin.
+type SkillPinPersist struct {
+	ID      string `yaml:"id"`
+	Version string `yaml:"version"`
 }
 
 // ProjectPersist is the persisted project identity.
@@ -267,7 +280,29 @@ func BuildProjectDocument(draft ConfigDraft, mcp MCPDraft) ProjectDocument {
 			},
 			Custom: custom,
 		},
+		Skills: SkillsPersist{Enabled: defaultSkillPinsPersist()},
 	}
+}
+
+func defaultSkillPinsPersist() []SkillPinPersist {
+	pins := skills.DefaultPins()
+	out := make([]SkillPinPersist, 0, len(pins))
+	for _, p := range pins {
+		out = append(out, SkillPinPersist{ID: p.ID, Version: p.Version})
+	}
+	return out
+}
+
+// SkillPins returns exact pins from the document (defaults when empty).
+func (d ProjectDocument) SkillPins() []skills.Pin {
+	if len(d.Skills.Enabled) == 0 {
+		return skills.DefaultPins()
+	}
+	out := make([]skills.Pin, 0, len(d.Skills.Enabled))
+	for _, p := range d.Skills.Enabled {
+		out = append(out, skills.Pin{ID: strings.TrimSpace(p.ID), Version: strings.TrimSpace(p.Version)})
+	}
+	return out
 }
 
 // BuildLocalDocument maps drafts onto persisted local.yaml.
@@ -344,6 +379,7 @@ func ValidateProjectDocument(doc ProjectDocument) error {
 		errs = append(errs, fmt.Sprintf("memory.strategy %q is invalid", doc.Memory.Strategy))
 	}
 	errs = append(errs, validateAdaptersSelected(doc.Adapters.Selected)...)
+	errs = append(errs, validateSkillPins(doc.Skills.Enabled)...)
 	for i, server := range doc.MCP.Custom {
 		if strings.TrimSpace(server.Name) == "" {
 			errs = append(errs, fmt.Sprintf("mcp.custom[%d].name is required", i))
@@ -378,6 +414,28 @@ func validateAdaptersSelected(selected []string) []string {
 			continue
 		}
 		seen[adapter] = struct{}{}
+	}
+	return errs
+}
+
+func validateSkillPins(pins []SkillPinPersist) []string {
+	var errs []string
+	seen := map[string]struct{}{}
+	for i, p := range pins {
+		pin := skills.Pin{ID: strings.TrimSpace(p.ID), Version: strings.TrimSpace(p.Version)}
+		if err := skills.ValidatePin(pin); err != nil {
+			errs = append(errs, fmt.Sprintf("skills.enabled[%d]: %v", i, err))
+			continue
+		}
+		if pin.ID != p.ID || pin.Version != p.Version {
+			errs = append(errs, fmt.Sprintf("skills.enabled[%d] has leading or trailing spaces", i))
+			continue
+		}
+		if _, dup := seen[pin.ID]; dup {
+			errs = append(errs, fmt.Sprintf("skills.enabled[%d] id %q is duplicated", i, pin.ID))
+			continue
+		}
+		seen[pin.ID] = struct{}{}
 	}
 	return errs
 }

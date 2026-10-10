@@ -20,6 +20,12 @@ func SetRepairAfterWriteHookForTest(fn func(rel string) error) {
 	repairAfterWriteHook = fn
 }
 
+// SetRepairAfterSkillsHookForTest installs a test-only seam after skill reconcile
+// during ApplyRuntimeRepair (before WriteBackupManifest / state update).
+func SetRepairAfterSkillsHookForTest(fn func() error) {
+	repairAfterSkillsHook = fn
+}
+
 // SetRemoveAttemptBackupForTest installs a test-only seam for attempt-backup cleanup.
 func SetRemoveAttemptBackupForTest(fn func(homePath, rel string) error) {
 	if fn == nil {

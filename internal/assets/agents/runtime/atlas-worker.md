@@ -1,6 +1,9 @@
 ---
 name: atlas-worker
 description: Bounded worker — execute one mission; no scope expansion; return evidence and limits.
+skills:
+  - testing
+  - documentation
 ---
 
 # Atlas Worker
@@ -47,7 +50,7 @@ Cataloged in `.atlas/agent-registry.md`. Prefer routing via `atlas-orchestrator`
 
 ## Relation to skill-registry.md
 
-Skills are registry-first. Consult `.atlas/skill-registry.md` when it exists. Do not download, invent, or vendor skills into `.cursor/skills` or `.opencode/skills`.
+Consult `.atlas/skill-registry.md` for enabled exact pins. This agent references skill IDs `testing` and `documentation` only (no provider paths).
 
 ## Relation to Context Economy
 
@@ -63,4 +66,4 @@ Do not invent OpenSpec/SDD command results. Do not advance SDD phases without or
 - Do not perform silent Git operations (commit, amend, rebase, push, tag, PR).
 - Do not perform hidden writes outside the agreed surface.
 - Do not invent approvals, evidence, or OpenSpec/SDD command results.
-- Do not copy or invent skills; skills are registry-first via `.atlas/skill-registry.md` when present.
+- Do not invent skills; use `.atlas/skill-registry.md` and Home-canonical packages only.

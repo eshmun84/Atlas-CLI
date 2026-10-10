@@ -32,6 +32,16 @@ func BundledAssets() []Asset {
 			EmbedPath: embed,
 		})
 	}
+	skillFiles, err := assets.BundledSkillEmbedFiles()
+	if err == nil {
+		for _, embed := range skillFiles {
+			out = append(out, Asset{
+				Family:    "skills",
+				ID:        embed,
+				EmbedPath: embed,
+			})
+		}
+	}
 	return out
 }
 
@@ -54,6 +64,10 @@ func ConvenienceHomePath(homePath string, asset Asset) string {
 		return filepath.Join(homePath, "adapters", "opencode", "atlas.md")
 	case asset.EmbedPath == "contracts/sdd-openspec.md":
 		return filepath.Join(homePath, "contracts", "sdd-openspec.md")
+	case strings.HasPrefix(asset.EmbedPath, "skills/"):
+		// Discoverable mirror: $ATLAS_HOME/skills/<id>/<version>/...
+		rel := strings.TrimPrefix(asset.EmbedPath, "skills/")
+		return filepath.Join(homePath, "skills", filepath.FromSlash(rel))
 	default:
 		return ""
 	}

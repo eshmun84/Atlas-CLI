@@ -3,7 +3,7 @@
 This document defines the product UX contract for the Atlas CLI interactive shell.
 It governs navigation, Status, and Doctor. It does not authorize new product capabilities.
 
-**Release stance:** Alpha 2 is a release candidate, not final V1. Cursor and OpenCode are the supported materialized runtimes. Status/Doctor stay read-only; Runtime Repair is the explicit path for non-MCP runtime mutation; Configure Apply reconciles Atlas-owned MCP projections; Context Economy v0 is file-based and explicit-update; CodeGraph is an optional externally installed Code Intelligence provider (not MCP). Atlas Context Graph, MCP auth/connection/verification, Skills v1, marketplace, OpenSpec CLI execution, Git automation, and Claude/Codex activation remain out of scope. See [release-readiness.md](release-readiness.md).
+**Release stance:** Alpha 2 is a release candidate, not final V1. Cursor and OpenCode are the supported materialized runtimes. Status/Doctor stay read-only; Runtime Repair is the explicit path for non-MCP runtime mutation; Configure Apply reconciles Atlas-owned MCP and Skills projections; Context Economy v0 is file-based and explicit-update; CodeGraph is an optional externally installed Code Intelligence provider (not MCP). Atlas Context Graph, MCP auth/connection/verification, skills marketplace/remote install, OpenSpec CLI execution, Git automation, and Claude/Codex activation remain out of scope. See [release-readiness.md](release-readiness.md).
 
 ## Principles
 
@@ -124,4 +124,4 @@ Init configures governed runtime, adapters, governance, and delivery assistance.
 
 ## Out of scope for this contract
 
-Final V1 claims, Atlas Context Graph engine, MCP auth/connection/verification, marketplace/community registry, Skills v1, OpenSpec CLI execution, Git automation, Claude/Codex activation, tag/release/publish, new CLI commands.
+Final V1 claims, Atlas Context Graph engine, MCP auth/connection/verification, marketplace/community registry / remote skill install, OpenSpec CLI execution, Git automation, Claude/Codex activation, tag/release/publish, new CLI commands.

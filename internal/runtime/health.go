@@ -14,6 +14,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
+	"github.com/eshmun84/Atlas-CLI/internal/skills"
 )
 
 // Forbidden runtime artifact paths that Atlas must not require, expect, or mutate.
@@ -76,6 +77,10 @@ type Health struct {
 	AgentRegistryPresent       bool
 	AgentRegistryMatches       bool
 	AgentRegistryRenderError   string
+	SkillRegistryPresent       bool
+	SkillRegistryMatches       bool
+	SkillRegistryRenderError   string
+	Skills                     skills.SkillHealth
 	RuntimeManifestPresent     bool
 	RuntimeManifestMatches     bool
 	RuntimeManifestRenderError string
@@ -178,6 +183,15 @@ func EvaluateHealth(root string, atlas project.AtlasStatus, files project.FileIn
 			expectedRegistry := config.RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected, homePath)
 			health.AgentRegistryPresent = atlasOwnedPresent(root, config.FileAgentRegistry)
 			health.AgentRegistryMatches = health.AgentRegistryPresent && fileMatches(root, config.FileAgentRegistry, expectedRegistry)
+
+			expectedSkillRegistry, skillRegErr := config.RenderSkillRegistry(doc, homePath)
+			health.SkillRegistryPresent = atlasOwnedPresent(root, config.FileSkillRegistry)
+			if skillRegErr != nil {
+				health.SkillRegistryRenderError = skillRegErr.Error()
+			} else if health.SkillRegistryPresent {
+				health.SkillRegistryMatches = fileMatches(root, config.FileSkillRegistry, expectedSkillRegistry)
+			}
+			health.Skills = config.InspectSkillHealth(root, doc)
 
 			expectedManifest, err := config.RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
 			health.RuntimeManifestPresent = atlasOwnedPresent(root, config.FileRuntimeManifest)

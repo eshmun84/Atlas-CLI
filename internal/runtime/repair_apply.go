@@ -13,6 +13,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 	"github.com/eshmun84/Atlas-CLI/internal/project/mutatelock"
+	"github.com/eshmun84/Atlas-CLI/internal/skills"
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 	"gopkg.in/yaml.v3"
 )
@@ -28,6 +29,11 @@ const (
 // repairAfterWriteHook is an optional test seam invoked after each successful
 // Atlas-owned write during Apply. Production code leaves it nil.
 var repairAfterWriteHook func(rel string) error
+
+// repairAfterSkillsHook is an optional test seam invoked after successful skill
+// reconcile during ApplyRuntimeRepair, before WriteBackupManifest / state update.
+// Production code leaves it nil.
+var repairAfterSkillsHook func() error
 
 // removeAttemptBackup removes a Home-relative attempt backup after successful
 // baseline restore. Overridable in tests via export_test only.
@@ -50,12 +56,13 @@ type RuntimeRepairResult struct {
 }
 
 type repairMutationSnapshot struct {
-	files         []fsafety.FileSnapshot
-	homePath      string
-	projectID     string
-	projectHome   home.ProjectLayoutSnapshot
-	footprint     fsafety.TransactionFootprint
-	attemptBackup string // Home-relative backup dir created by this attempt
+	files          []fsafety.FileSnapshot
+	homePath       string
+	projectID      string
+	projectHome    home.ProjectLayoutSnapshot
+	footprint      fsafety.TransactionFootprint
+	attemptBackup  string // Home-relative backup dir created by this attempt
+	skillsMutation skills.MutationState
 }
 
 // ApplyRuntimeRepair recomputes the plan, compares it to the reviewed signature,
@@ -124,10 +131,16 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		content string
 	}
 	var writes []pendingWrite
+	needSkillReconcile := false
 	for _, target := range plan.Targets {
 		switch target.Action {
 		case RepairActionCreate, RepairActionReplace:
 			if target.Kind == RepairKindHome {
+				continue
+			}
+			if target.Kind == RepairKindSkill {
+				// Skill packages are restored via skills.Reconcile (ownership-aware).
+				needSkillReconcile = true
 				continue
 			}
 			if err := configValidateWrite(target.Path); err != nil {
@@ -277,6 +290,33 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		}
 	}
 
+	if needSkillReconcile {
+		skillRes, skillErr := config.ReconcileSkillProjections(root, doc, false)
+		if skillErr != nil {
+			return rollback(fmt.Errorf("skills repair: %w", skillErr))
+		}
+		if skillRes.Blocked {
+			return rollback(fmt.Errorf("skills repair blocked: %s", strings.Join(skillRes.Errors, "; ")))
+		}
+		snap.skillsMutation = skillRes.Mutation
+		for _, target := range plan.Targets {
+			if target.Kind != RepairKindSkill {
+				continue
+			}
+			if target.Action == RepairActionCreate {
+				result.Created = append(result.Created, target.Path)
+			} else {
+				result.Replaced = append(result.Replaced, target.Path)
+			}
+			result.Actions = append(result.Actions, target.Action+" "+target.Path)
+		}
+		if repairAfterSkillsHook != nil {
+			if hookErr := repairAfterSkillsHook(); hookErr != nil {
+				return rollback(hookErr)
+			}
+		}
+	}
+
 	if backupDir != "" {
 		if err := config.WriteBackupManifest(homeResult.HomePath, backupDir, manifest); err != nil {
 			return rollback(err)
@@ -332,6 +372,9 @@ func captureRepairMutationSnapshot(root, homePath, projectID string, plan Runtim
 
 func restoreRepairMutationSnapshot(root string, snap repairMutationSnapshot) error {
 	var errs []string
+	if err := snap.skillsMutation.Rollback(); err != nil {
+		errs = append(errs, err.Error())
+	}
 	files := append([]fsafety.FileSnapshot(nil), snap.files...)
 	sortFileSnapshots(files)
 	for _, fs := range files {
@@ -367,6 +410,8 @@ func renderRepairFile(rel string, doc config.ProjectDocument, existing []byte, h
 		return config.RenderOpenCodeAtlas(doc.Project.Name)
 	case config.FileAgentRegistry:
 		return config.RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected, homePath), nil
+	case config.FileSkillRegistry:
+		return config.RenderSkillRegistry(doc, homePath)
 	case config.FileRuntimeManifest:
 		return config.RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
 	case config.FileAssetsLock:
@@ -385,7 +430,7 @@ func configValidateWrite(rel string) error {
 	clean := filepath.ToSlash(filepath.Clean(rel))
 	switch clean {
 	case config.FileAgentsMD, config.FileCursorAtlasMDC, config.FileOpenCodeAtlas,
-		config.FileAgentRegistry, config.FileRuntimeManifest, config.FileAssetsLock,
+		config.FileAgentRegistry, config.FileSkillRegistry, config.FileRuntimeManifest, config.FileAssetsLock,
 		config.FileSDDOpenSpecContract, RepairHomePath:
 		return nil
 	default:

@@ -47,7 +47,7 @@ Cataloged in `.atlas/agent-registry.md`. Prefer routing via `atlas-orchestrator`
 
 ## Relation to skill-registry.md
 
-Skills are registry-first. Consult `.atlas/skill-registry.md` when it exists. Do not download, invent, or vendor skills into `.cursor/skills` or `.opencode/skills`.
+Consult `.atlas/skill-registry.md` for enabled exact skill pins and Home-canonical references. Do not download or invent skills. Adapter skill folders are regenerable Atlas projections only.
 
 ## Relation to Context Economy
 
@@ -63,4 +63,4 @@ Do not execute real OpenSpec CLI commands or invent command output. Future OpenS
 - Do not perform silent Git operations (commit, amend, rebase, push, tag, PR).
 - Do not implement before acceptance.
 - Do not invent approvals, evidence, or OpenSpec/SDD command results.
-- Do not copy or invent skills; skills are registry-first via `.atlas/skill-registry.md` when present.
+- Do not invent skills; use `.atlas/skill-registry.md` and Home-canonical packages only.

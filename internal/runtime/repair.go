@@ -24,6 +24,7 @@ const (
 	RepairKindAdapter  = "adapter"
 	RepairKindAgent    = "agent"
 	RepairKindAtlas    = "atlas"
+	RepairKindSkill    = "skill"
 	RepairKindHome     = "home"
 	RepairKindConflict = "conflict"
 )
@@ -261,10 +262,35 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 	}
 
 	addAtlasSurfaceRepair(&plan, health.AgentRegistryPresent, health.AgentRegistryMatches, config.FileAgentRegistry, "agent registry")
+	addAtlasSurfaceRepair(&plan, health.SkillRegistryPresent, health.SkillRegistryMatches, config.FileSkillRegistry, "skill registry")
 	addAtlasSurfaceRepair(&plan, health.RuntimeManifestPresent, health.RuntimeManifestMatches, config.FileRuntimeManifest, "runtime manifest")
 	addAtlasSurfaceRepair(&plan, health.AssetsLockPresent, health.AssetsLockMatches, config.FileAssetsLock, "assets lock")
 	if health.DependsOnSDDContract {
 		addAtlasSurfaceRepair(&plan, health.SDDContractPresent, health.SDDContractMatches, config.FileSDDOpenSpecContract, "SDD/OpenSpec contract")
+	}
+
+	for _, proj := range health.Skills.Projections {
+		switch proj.State {
+		case "missing", "stale", "drifted":
+			if !proj.Owned && proj.State != "missing" {
+				continue // unknown surfaces: conflict path only
+			}
+			action := RepairActionCreate
+			if proj.State != "missing" {
+				action = RepairActionReplace
+			}
+			addRepairTarget(&plan, RuntimeRepairTarget{
+				Path:    proj.RootRel + "/SKILL.md",
+				Action:  action,
+				Kind:    RepairKindSkill,
+				Reason:  "Atlas-owned skill projection " + proj.State,
+				Adapter: proj.Adapter,
+				Backup:  action == RepairActionReplace,
+			})
+			plan.Drift = append(plan.Drift, "skill "+proj.State+": "+proj.RootRel)
+		case "conflict":
+			plan.Warnings = append(plan.Warnings, "skill projection conflict preserved: "+proj.RootRel)
+		}
 	}
 
 	if health.Initialized || health.RuntimeMaterialized {

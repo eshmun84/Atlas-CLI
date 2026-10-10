@@ -65,7 +65,7 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	if len(result.Files) != 7 {
+	if len(result.Files) != 8 {
 		t.Fatalf("files = %#v", result.Files)
 	}
 	wantRuntime := 1 + 2 + len(config.AtlasAgentRuntimePaths([]string{"cursor", "opencode"}))
@@ -131,8 +131,9 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 		"## 1. Purpose and Authority",
 		"## 10. Context Economy",
 		"context.graph.enabled",
-		"Skills are registry-first",
+		"Skills are canonical under Atlas Home",
 		".atlas/agent-registry.md",
+		".atlas/skill-registry.md",
 		".atlas/contracts/sdd-openspec.md",
 		"atlas-orchestrator",
 	} {

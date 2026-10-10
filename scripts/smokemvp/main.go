@@ -357,9 +357,10 @@ func checkConfigureConfigOnly() error {
 	}
 	configRel := filepath.ToSlash(config.FileConfig)
 	allowedMutations := map[string]bool{
-		configRel:                                true,
-		filepath.ToSlash(cursor.ConfigRelPath):   true,
-		filepath.ToSlash(opencode.ConfigRelPath): true,
+		configRel: true,
+		filepath.ToSlash(config.FileSkillRegistry): true,
+		filepath.ToSlash(cursor.ConfigRelPath):     true,
+		filepath.ToSlash(opencode.ConfigRelPath):   true,
 	}
 	for path, content := range beforeTree {
 		got, ok := afterTree[path]
@@ -367,6 +368,10 @@ func checkConfigureConfigOnly() error {
 			return fmt.Errorf("Configure removed %s", path)
 		}
 		if allowedMutations[path] {
+			continue
+		}
+		// Configure may reconcile Atlas-owned skill projections when adapters/pins change.
+		if strings.HasPrefix(path, ".cursor/skills/") || strings.HasPrefix(path, ".opencode/skills/") {
 			continue
 		}
 		if got != content {

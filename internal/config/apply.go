@@ -23,6 +23,11 @@ const (
 	ConfigureApplySuccess = ConfigureApplySuccessTitle
 )
 
+// afterSkillsReconcileHook is an optional test seam invoked after successful
+// skill projection reconcile during ApplyConfig / PersistConfigure.
+// Production code leaves it nil.
+var afterSkillsReconcileHook func() error
+
 // Paths Apply must never create, modify, backup, replace, or delete.
 var forbiddenApplyRelPaths = []string{
 	".agents",
@@ -119,13 +124,14 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	}
 
 	atlasRels := []string{
-		FileConfig, FileLocal, FileAssetsLock, FileAgentRegistry, FileRuntimeManifest, FileState,
+		FileConfig, FileLocal, FileAssetsLock, FileAgentRegistry, FileRuntimeManifest, FileSkillRegistry, FileState,
 	}
 	if DependsOnSDDOpenSpecContract(doc) {
 		atlasRels = append(atlasRels, FileSDDOpenSpecContract)
 	}
 
 	// Pre-render write payloads from locked filesystem observations.
+	// Skill registry is rendered after EnsureAndMirror so Home digests match.
 	registry := RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected, homePath)
 	manifest, err := RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
 	if err != nil {
@@ -283,6 +289,28 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	if err := recordOwnershipWriteFootprint(&baseline.homeFootprint, homeResult.HomePath, projectID, !baseline.ownershipExists); err != nil {
 		return rollback(fmt.Errorf("ownership footprint: %w", err))
 	}
+	skillRegistry, skillRegErr := RenderSkillRegistry(doc, homeResult.HomePath)
+	if skillRegErr != nil {
+		return rollback(fmt.Errorf("render %s: %w", FileSkillRegistry, skillRegErr))
+	}
+	if err := recordTrackedWrite(&baseline.footprint, root, FileSkillRegistry, []byte(skillRegistry), 0o644); err != nil {
+		return rollback(fmt.Errorf("write %s: %w", FileSkillRegistry, err))
+	}
+	result.Files = append(result.Files, FileSkillRegistry)
+	if skillRes, err := ReconcileSkillProjections(root, doc, result.HomeReset); err != nil {
+		return rollback(fmt.Errorf("skills materialization failed: %w", err))
+	} else if skillRes.Blocked {
+		return rollback(fmt.Errorf("skills materialization blocked: %s", strings.Join(skillRes.Errors, "; ")))
+	} else {
+		baseline.skillsMutation = skillRes.Mutation
+		// Fold skills Home dir footprint into Init Home footprint for teardown.
+		baseline.homeFootprint.MergeFootprint(skillRes.Mutation.HomeFootprint)
+		if afterSkillsReconcileHook != nil {
+			if hookErr := afterSkillsReconcileHook(); hookErr != nil {
+				return rollback(hookErr)
+			}
+		}
+	}
 
 	if err := recordTrackedWrite(&baseline.footprint, root, FileState, stateData, 0o644); err != nil {
 		return rollback(fmt.Errorf("write %s: %w", FileState, err))
@@ -376,8 +404,10 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 
 	mcpChanged := MCPChanged(previous, doc)
 	adaptersChanged := JoinChips(previous.Adapters.Selected) != JoinChips(doc.Adapters.Selected)
+	skillsChanged := !skillPinsEqual(previous.SkillPins(), doc.SkillPins())
 	impact := AnalyzeConfigureImpact(previous, doc, mcpChanged)
 	needMCP := mcpChanged || adaptersChanged || mcpPreferencePresent(doc) || mcpPreferencePresent(previous)
+	needSkills := adaptersChanged || skillsChanged
 
 	// ---------- Phase B: mutation transaction ----------
 	rollback := func(cause error) (PersistConfigureResult, error) {
@@ -391,7 +421,7 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 		return rollback(fmt.Errorf("write %s: %w", FileConfig, err))
 	}
 
-	// Slice 32 exception: Configure Apply may reconcile MCP projections only.
+	// Configure Apply reconciles Atlas-owned MCP and Skills projections only.
 	if needMCP {
 		if _, err := ReconcileMCPProjections(root, doc, in.MCP); err != nil {
 			return rollback(fmt.Errorf("mcp projection: %w", err))
@@ -401,6 +431,27 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 		}
 		impact.MCPProjected = true
 		impact.MCPPreferenceOnly = false
+	}
+	if needSkills {
+		skillReg, regErr := RenderSkillRegistry(doc, homePath)
+		if regErr != nil {
+			return rollback(fmt.Errorf("skills registry: %w", regErr))
+		}
+		if err := recordTrackedWrite(&baseline.footprint, root, FileSkillRegistry, []byte(skillReg), 0o644); err != nil {
+			return rollback(fmt.Errorf("write %s: %w", FileSkillRegistry, err))
+		}
+		if skillRes, err := ReconcileSkillProjections(root, doc, false); err != nil {
+			return rollback(fmt.Errorf("skills projection: %w", err))
+		} else if skillRes.Blocked {
+			return rollback(fmt.Errorf("skills projection blocked: %s", strings.Join(skillRes.Errors, "; ")))
+		} else {
+			baseline.skillsMutation = skillRes.Mutation
+			if afterSkillsReconcileHook != nil {
+				if hookErr := afterSkillsReconcileHook(); hookErr != nil {
+					return rollback(hookErr)
+				}
+			}
+		}
 	}
 
 	created, skipped, docsErr := ensureProjectDocsScaffoldTracked(&baseline.footprint, root, doc.Project.DocsScaffold)
@@ -516,6 +567,7 @@ func assertAllowedConflictPath(rel string) error {
 	allowed := []string{
 		FileAgentsMD,
 		FileAgentRegistry,
+		FileSkillRegistry,
 		FileRuntimeManifest,
 		FileAssetsLock,
 		FileSDDOpenSpecContract,

@@ -29,7 +29,7 @@ Alpha 2 is **not** final V1. Do not tag, create a GitHub release, or publish wit
 - Not final V1
 - No Atlas Context Graph implementation (preference flag only; separate from Code Intelligence)
 - No marketplace / community / remote asset registry
-- No Skills v1
+- Skills v1 (local Home catalog + Cursor/OpenCode projections; no marketplace)
 - No real OpenSpec CLI execution or live specs/tasks automation
 - No Claude / Codex activation
 - No MCP secret storage, OAuth client, or live connection verification (projections use references / agent-managed auth)
@@ -136,7 +136,7 @@ Optional. CodeGraph is an externally installed provider behind `internal/codeint
 - OpenSpec contract is operational guidance only — no OpenSpec CLI execution
 - Cursor + OpenCode only; Claude/Codex not activated
 - No Atlas Context Graph implementation
-- No marketplace, Skills v1, MCP secret manager / live connection verification, Git automation, hooks, embeddings, or daemon
+- No marketplace/remote skill install, MCP secret manager / live connection verification, Git automation, hooks, embeddings, or daemon
 - Configure Apply updates `.atlas/config.yaml` and MCP projections; use Runtime Repair to rematerialize non-MCP runtime files
 - OpenCode MCP: Atlas merges only `opencode.json`. If `opencode.jsonc` exists, OpenCode MCP reconciliation is blocked (no parallel `opencode.json` creation, no ownership mutation) until JSONC-safe merging exists
 - No git tag / GitHub release / publish in this RC unless a human explicitly approves later

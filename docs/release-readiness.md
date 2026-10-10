@@ -101,11 +101,11 @@ Interactive TUI click-through remains optional human confirmation.
 | MCP | Desired state + Atlas-owned projections; no auth/connection/verification; secrets not stored |
 | OpenSpec | Operational contract only; no CLI execution |
 | Git | Discovery only; no automation |
-| Skills v1 | Not implemented |
+| Skills v1 | Local Home catalog + exact pins + Cursor/OpenCode projections (no marketplace) |
 | Marketplace / community registry | Not implemented |
 | Claude / Codex | Not activated |
 | Tag / release / publish | Human approval required |
 
 ## Out of scope for this RC
 
-Final V1, Atlas Context Graph engine, MCP authentication/connection/verification orchestration, secret manager, Skills v1, marketplace/community registry, real OpenSpec CLI, Claude/Codex activation, Git automation, hooks, embeddings, daemon, new CLI commands, tag/release/publish.
+Final V1, Atlas Context Graph engine, MCP authentication/connection/verification orchestration, secret manager, marketplace/community registry / remote skill install, real OpenSpec CLI, Claude/Codex activation, Git automation, hooks, embeddings, daemon, new CLI commands, tag/release/publish.

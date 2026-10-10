@@ -15,6 +15,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
+	"github.com/eshmun84/Atlas-CLI/internal/skills"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 )
 
@@ -552,11 +553,24 @@ func healthyRuntime() runtime.Health {
 			},
 			FoundAdapters: []string{"cursor"},
 		},
-		SelectedAdapters:       []string{"cursor"},
-		ExpectedProjections:    []runtime.ProjectionStatus{{Adapter: "cursor", Path: config.FileCursorAtlasMDC, Present: true}},
-		ExpectedAgents:         agents,
-		AgentRegistryPresent:   true,
-		AgentRegistryMatches:   true,
+		SelectedAdapters:     []string{"cursor"},
+		ExpectedProjections:  []runtime.ProjectionStatus{{Adapter: "cursor", Path: config.FileCursorAtlasMDC, Present: true}},
+		ExpectedAgents:       agents,
+		AgentRegistryPresent: true,
+		AgentRegistryMatches: true,
+		SkillRegistryPresent: true,
+		SkillRegistryMatches: true,
+		Skills: skills.SkillHealth{
+			CatalogReadable: true,
+			Available:       []skills.Metadata{{ID: "testing", Version: "1.0.0"}},
+			Enabled:         []skills.Pin{{ID: "testing", Version: "1.0.0"}},
+			Projections: []skills.ProjectionStatus{{
+				Adapter: "cursor",
+				SkillID: "testing",
+				Version: "1.0.0",
+				State:   "ready",
+			}},
+		},
 		RuntimeManifestPresent: true,
 		RuntimeManifestMatches: true,
 		AssetsLockPresent:      true,

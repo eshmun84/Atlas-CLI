@@ -261,7 +261,7 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Statement: plan.GitSafetyStatement},
 		{Statement: "Secrets and credentials are not stored."},
 		{Statement: "Developer-owned non-Atlas agents under .cursor/agents/ and .opencode/agents/ are left untouched."},
-		{Statement: "Skills are registry-first and are not copied into .cursor/skills or .opencode/skills."},
+		{Statement: "Skills are Home-canonical with exact pins; adapter skill folders are regenerable Atlas projections only."},
 		{Statement: "Claude Code and Codex adapters are not materialized."},
 		{Statement: "Atlas Home reset affects only projects/<project-id>/ for this canonical project."},
 		{Statement: "No Git operations. Remotes, branches, and repo files outside Atlas Apply targets stay untouched."},

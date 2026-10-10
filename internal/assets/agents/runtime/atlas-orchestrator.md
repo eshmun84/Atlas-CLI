@@ -1,6 +1,11 @@
 ---
 name: atlas-orchestrator
 description: Primary Atlas conductor for routing, asking, proposing, and stopping work under AGENTS.md and the SDD/OpenSpec contract.
+skills:
+  - testing
+  - code-review
+  - security-review
+  - documentation
 ---
 
 # Atlas Orchestrator
@@ -47,7 +52,7 @@ Use `.atlas/agent-registry.md` and `.atlas/runtime-manifest.yaml` to select Atla
 
 ## Relation to skill-registry.md
 
-Skills are registry-first. Consult `.atlas/skill-registry.md` when it exists. Do not download, invent, or vendor skills into `.cursor/skills` or `.opencode/skills`. Missing registry entries mean the skill is unavailable—say so and continue without inventing one.
+Consult `.atlas/skill-registry.md` for enabled exact skill pins and Home-canonical references. Skill IDs referenced by this agent are `testing`, `code-review`, `security-review`, and `documentation`. Do not download or invent skills. Adapter skill folders are Atlas projections only.
 
 ## Relation to Context Economy
 
@@ -63,4 +68,4 @@ Operate within Atlas SDD semantics from `.atlas/contracts/sdd-openspec.md`. You 
 - Do not perform silent Git operations (commit, amend, rebase, push, tag, PR).
 - Do not perform hidden writes outside the agreed surface.
 - Do not invent approvals, evidence, or OpenSpec/SDD command results.
-- Do not copy or invent skills; skills are registry-first via `.atlas/skill-registry.md` when present.
+- Do not invent skills; use `.atlas/skill-registry.md` and Home-canonical packages only.

@@ -41,9 +41,9 @@ Local investigation is not remote delivery. Network access for ordinary dependen
 
 ## 7. Skill and Contract Loading
 
-Skills, personas, templates, and adapter contracts are Atlas-managed surfaces. Load them only from local paths that Atlas provides. Do not download, install, generate, invent, or copy skill catalogs during normal work. Do not resolve remote asset registries as part of ordinary coding.
+Skills, personas, templates, and adapter contracts are Atlas-managed surfaces. Load them only from local paths that Atlas provides. Do not download, install, generate, invent, or fetch skills from the network. Do not resolve remote asset registries as part of ordinary coding.
 
-Skills are registry-first. Consult `.atlas/skill-registry.md` when present. Do not materialize skills into `.cursor/skills` or `.opencode/skills` unless a future Atlas slice explicitly does so. Absence of a local skill registry entry is not permission to invent one. Atlas Home (when present outside this project) remains the canonical source for shared expertise assets.
+Skills are canonical under Atlas Home (`$ATLAS_HOME/assets/skills/<id>/<version>/`). Consult `.atlas/skill-registry.md` for enabled exact pins. Adapter skill folders (for example under a selected runtime's skills root) are regenerable Atlas projections only—never author provider-specific skill paths into agent definitions. Absence of a registry entry is not permission to invent a skill.
 
 ## 8. Agent and Subagent Orchestration
 

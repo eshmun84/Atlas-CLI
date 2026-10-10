@@ -7,6 +7,7 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/assets"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/skills"
 	"gopkg.in/yaml.v3"
 )
 
@@ -127,7 +128,7 @@ func RenderAgentRegistry(projectName string, selected []string, homePath string)
 	if homePath != "" {
 		fmt.Fprintf(&b, "Atlas Home: `$ATLAS_HOME`\n\n")
 	}
-	fmt.Fprintf(&b, "This registry lists Atlas-owned runtime agents. Skills remain registry-first via `%s` when present and are not copied into adapter skill folders in this slice.\n\n", FileSkillRegistry)
+	fmt.Fprintf(&b, "This registry lists Atlas-owned runtime agents. Skills are canonical under Atlas Home and indexed via `%s`; adapter skill folders are regenerable projections only.\n\n", FileSkillRegistry)
 	fmt.Fprintf(&b, "`AGENTS.md` remains the project authority. Adapter agent files are execution surfaces only.\n\n")
 	fmt.Fprintf(&b, "## SDD / OpenSpec operational contract\n\n")
 	fmt.Fprintf(&b, "- Project path: `%s`\n", FileSDDOpenSpecContract)
@@ -159,6 +160,13 @@ func RenderAgentRegistry(projectName string, selected []string, homePath string)
 		fmt.Fprintf(&b, "- Kind: `%s`\n", kind)
 		fmt.Fprintf(&b, "- Primary conductor: `%v`\n", id == "atlas-orchestrator")
 		fmt.Fprintf(&b, "- Source: `bundled`\n")
+		if refs := skills.AgentSkillRefs(id); len(refs) > 0 {
+			fmt.Fprintf(&b, "- Skills:")
+			for _, sid := range refs {
+				fmt.Fprintf(&b, " `%s`", sid)
+			}
+			fmt.Fprintf(&b, "\n")
+		}
 		if homePath != "" {
 			homeAsset := home.Asset{
 				Family:    "agents",
@@ -223,7 +231,7 @@ func BuildRuntimeManifestDocument(projectName string, selected []string) Runtime
 		Adapters:      adapters,
 		Entrypoints:   entrypoints,
 		Registry:      FileAgentRegistry,
-		SkillsPolicy:  "registry-first",
+		SkillsPolicy:  "home-canonical",
 		Agents:        agents,
 	}
 	// Callers that only know selected adapters still get the contract path when

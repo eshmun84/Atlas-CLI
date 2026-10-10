@@ -10,6 +10,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/mcp"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
+	"github.com/eshmun84/Atlas-CLI/internal/skills"
 )
 
 // initMutationSnapshot captures project files/dirs and global Home mirror state
@@ -27,6 +28,7 @@ type initMutationSnapshot struct {
 	mirror          home.MirrorSnapshot
 	footprint       fsafety.TransactionFootprint
 	homeFootprint   fsafety.TransactionFootprint
+	skillsMutation  skills.MutationState
 }
 
 // Atlas workspace directory candidates that Init may create. Tracked for
@@ -120,6 +122,11 @@ func captureInitMutationSnapshot(root, homePath, projectID string, targets []str
 func restoreInitFiles(root string, snap initMutationSnapshot) error {
 	var errs []string
 
+	// Skills projections + skills ownership first (reverse of late Apply order).
+	if err := snap.skillsMutation.Rollback(); err != nil {
+		errs = append(errs, err.Error())
+	}
+
 	// A. Files first (stable Rel order).
 	files := append([]fsafety.FileSnapshot(nil), snap.files...)
 	sort.Slice(files, func(i, j int) bool { return files[i].Rel < files[j].Rel })
@@ -199,6 +206,7 @@ type configureMutationSnapshot struct {
 	ownershipExists bool
 	ownershipMode   os.FileMode
 	footprint       fsafety.TransactionFootprint
+	skillsMutation  skills.MutationState
 }
 
 func captureConfigureMutationSnapshot(root, homePath, projectID string) (configureMutationSnapshot, error) {
@@ -215,7 +223,7 @@ func captureConfigureMutationSnapshot(root, homePath, projectID string) (configu
 		snap.ownershipRaw = raw
 		snap.ownershipMode = mode
 	}
-	for _, rel := range []string{FileConfig, ".cursor/mcp.json", "opencode.json", FileProjectDocsREADME} {
+	for _, rel := range []string{FileConfig, FileSkillRegistry, ".cursor/mcp.json", "opencode.json", FileProjectDocsREADME} {
 		fs, err := fsafety.CaptureFileSnapshot(root, rel)
 		if err != nil {
 			return snap, err
@@ -227,6 +235,9 @@ func captureConfigureMutationSnapshot(root, homePath, projectID string) (configu
 
 func restoreConfigureFiles(root string, snap configureMutationSnapshot) error {
 	var errs []string
+	if err := snap.skillsMutation.Rollback(); err != nil {
+		errs = append(errs, err.Error())
+	}
 	files := append([]fsafety.FileSnapshot(nil), snap.files...)
 	sort.Slice(files, func(i, j int) bool { return files[i].Rel < files[j].Rel })
 	for _, fs := range files {
@@ -295,7 +306,8 @@ func restoreOwnershipBaseline(homePath, projectID string, exists bool, raw []byt
 	return nil
 }
 
-// recordOwnershipWriteFootprint captures post-write identity for ownership.yaml.
+// recordOwnershipWriteFootprint captures post-write identity for ownership.yaml
+// and the mcp/ parent directory so Init teardown can remove empty Atlas meta dirs.
 func recordOwnershipWriteFootprint(fp *fsafety.TransactionFootprint, homePath, projectID string, created bool) error {
 	if fp == nil || homePath == "" || projectID == "" {
 		return nil
@@ -319,6 +331,11 @@ func recordOwnershipWriteFootprint(fp *fsafety.TransactionFootprint, homePath, p
 		Mode:     info.Mode().Perm(),
 		Info:     info,
 	})
+	// Track mcp/ (and parents created for it) when present so empty-dir teardown works.
+	mcpDir := filepath.ToSlash(filepath.Join("projects", projectID, "mcp"))
+	if dirInfo, dirErr := fsafety.LstatContained(homePath, mcpDir); dirErr == nil && dirInfo.IsDir() {
+		fp.AddDir(fsafety.CreatedDir{Rel: mcpDir, Info: dirInfo})
+	}
 	return nil
 }
 

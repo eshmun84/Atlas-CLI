@@ -24,7 +24,7 @@ Provide a single, phase-aware operating procedure so Atlas agents:
 | `AGENTS.md` | Project runtime authority |
 | This contract | Operational SDD/OpenSpec procedure |
 | `.atlas/agent-registry.md` | Catalog of Atlas agents and project paths |
-| `.atlas/skill-registry.md` | Registry-first skills index (when present) |
+| `.atlas/skill-registry.md` | Enabled exact skill pins index (Home-canonical) |
 | `.atlas/runtime-manifest.yaml` | Machine-readable runtime surfaces |
 | `atlas-orchestrator` | Primary router / ask / propose / stop conductor |
 | SDD phase agents | Execute one phase under this contract |
@@ -262,7 +262,7 @@ Do not commit, amend, rebase, reset, push, force-push, tag, publish, open/merge 
 
 ### 5.7 Skills policy
 
-Skills are registry-first via `.atlas/skill-registry.md` when present. Do not download, invent, or copy skills into `.cursor/skills` or `.opencode/skills` in this slice.
+Skills are canonical under Atlas Home and indexed via `.atlas/skill-registry.md`. Adapter skill folders are regenerable projections only. Do not download or invent skills.
 
 ### 5.8 Relation to AGENTS.md
 
