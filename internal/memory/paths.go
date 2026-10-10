@@ -43,7 +43,7 @@ func resolveDBPath(homePath, projectID string) (abs string, rel string, err erro
 	}
 	abs, err = fsafety.ContainedJoin(homePath, rel)
 	if err != nil {
-		return "", "", fmt.Errorf("memory: resolve database path: %w", err)
+		return "", "", fmt.Errorf("%w: resolve database path: %v", ErrUnsafePath, err)
 	}
 	return abs, rel, nil
 }
@@ -60,13 +60,13 @@ func Exists(homePath, projectID string) (bool, error) {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
-		return false, err
+		return false, fmt.Errorf("%w: %v", ErrUnsafePath, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return false, fmt.Errorf("memory: refusing symlink database")
+		return false, ErrSymlinkDatabase
 	}
 	if !info.Mode().IsRegular() {
-		return false, fmt.Errorf("memory: database path is not a regular file")
+		return false, ErrNotRegularDatabase
 	}
 	return true, nil
 }

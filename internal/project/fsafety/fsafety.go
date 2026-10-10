@@ -30,11 +30,11 @@ func ContainedJoin(root, rel string) (string, error) {
 	}
 	rel = filepath.ToSlash(rel)
 	if filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") {
-		return "", fmt.Errorf("fsafety: absolute path refused: %s", rel)
+		return "", fmt.Errorf("%w: %s", ErrAbsolutePath, rel)
 	}
 	clean := filepath.Clean(filepath.FromSlash(rel))
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("fsafety: path traversal refused: %s", rel)
+		return "", fmt.Errorf("%w: %s", ErrPathTraversal, rel)
 	}
 
 	absRoot, err := filepath.Abs(root)
@@ -42,7 +42,7 @@ func ContainedJoin(root, rel string) (string, error) {
 		return "", fmt.Errorf("fsafety: root: %w", err)
 	}
 	if info, err := os.Lstat(absRoot); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("fsafety: root is a symlink")
+		return "", fmt.Errorf("%w: root", ErrSymlink)
 	} else if err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("fsafety: root: %w", err)
 	}
@@ -54,7 +54,7 @@ func ContainedJoin(root, rel string) (string, error) {
 			continue
 		}
 		if part == ".." {
-			return "", fmt.Errorf("fsafety: path traversal refused: %s", rel)
+			return "", fmt.Errorf("%w: %s", ErrPathTraversal, rel)
 		}
 		next := filepath.Join(cur, part)
 		info, err := os.Lstat(next)
@@ -67,14 +67,14 @@ func ContainedJoin(root, rel string) (string, error) {
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			relComp := filepath.ToSlash(strings.TrimPrefix(next, absRoot+string(filepath.Separator)))
-			return "", fmt.Errorf("fsafety: refusing symlink path component %s", relComp)
+			return "", fmt.Errorf("%w: path component %s", ErrSymlink, relComp)
 		}
 		cur = next
 	}
 
 	sep := string(filepath.Separator)
 	if cur != absRoot && !strings.HasPrefix(cur, absRoot+sep) {
-		return "", fmt.Errorf("fsafety: path escapes root: %s", rel)
+		return "", fmt.Errorf("%w: %s", ErrPathEscape, rel)
 	}
 	return cur, nil
 }
@@ -343,7 +343,7 @@ func LstatContained(root, rel string) (os.FileInfo, error) {
 		return nil, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("fsafety: refusing symlink leaf %s", filepath.ToSlash(rel))
+		return nil, fmt.Errorf("%w: leaf %s", ErrSymlink, filepath.ToSlash(rel))
 	}
 	return info, nil
 }
@@ -360,10 +360,10 @@ func ReadFileContained(root, rel string) ([]byte, error) {
 		return nil, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("fsafety: refusing symlink leaf %s", filepath.ToSlash(rel))
+		return nil, fmt.Errorf("%w: leaf %s", ErrSymlink, filepath.ToSlash(rel))
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("fsafety: not a regular file: %s", filepath.ToSlash(rel))
+		return nil, fmt.Errorf("%w: %s", ErrNotRegularFile, filepath.ToSlash(rel))
 	}
 	data, err := os.ReadFile(full)
 	if err != nil {

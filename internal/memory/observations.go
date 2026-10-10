@@ -139,7 +139,7 @@ func (s *Store) GetObservation(id string) (Observation, error) {
 		return Observation{}, err
 	}
 	if obs.ProjectID != s.projectID {
-		return Observation{}, fmt.Errorf("memory: observation not found")
+		return Observation{}, ErrObservationNotFound
 	}
 	return obs, nil
 }
@@ -333,7 +333,7 @@ func getByIDTx(q queryRower, id string) (Observation, error) {
 		 FROM memory_observations WHERE id = ?`, id)
 	obs, err := scanObservation(row)
 	if err == sql.ErrNoRows {
-		return Observation{}, fmt.Errorf("memory: observation %q not found", id)
+		return Observation{}, fmt.Errorf("%w: %q", ErrObservationNotFound, id)
 	}
 	if err != nil {
 		return Observation{}, err

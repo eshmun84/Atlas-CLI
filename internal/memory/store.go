@@ -76,7 +76,7 @@ func openStore(homePath, projectID string, opts Options) (*Store, error) {
 			return nil, err
 		}
 		if !ok {
-			return nil, fmt.Errorf("memory: database not found")
+			return nil, ErrDatabaseNotFound
 		}
 		// Explicit SQLite URI read-only open — no CREATE, no migrate, no chmod.
 		db, err := sql.Open("sqlite", sqliteReadOnlyDSN(abs))
@@ -104,7 +104,7 @@ func openStore(homePath, projectID string, opts Options) (*Store, error) {
 	}
 	info, lerr := fsafety.LstatContained(homePath, rel)
 	if lerr == nil && info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("memory: refusing symlink database")
+		return nil, ErrSymlinkDatabase
 	}
 
 	db, err := sql.Open("sqlite", abs)

@@ -49,7 +49,7 @@ func applyMigrations(db *sql.DB, now time.Time) error {
 		return fmt.Errorf("memory: read schema version: %w", err)
 	}
 	if ver > CurrentSchemaVersion {
-		return fmt.Errorf("memory: unsupported newer schema version %d (max %d)", ver, CurrentSchemaVersion)
+		return fmt.Errorf("%w: unsupported newer schema version %d (max %d)", ErrSchemaIncompatible, ver, CurrentSchemaVersion)
 	}
 	for _, m := range migrations {
 		if m.version <= ver {
@@ -119,7 +119,7 @@ func checkSchemaReadable(db *sql.DB) error {
 		`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'`,
 	).Scan(&name)
 	if err == sql.ErrNoRows {
-		return fmt.Errorf("memory: schema_migrations missing")
+		return fmt.Errorf("%w: schema_migrations missing", ErrSchemaIncompatible)
 	}
 	if err != nil {
 		return fmt.Errorf("memory: inspect schema: %w", err)
@@ -130,13 +130,13 @@ func checkSchemaReadable(db *sql.DB) error {
 		return fmt.Errorf("memory: read schema version: %w", err)
 	}
 	if ver == 0 {
-		return fmt.Errorf("memory: database has no applied schema")
+		return fmt.Errorf("%w: database has no applied schema", ErrSchemaIncompatible)
 	}
 	if ver > CurrentSchemaVersion {
-		return fmt.Errorf("memory: unsupported newer schema version %d (max %d)", ver, CurrentSchemaVersion)
+		return fmt.Errorf("%w: unsupported newer schema version %d (max %d)", ErrSchemaIncompatible, ver, CurrentSchemaVersion)
 	}
 	if ver < CurrentSchemaVersion {
-		return fmt.Errorf("memory: schema version %d requires migration (open read-write)", ver)
+		return fmt.Errorf("%w: schema version %d requires migration (open read-write)", ErrSchemaIncompatible, ver)
 	}
 	return nil
 }

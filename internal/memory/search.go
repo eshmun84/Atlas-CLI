@@ -13,7 +13,7 @@ func (s *Store) Search(q SearchQuery) ([]Observation, error) {
 	}
 	query := strings.TrimSpace(q.Query)
 	if query == "" {
-		return nil, fmt.Errorf("memory: search query is required")
+		return nil, ErrSearchQueryRequired
 	}
 	limit := clampLimit(q.Limit)
 
@@ -25,13 +25,13 @@ SELECT o.id, o.project_id, o.session_id, o.type, o.scope, o.title, o.content, o.
 FROM memory_observations_fts
 JOIN memory_observations o ON o.id = memory_observations_fts.id
 WHERE o.project_id = ? AND memory_observations_fts MATCH ?
-ORDER BY rank
+ORDER BY rank, o.updated_at DESC, o.id ASC
 LIMIT ?`
 
 	rows, err := s.db.Query(sqlText, s.projectID, query, limit)
 	if err != nil {
 		if isFTSSyntaxError(err) {
-			return nil, fmt.Errorf("memory: invalid search query")
+			return nil, ErrInvalidSearchQuery
 		}
 		return nil, fmt.Errorf("memory: search: %w", err)
 	}
@@ -47,7 +47,7 @@ LIMIT ?`
 	}
 	if err := rows.Err(); err != nil {
 		if isFTSSyntaxError(err) {
-			return nil, fmt.Errorf("memory: invalid search query")
+			return nil, ErrInvalidSearchQuery
 		}
 		return nil, err
 	}
@@ -59,6 +59,9 @@ func isFTSSyntaxError(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "unterminated string") {
+		return true
+	}
 	return strings.Contains(msg, "fts5") &&
 		(strings.Contains(msg, "syntax") || strings.Contains(msg, "malformed") || strings.Contains(msg, "error"))
 }

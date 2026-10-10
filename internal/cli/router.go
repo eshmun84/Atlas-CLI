@@ -14,6 +14,8 @@ const (
 	ModeVersion Mode = iota
 	// ModeTUI launches the Atlas TUI.
 	ModeTUI
+	// ModeMemory runs read-only memory CLI commands (JSON to stdout, no TUI).
+	ModeMemory
 )
 
 // Action is the resolved launcher action for a set of args.
@@ -22,6 +24,7 @@ type Action struct {
 	Route          tui.Route
 	UnknownCommand string
 	CodeIntelFull  bool
+	Memory         MemoryCommand
 }
 
 // Resolve maps CLI args to a launcher action. It does not render reports.
@@ -52,6 +55,8 @@ func Resolve(args []string) Action {
 		return Action{Mode: ModeTUI, Route: tui.RouteError, UnknownCommand: joinCommand(args)}
 	case "codeintel":
 		return resolveCodeIntel(args[1:])
+	case "memory":
+		return resolveMemory(args[1:])
 	case "mcp":
 		return Action{Mode: ModeTUI, Route: tui.RouteError, UnknownCommand: joinCommand(args)}
 	default:
