@@ -16,6 +16,8 @@ const (
 	ModeTUI
 	// ModeMemory runs read-only memory CLI commands (JSON to stdout, no TUI).
 	ModeMemory
+	// ModeHooks runs hooks engine CLI commands (JSON to stdout, no TUI).
+	ModeHooks
 )
 
 // Action is the resolved launcher action for a set of args.
@@ -25,6 +27,7 @@ type Action struct {
 	UnknownCommand string
 	CodeIntelFull  bool
 	Memory         MemoryCommand
+	Hooks          HooksCommand
 }
 
 // Resolve maps CLI args to a launcher action. It does not render reports.
@@ -57,6 +60,8 @@ func Resolve(args []string) Action {
 		return resolveCodeIntel(args[1:])
 	case "memory":
 		return resolveMemory(args[1:])
+	case "hooks":
+		return resolveHooks(args[1:])
 	case "mcp":
 		return Action{Mode: ModeTUI, Route: tui.RouteError, UnknownCommand: joinCommand(args)}
 	default:
