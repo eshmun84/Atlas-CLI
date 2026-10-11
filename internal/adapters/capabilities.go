@@ -42,7 +42,7 @@ var table = map[ID]Capabilities{
 	Cursor: {
 		Skills:        true,
 		Rules:         true,
-		Hooks:         false,
+		Hooks:         true,
 		Agents:        true,
 		MCP:           true,
 		SkillsRootRel: ".cursor/skills",

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/eshmun84/Atlas-CLI/internal/adapters"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
@@ -25,6 +26,7 @@ const (
 	RepairKindAgent    = "agent"
 	RepairKindAtlas    = "atlas"
 	RepairKindSkill    = "skill"
+	RepairKindHook     = "hook"
 	RepairKindHome     = "home"
 	RepairKindConflict = "conflict"
 )
@@ -293,6 +295,24 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 		}
 	}
 
+	if selected["cursor"] && adapters.Supports(adapters.Cursor, adapters.ClassHooks) {
+		wrapper := ".cursor/hooks/atlas/dispatch"
+		present, err := config.AtlasOwnedFileExists(root, wrapper)
+		if err != nil {
+			plan.Blocked = true
+			plan.Blockers = append(plan.Blockers, "unsafe Atlas-owned Cursor hooks path: "+wrapper+": "+err.Error())
+		} else if !present {
+			addRepairTarget(&plan, RuntimeRepairTarget{
+				Path:    wrapper,
+				Action:  RepairActionCreate,
+				Kind:    RepairKindHook,
+				Reason:  "Atlas-owned Cursor hooks wrapper missing",
+				Adapter: "cursor",
+			})
+			plan.Drift = append(plan.Drift, "missing hooks wrapper: "+wrapper)
+		}
+	}
+
 	if health.Initialized || health.RuntimeMaterialized {
 		switch {
 		case !health.Home.Exists:
@@ -429,6 +449,9 @@ func atlasOwnedPathsUnderAdapter(adapter string) []string {
 	switch adapter {
 	case "cursor":
 		out = append(out, config.FileCursorAtlasMDC)
+		if adapters.Supports(adapters.Cursor, adapters.ClassHooks) {
+			out = append(out, ".cursor/hooks/atlas/dispatch")
+		}
 	case "opencode":
 		out = append(out, config.FileOpenCodeAtlas)
 	}

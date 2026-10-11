@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/hookproj"
 	"github.com/eshmun84/Atlas-CLI/internal/mcp"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 	"github.com/eshmun84/Atlas-CLI/internal/skills"
@@ -29,6 +30,7 @@ type initMutationSnapshot struct {
 	footprint       fsafety.TransactionFootprint
 	homeFootprint   fsafety.TransactionFootprint
 	skillsMutation  skills.MutationState
+	hooksMutation   hookproj.MutationState
 }
 
 // Atlas workspace directory candidates that Init may create. Tracked for
@@ -36,6 +38,8 @@ type initMutationSnapshot struct {
 var initDirCandidates = []string{
 	".atlas/contracts",
 	".atlas",
+	".cursor/hooks/atlas",
+	".cursor/hooks",
 	".cursor/agents",
 	".cursor/rules",
 	".cursor",
@@ -111,7 +115,13 @@ func captureInitMutationSnapshot(root, homePath, projectID string, targets []str
 			return snap, err
 		}
 	}
-	for _, rel := range []string{".cursor/mcp.json", "opencode.json", FileProjectDocsREADME} {
+	for _, rel := range []string{
+		".cursor/mcp.json",
+		".cursor/hooks.json",
+		".cursor/hooks/atlas/dispatch",
+		"opencode.json",
+		FileProjectDocsREADME,
+	} {
 		if err := add(rel); err != nil {
 			return snap, err
 		}
@@ -122,7 +132,10 @@ func captureInitMutationSnapshot(root, homePath, projectID string, targets []str
 func restoreInitFiles(root string, snap initMutationSnapshot) error {
 	var errs []string
 
-	// Skills projections + skills ownership first (reverse of late Apply order).
+	// Hooks then skills (reverse of late Apply order).
+	if err := snap.hooksMutation.Rollback(); err != nil {
+		errs = append(errs, err.Error())
+	}
 	if err := snap.skillsMutation.Rollback(); err != nil {
 		errs = append(errs, err.Error())
 	}
@@ -207,6 +220,7 @@ type configureMutationSnapshot struct {
 	ownershipMode   os.FileMode
 	footprint       fsafety.TransactionFootprint
 	skillsMutation  skills.MutationState
+	hooksMutation   hookproj.MutationState
 }
 
 func captureConfigureMutationSnapshot(root, homePath, projectID string) (configureMutationSnapshot, error) {
@@ -223,7 +237,15 @@ func captureConfigureMutationSnapshot(root, homePath, projectID string) (configu
 		snap.ownershipRaw = raw
 		snap.ownershipMode = mode
 	}
-	for _, rel := range []string{FileConfig, FileSkillRegistry, ".cursor/mcp.json", "opencode.json", FileProjectDocsREADME} {
+	for _, rel := range []string{
+		FileConfig,
+		FileSkillRegistry,
+		".cursor/mcp.json",
+		".cursor/hooks.json",
+		".cursor/hooks/atlas/dispatch",
+		"opencode.json",
+		FileProjectDocsREADME,
+	} {
 		fs, err := fsafety.CaptureFileSnapshot(root, rel)
 		if err != nil {
 			return snap, err
@@ -235,6 +257,9 @@ func captureConfigureMutationSnapshot(root, homePath, projectID string) (configu
 
 func restoreConfigureFiles(root string, snap configureMutationSnapshot) error {
 	var errs []string
+	if err := snap.hooksMutation.Rollback(); err != nil {
+		errs = append(errs, err.Error())
+	}
 	if err := snap.skillsMutation.Rollback(); err != nil {
 		errs = append(errs, err.Error())
 	}

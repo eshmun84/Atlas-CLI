@@ -11,8 +11,9 @@
 // It reuses the Slice 36B.1 foundation dispatcher and registry — it does not
 // invent a second dispatch core. Canonical event catalog membership is never
 // treated as adapter support; only EventBridge.DeclaredEvents participate in
-// negotiation. Native Cursor/OpenCode bridges and ClassHooks enablement remain
-// deferred. Missing bridges negotiate with an empty declaration set (fail closed).
+// negotiation. Cursor registers a native EventBridge when ClassHooks is enabled;
+// OpenCode remains disabled. Missing bridges negotiate with an empty declaration
+// set (fail closed).
 //
 // Boundaries: no daemon, network, MCP, Git, SQLite, arbitrary command
 // execution, or implicit filesystem mutations.

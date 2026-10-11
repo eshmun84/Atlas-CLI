@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eshmun84/Atlas-CLI/internal/adapters"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/hookproj"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 	"github.com/eshmun84/Atlas-CLI/internal/project/mutatelock"
@@ -63,6 +65,7 @@ type repairMutationSnapshot struct {
 	footprint      fsafety.TransactionFootprint
 	attemptBackup  string // Home-relative backup dir created by this attempt
 	skillsMutation skills.MutationState
+	hooksMutation  hookproj.MutationState
 }
 
 // ApplyRuntimeRepair recomputes the plan, compares it to the reviewed signature,
@@ -132,6 +135,7 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 	}
 	var writes []pendingWrite
 	needSkillReconcile := false
+	needHooksReconcile := false
 	for _, target := range plan.Targets {
 		switch target.Action {
 		case RepairActionCreate, RepairActionReplace:
@@ -141,6 +145,10 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 			if target.Kind == RepairKindSkill {
 				// Skill packages are restored via skills.Reconcile (ownership-aware).
 				needSkillReconcile = true
+				continue
+			}
+			if target.Kind == RepairKindHook {
+				needHooksReconcile = true
 				continue
 			}
 			if err := configValidateWrite(target.Path); err != nil {
@@ -317,6 +325,31 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		}
 	}
 
+	if needHooksReconcile || adapterHooksSelected(doc) {
+		hookRes, hookErr := config.ReconcileHookProjections(root, doc, false)
+		if hookErr != nil {
+			return rollback(fmt.Errorf("hooks repair: %w", hookErr))
+		}
+		if hookRes.Blocked {
+			return rollback(fmt.Errorf("hooks repair blocked: %s", strings.Join(hookRes.Errors, "; ")))
+		}
+		snap.hooksMutation = hookRes.Mutation
+		for _, target := range plan.Targets {
+			if target.Kind != RepairKindHook {
+				continue
+			}
+			if target.Action == RepairActionCreate {
+				result.Created = append(result.Created, target.Path)
+			} else {
+				result.Replaced = append(result.Replaced, target.Path)
+			}
+			result.Actions = append(result.Actions, target.Action+" "+target.Path)
+		}
+		if hookRes.Applied && len(plan.Targets) == 0 {
+			result.Actions = append(result.Actions, hookRes.Actions...)
+		}
+	}
+
 	if backupDir != "" {
 		if err := config.WriteBackupManifest(homeResult.HomePath, backupDir, manifest); err != nil {
 			return rollback(err)
@@ -367,11 +400,29 @@ func captureRepairMutationSnapshot(root, homePath, projectID string, plan Runtim
 	if err := add(config.FileState); err != nil {
 		return snap, err
 	}
+	for _, rel := range []string{".cursor/hooks.json", ".cursor/hooks/atlas/dispatch"} {
+		if err := add(rel); err != nil {
+			return snap, err
+		}
+	}
 	return snap, nil
+}
+
+func adapterHooksSelected(doc config.ProjectDocument) bool {
+	for _, a := range doc.Adapters.Selected {
+		id := adapters.ID(strings.ToLower(strings.TrimSpace(a)))
+		if adapters.Supports(id, adapters.ClassHooks) {
+			return true
+		}
+	}
+	return false
 }
 
 func restoreRepairMutationSnapshot(root string, snap repairMutationSnapshot) error {
 	var errs []string
+	if err := snap.hooksMutation.Rollback(); err != nil {
+		errs = append(errs, err.Error())
+	}
 	if err := snap.skillsMutation.Rollback(); err != nil {
 		errs = append(errs, err.Error())
 	}

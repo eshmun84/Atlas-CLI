@@ -1,0 +1,10 @@
+#!/bin/sh
+# Atlas-owned Cursor hooks dispatcher. Do not edit.
+# Invokes the installed Atlas CLI via PATH (no download/install).
+set -eu
+if ! command -v atlas >/dev/null 2>&1; then
+	# Fail-open: Cursor continues; never print diagnostics on stdout.
+	printf '%s\n' '{}'
+	exit 0
+fi
+exec atlas hooks cursor --json

@@ -311,6 +311,14 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 			}
 		}
 	}
+	if hookRes, err := ReconcileHookProjections(root, doc, result.HomeReset); err != nil {
+		return rollback(fmt.Errorf("hooks materialization failed: %w", err))
+	} else if hookRes.Blocked {
+		return rollback(fmt.Errorf("hooks materialization blocked: %s", strings.Join(hookRes.Errors, "; ")))
+	} else {
+		baseline.hooksMutation = hookRes.Mutation
+		baseline.homeFootprint.MergeFootprint(hookRes.Mutation.HomeFootprint)
+	}
 
 	if err := recordTrackedWrite(&baseline.footprint, root, FileState, stateData, 0o644); err != nil {
 		return rollback(fmt.Errorf("write %s: %w", FileState, err))
@@ -408,6 +416,7 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 	impact := AnalyzeConfigureImpact(previous, doc, mcpChanged)
 	needMCP := mcpChanged || adaptersChanged || mcpPreferencePresent(doc) || mcpPreferencePresent(previous)
 	needSkills := adaptersChanged || skillsChanged
+	needHooks := adaptersChanged
 
 	// ---------- Phase B: mutation transaction ----------
 	rollback := func(cause error) (PersistConfigureResult, error) {
@@ -421,7 +430,7 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 		return rollback(fmt.Errorf("write %s: %w", FileConfig, err))
 	}
 
-	// Configure Apply reconciles Atlas-owned MCP and Skills projections only.
+	// Configure Apply reconciles Atlas-owned MCP, Skills, and Hooks projections.
 	if needMCP {
 		if _, err := ReconcileMCPProjections(root, doc, in.MCP); err != nil {
 			return rollback(fmt.Errorf("mcp projection: %w", err))
@@ -451,6 +460,15 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 					return rollback(hookErr)
 				}
 			}
+		}
+	}
+	if needHooks {
+		if hookRes, err := ReconcileHookProjections(root, doc, false); err != nil {
+			return rollback(fmt.Errorf("hooks projection: %w", err))
+		} else if hookRes.Blocked {
+			return rollback(fmt.Errorf("hooks projection blocked: %s", strings.Join(hookRes.Errors, "; ")))
+		} else {
+			baseline.hooksMutation = hookRes.Mutation
 		}
 	}
 

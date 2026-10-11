@@ -1,18 +1,25 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 
+	adaptercursor "github.com/eshmun84/Atlas-CLI/internal/adapters/cursor"
 	"github.com/eshmun84/Atlas-CLI/internal/hooksengine"
 )
 
+func init() {
+	ensureCursorHooksBridge()
+}
+
 // HooksCommand is a resolved non-TUI hooks CLI action.
 type HooksCommand struct {
-	Name string // dispatch
+	Name string // dispatch | cursor
 	JSON bool
 }
 
@@ -28,7 +35,7 @@ func resolveHooks(args []string) Action {
 	rest := args[1:]
 
 	switch cmd.Name {
-	case "dispatch":
+	case "dispatch", "cursor":
 	default:
 		return Action{
 			Mode:           ModeHooks,
@@ -56,12 +63,21 @@ var HooksEngine = func() hooksengine.Engine {
 	return hooksengine.New()
 }
 
-// HooksInput returns the request body reader for dispatch. Overridable in tests.
+// HooksInput returns the request body reader for dispatch/cursor. Overridable in tests.
 var HooksInput = func() io.Reader {
 	return os.Stdin
 }
 
 func executeHooks(stdout io.Writer, cmd HooksCommand, unknown string) error {
+	switch {
+	case cmd.Name == "cursor":
+		return executeHooksCursor(stdout, cmd, unknown)
+	default:
+		return executeHooksDispatch(stdout, cmd, unknown)
+	}
+}
+
+func executeHooksDispatch(stdout io.Writer, cmd HooksCommand, unknown string) error {
 	var resp hooksengine.Response
 	switch {
 	case cmd.Name == "":
@@ -100,6 +116,56 @@ func executeHooks(stdout io.Writer, cmd HooksCommand, unknown string) error {
 		return hooksengine.ExitError{Status: resp.Status}
 	}
 	return nil
+}
+
+func executeHooksCursor(stdout io.Writer, cmd HooksCommand, unknown string) error {
+	if unknown != "" || !cmd.JSON || cmd.Name != "cursor" {
+		resp := hooksUsage("cursor", "usage: atlas hooks cursor --json < native.json")
+		if unknown != "" {
+			resp = hooksUsage("cursor", "invalid hooks command usage")
+		} else if !cmd.JSON {
+			resp = hooksUsage("cursor", "--json is required")
+		}
+		enc := json.NewEncoder(stdout)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(resp); err != nil {
+			return fmt.Errorf("hooks: encode json: %w", err)
+		}
+		return hooksengine.ExitError{Status: resp.Status}
+	}
+	ensureCursorHooksBridge()
+	dispatch := func(ctx context.Context, req adaptercursor.CanonicalDispatch) string {
+		er := hooksengine.Request{
+			SchemaVersion: req.SchemaVersion,
+			Adapter:       string(req.Adapter),
+			Event: hooksengine.EventInput{
+				ID:         req.Event.ID,
+				Type:       string(req.Event.Type),
+				OccurredAt: req.Event.OccurredAt.UTC().Format(time.RFC3339Nano),
+				Payload: hooksengine.PayloadInput{
+					ProjectID:        req.Event.Payload.ProjectID,
+					SessionID:        req.Event.Payload.SessionID,
+					TaskID:           req.Event.Payload.TaskID,
+					ToolName:         req.Event.Payload.ToolName,
+					ToolCallID:       req.Event.Payload.ToolCallID,
+					Status:           req.Event.Payload.Status,
+					Reason:           req.Event.Payload.Reason,
+					TaskSummary:      req.Event.Payload.TaskSummary,
+					TaskSummaryState: string(req.Event.Payload.TaskSummaryState),
+				},
+			},
+		}
+		return HooksEngine().Dispatch(ctx, er).Status
+	}
+	if err := adaptercursor.RunNative(context.Background(), dispatch, HooksInput(), stdout); err != nil {
+		return fmt.Errorf("hooks cursor: %w", err)
+	}
+	// Native Cursor contract: deny via JSON body; process exit stays 0.
+	return nil
+}
+
+func ensureCursorHooksBridge() {
+	hooksengine.RegisterBridge(adaptercursor.NewHooksBridge())
 }
 
 func hooksUsage(command, message string) hooksengine.Response {

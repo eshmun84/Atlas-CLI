@@ -155,15 +155,20 @@ func TestValidateEvent_TaskSummaryContract(t *testing.T) {
 	}
 }
 
-func TestNegotiate_AdaptersHooksDisabled(t *testing.T) {
-	for _, id := range adapters.KnownIDs() {
-		if adapters.Supports(id, adapters.ClassHooks) {
-			t.Fatalf("%s unexpectedly supports hooks", id)
-		}
-		cap := hooks.Negotiate(id, hooks.KnownEventTypes())
-		if cap.HooksCapability || len(cap.SupportedEvents()) != 0 {
-			t.Fatalf("%s capability leaked: %#v", id, cap)
-		}
+func TestNegotiate_OpenCodeHooksDisabledCursorEnabled(t *testing.T) {
+	if !adapters.Supports(adapters.Cursor, adapters.ClassHooks) {
+		t.Fatal("cursor must support hooks")
+	}
+	if adapters.Supports(adapters.OpenCode, adapters.ClassHooks) {
+		t.Fatal("opencode must not support hooks")
+	}
+	cap := hooks.Negotiate(adapters.OpenCode, hooks.KnownEventTypes())
+	if cap.HooksCapability || len(cap.SupportedEvents()) != 0 {
+		t.Fatalf("opencode capability leaked: %#v", cap)
+	}
+	cap = hooks.Negotiate(adapters.Cursor, []hooks.EventType{hooks.EventSessionStart})
+	if !cap.HooksCapability || !cap.Supports(hooks.EventSessionStart) {
+		t.Fatalf("cursor capability missing: %#v", cap)
 	}
 }
 
@@ -262,9 +267,11 @@ func TestDispatch_FailClosedWhenHooksDisabled(t *testing.T) {
 	}
 	d := hooks.Dispatcher{
 		Registry:   reg,
-		Capability: hooks.Negotiate(adapters.Cursor, hooks.KnownEventTypes()),
+		Capability: hooks.Negotiate(adapters.OpenCode, hooks.KnownEventTypes()),
 	}
-	rep := d.Dispatch(context.Background(), validSessionEvent())
+	ev := validSessionEvent()
+	ev.Adapter = adapters.OpenCode
+	rep := d.Dispatch(context.Background(), ev)
 	if rep.Err == nil || !errors.Is(rep.Err, hooks.ErrHooksDisabled) {
 		t.Fatalf("got %#v err=%v", rep, rep.Err)
 	}

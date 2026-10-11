@@ -7,10 +7,9 @@ import (
 
 // LookupBridge returns the Atlas-registered EventBridge for an adapter.
 //
-// Slice 36B.2 registers no native Cursor/OpenCode bridges yet. Missing bridges
-// fail closed: Negotiate receives an empty declaration set (never the full
-// canonical catalog). Provider implementations will register here in later
-// slices without Core branching on provider names.
+// Missing bridges fail closed: Negotiate receives an empty declaration set
+// (never the full canonical catalog). Adapters register via RegisterBridge
+// from config init without Core branching on provider names.
 func LookupBridge(id adapters.ID) (hooks.EventBridge, bool) {
 	bridge, ok := bridgeTable[id]
 	if !ok || bridge == nil {
@@ -19,8 +18,24 @@ func LookupBridge(id adapters.ID) (hooks.EventBridge, bool) {
 	return bridge, true
 }
 
+// RegisterBridge installs a production EventBridge for an adapter.
+// Nil bridges and empty adapter IDs are ignored. Last registration wins.
+func RegisterBridge(bridge hooks.EventBridge) {
+	if bridge == nil {
+		return
+	}
+	id := bridge.AdapterID()
+	if id == "" {
+		return
+	}
+	if bridgeTable == nil {
+		bridgeTable = map[adapters.ID]hooks.EventBridge{}
+	}
+	bridgeTable[id] = bridge
+}
+
 // bridgeTable is the closed production registry of adapter EventBridges.
-// Empty until native hook projections land. Core never invents declarations.
+// Populated by adapter registration (config init). Core never invents declarations.
 var bridgeTable = map[adapters.ID]hooks.EventBridge{}
 
 // negotiateAdapter builds capability from ClassHooks + EventBridge declarations.

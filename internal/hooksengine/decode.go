@@ -41,7 +41,9 @@ func DecodeRequest(r io.Reader) (Request, error) {
 	if err := dec.Decode(&req); err != nil {
 		return Request{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
-	if dec.More() {
+	// dec.More() misses concatenated top-level JSON values; require EOF.
+	var trailing json.RawMessage
+	if err := dec.Decode(&trailing); err != io.EOF {
 		return Request{}, fmt.Errorf("%w: trailing data after JSON value", ErrInvalidRequest)
 	}
 	if err := validateSchemaVersion(req.SchemaVersion); err != nil {

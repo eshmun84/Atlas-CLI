@@ -38,18 +38,25 @@ func (a stubAction) Run(ctx context.Context, ev hooks.Event) (hooks.Result, erro
 	return hooks.Result{Outcome: hooks.OutcomeOK}, nil
 }
 
-func TestDispatch_ProductionHooksDisabled(t *testing.T) {
+func TestDispatch_ProductionCursorHooksEnabledEmptyRegistry(t *testing.T) {
 	eng, projectID := seedEngine(t, hooksengine.DefaultRegistry(), nil)
 	req := validSessionRequest(projectID)
 	resp := eng.Dispatch(context.Background(), req)
+	if resp.Status != hooksengine.StatusSuccess {
+		t.Fatalf("status=%q want success with Cursor Hooks+bridge: %#v", resp.Status, resp)
+	}
+	if resp.Count != 0 || len(resp.Results) != 0 || resp.Aborted {
+		t.Fatalf("empty registry must succeed without actions: %#v", resp)
+	}
+}
+
+func TestDispatch_ProductionOpenCodeHooksDisabled(t *testing.T) {
+	eng, projectID := seedEngine(t, hooksengine.DefaultRegistry(), nil)
+	req := validSessionRequest(projectID)
+	req.Adapter = string(adapters.OpenCode)
+	resp := eng.Dispatch(context.Background(), req)
 	if resp.Status != hooksengine.StatusHooksDisabled {
-		t.Fatalf("status=%q want hooks_disabled: %#v", resp.Status, resp)
-	}
-	if resp.Count != 0 || len(resp.Results) != 0 {
-		t.Fatalf("actions must not run: %#v", resp)
-	}
-	if !hooksengine.ShouldExitNonZero(resp.Status) {
-		t.Fatal("hooks_disabled must exit non-zero")
+		t.Fatalf("status=%q want hooks_disabled for opencode: %#v", resp.Status, resp)
 	}
 }
 
@@ -420,17 +427,27 @@ func (b stubBridge) DeclaredEvents() []hooks.EventType { return b.declared }
 
 func TestCapability_MissingBridgeFailClosed(t *testing.T) {
 	eng := hooksengine.Engine{Registry: hooksengine.DefaultRegistry()}
-	// Production LookupBridge has no entries.
+	// Production LookupBridge starts empty (cli registers Cursor at process init).
 	for _, id := range adapters.KnownIDs() {
 		if _, ok := hooksengine.LookupBridge(id); ok {
-			t.Fatalf("unexpected production bridge for %s", id)
+			t.Fatalf("unexpected production bridge for %s in package tests", id)
 		}
 		cap := eng.CapabilityForTest(id)
-		if cap.HooksCapability {
-			t.Fatalf("%s HooksCapability unexpectedly true", id)
-		}
-		if len(cap.SupportedEvents()) != 0 {
-			t.Fatalf("%s advertised events=%v", id, cap.SupportedEvents())
+		switch id {
+		case adapters.Cursor:
+			if !cap.HooksCapability {
+				t.Fatal("cursor ClassHooks must be enabled")
+			}
+			if len(cap.SupportedEvents()) != 0 {
+				t.Fatalf("cursor without bridge must advertise no events: %v", cap.SupportedEvents())
+			}
+		case adapters.OpenCode:
+			if cap.HooksCapability {
+				t.Fatal("opencode HooksCapability must remain false")
+			}
+			if len(cap.SupportedEvents()) != 0 {
+				t.Fatalf("opencode advertised events=%v", cap.SupportedEvents())
+			}
 		}
 	}
 }
@@ -440,10 +457,23 @@ func TestCapability_PartialBridgeDeclarations(t *testing.T) {
 		id:       adapters.Cursor,
 		declared: []hooks.EventType{hooks.EventSessionStart, hooks.EventBeforeToolExecution},
 	}
-	// Production ClassHooks is false: NegotiateBridge must not advertise support.
+	// Cursor ClassHooks is true: only declared events are supported.
 	cap := hooksengine.NegotiateAdapterForTest(adapters.Cursor, bridge)
+	if !cap.HooksCapability || len(cap.SupportedEvents()) != 2 {
+		t.Fatalf("cursor must honor bridge declarations: %#v", cap)
+	}
+	if !cap.Supports(hooks.EventSessionStart) || !cap.Supports(hooks.EventBeforeToolExecution) {
+		t.Fatalf("declared events missing: %#v", cap)
+	}
+	if cap.Supports(hooks.EventTaskComplete) {
+		t.Fatal("undeclared events must stay unsupported")
+	}
+
+	// OpenCode ClassHooks is false: declarations ignored.
+	ocBridge := stubBridge{id: adapters.OpenCode, declared: hooks.KnownEventTypes()}
+	cap = hooksengine.NegotiateAdapterForTest(adapters.OpenCode, ocBridge)
 	if cap.HooksCapability || len(cap.SupportedEvents()) != 0 {
-		t.Fatalf("hooks disabled must ignore declarations: %#v", cap)
+		t.Fatalf("opencode hooks disabled must ignore declarations: %#v", cap)
 	}
 
 	// Mismatched bridge identity fails closed to empty declarations.
@@ -501,15 +531,18 @@ func TestCapability_BridgeLookupIsolatedFromOverride(t *testing.T) {
 			return bridge, true
 		},
 	}
-	// Production negotiation path (no override) uses bridge only — still disabled.
+	// Production negotiation path (no override) uses ClassHooks ∧ bridge declarations.
 	prod := hooksengine.Engine{
 		Registry: hooksengine.DefaultRegistry(),
 		BridgeLookup: func(id adapters.ID) (hooks.EventBridge, bool) {
 			return bridge, true
 		},
 	}.CapabilityForTest(adapters.Cursor)
-	if prod.Supports(hooks.EventSessionStart) || prod.Supports(hooks.EventTaskStart) {
-		t.Fatalf("production path must not advertise support while Hooks=false: %#v", prod)
+	if !prod.Supports(hooks.EventSessionStart) {
+		t.Fatalf("production path must support bridge-declared events when Hooks=true: %#v", prod)
+	}
+	if prod.Supports(hooks.EventTaskStart) {
+		t.Fatalf("production path must not invent undeclared events: %#v", prod)
 	}
 	// Override path is test-only and does not consult bridge declarations.
 	if !eng.CapabilityOverride.Supports(hooks.EventTaskStart) || eng.CapabilityOverride.Supports(hooks.EventSessionStart) {
@@ -545,7 +578,26 @@ func seedEngine(t *testing.T, reg hooks.Registry, cap *hooks.Capability) (hookse
 		Registry:           reg,
 		Env:                hooksengine.Env{Root: root, Home: homePath},
 		CapabilityOverride: cap,
+		BridgeLookup: func(id adapters.ID) (hooks.EventBridge, bool) {
+			if id == adapters.Cursor {
+				return cursorBridge{}, true
+			}
+			return nil, false
+		},
 	}, projectID
+}
+
+type cursorBridge struct{}
+
+func (cursorBridge) AdapterID() adapters.ID { return adapters.Cursor }
+func (cursorBridge) DeclaredEvents() []hooks.EventType {
+	return []hooks.EventType{
+		hooks.EventSessionStart,
+		hooks.EventTaskStart,
+		hooks.EventBeforeToolExecution,
+		hooks.EventAfterToolExecution,
+		hooks.EventBeforeContextCompaction,
+	}
 }
 
 func validSessionRequest(projectID string) hooksengine.Request {
