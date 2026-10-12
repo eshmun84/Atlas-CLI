@@ -32,6 +32,7 @@ func BundledPackages() []BundledPin {
 		{ID: "code-review", Version: "1.0.0"},
 		{ID: "security-review", Version: "1.0.0"},
 		{ID: "documentation", Version: "1.0.0"},
+		{ID: "memory", Version: "1.0.0"},
 	}
 }
 
@@ -75,20 +76,20 @@ func AgentSkillRefs(agentID string) []string {
 	agentID = strings.TrimSpace(agentID)
 	switch agentID {
 	case "atlas-orchestrator":
-		return []string{"testing", "code-review", "security-review", "documentation"}
+		return []string{"testing", "code-review", "security-review", "documentation", "memory"}
 	case "atlas-worker":
-		return []string{"testing", "documentation"}
+		return []string{"testing", "documentation", "memory"}
 	case "atlas-review-quality":
-		return []string{"code-review", "testing"}
+		return []string{"code-review", "testing", "memory"}
 	case "atlas-review-architecture":
-		return []string{"code-review"}
+		return []string{"code-review", "memory"}
 	case "atlas-review-risk":
-		return []string{"security-review"}
+		return []string{"security-review", "memory"}
 	case "atlas-review-refuter":
-		return []string{"code-review", "security-review"}
+		return []string{"code-review", "security-review", "memory"}
 	default:
 		if strings.HasPrefix(agentID, "atlas-sdd-") {
-			return []string{"documentation", "testing"}
+			return []string{"documentation", "testing", "memory"}
 		}
 		return nil
 	}

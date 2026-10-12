@@ -47,6 +47,8 @@ func TestRenderAgentsMD_TextQuality(t *testing.T) {
 		config.AdapterBlockBegin("cursor"),
 		config.AdapterBlockBegin("opencode"),
 		config.AgentsUserBegin,
+		"## 10. Project Memory",
+		"atlas memory context",
 		"Context Economy v0",
 		"CodeGraph",
 		"Atlas Context Graph",

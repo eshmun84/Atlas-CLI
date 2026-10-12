@@ -228,7 +228,7 @@ Do not skip Propose → Implement acceptance. Do not jump to Archive without Ver
 | OpenSpec | Authoritative change artifacts: proposal, specs, design, tasks, verify output, archive |
 | Atlas | Governance, normalization, lifecycle observation, traceability references, Status/Doctor |
 | Project docs | Real product documentation (API, architecture/ADR, operations) |
-| Memory (future) | Distilled durable knowledge — not a copy of OpenSpec archives |
+| Memory | Distilled durable knowledge via read-only `atlas memory` retrieval and the `memory` skill — not a copy of OpenSpec archives; proposals are not Memory observations |
 
 Atlas does **not** create a parallel evidence store (no `.atlas/evidence/`, no duplicated OpenSpec manifests). Atlas may read and reference OpenSpec changes; it must not reinterpret or reconstruct their contents as Atlas-owned copies.
 
@@ -236,7 +236,7 @@ Atlas does **not** create a parallel evidence store (no `.atlas/evidence/`, no d
 
 Update project documentation only when the change itself requires it (for example API change → API docs; architectural change → architecture/ADR; operational change → deployment/ops docs).
 
-Do **not** create documentation solely to leave evidence that Atlas executed a phase. SDD history belongs in OpenSpec; future Memory may distill knowledge from archived change references without copying archives.
+Do **not** create documentation solely to leave evidence that Atlas executed a phase. SDD history belongs in OpenSpec; Memory may later distill knowledge from archived change references without copying archives. Quality-governed automatic persistence is out of scope for the Memory Skill slice.
 
 ## 6. Cross-cutting rules
 

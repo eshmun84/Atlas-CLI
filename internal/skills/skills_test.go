@@ -118,8 +118,8 @@ func TestCatalog_DeterministicBundled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(a) != 4 || len(b) != 4 {
-		t.Fatalf("want 4 bundled skills, got %d/%d", len(a), len(b))
+	if len(a) != 5 || len(b) != 5 {
+		t.Fatalf("want 5 bundled skills, got %d/%d", len(a), len(b))
 	}
 	for i := range a {
 		if a[i].ID != b[i].ID || a[i].Version != b[i].Version || a[i].Digest != b[i].Digest {
@@ -263,5 +263,179 @@ func TestAgentSkillRefs_NoProviderPaths(t *testing.T) {
 		if strings.Contains(r, "/") || strings.Contains(r, ".cursor") || strings.Contains(r, ".opencode") {
 			t.Fatalf("provider path leaked: %s", r)
 		}
+	}
+}
+
+func TestMemorySkill_ParseAndCLIContract(t *testing.T) {
+	body, err := skills.ReadBundledSkillMD("memory", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm, err := skills.ParseSkillMD(body, "memory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fm.Name != "memory" || fm.Description == "" {
+		t.Fatalf("unexpected frontmatter: %+v", fm)
+	}
+	for _, want := range []string{
+		"atlas memory context",
+		"atlas memory search",
+		"atlas memory get",
+		"--json",
+		"--budget",
+		"--limit",
+		"missing_memory_db",
+		"no_results",
+		"decision",
+		"fact",
+		"used_chars",
+		"budget_chars",
+		"read-only",
+		"project-scoped",
+		"not Memory observations",
+		"Automatic hook injection is **not** guaranteed",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("memory skill missing %q", want)
+		}
+	}
+	for _, banned := range []string{
+		"atlas memory save",
+		"atlas memory write",
+		"additional_context",
+		".cursor/skills/memory",
+		".opencode/skills/memory",
+	} {
+		if strings.Contains(body, banned) {
+			t.Fatalf("memory skill must not contain %q", banned)
+		}
+	}
+}
+
+func TestDefaultPins_IncludesMemory(t *testing.T) {
+	pins := skills.DefaultPins()
+	if len(pins) != len(skills.BundledPackages()) {
+		t.Fatalf("pins=%d packages=%d", len(pins), len(skills.BundledPackages()))
+	}
+	var memory bool
+	for _, p := range pins {
+		if err := skills.ValidatePin(p); err != nil {
+			t.Fatalf("invalid pin %+v: %v", p, err)
+		}
+		if p.ID == "memory" && p.Version == "1.0.0" {
+			memory = true
+		}
+	}
+	if !memory {
+		t.Fatalf("DefaultPins missing memory@1.0.0: %+v", pins)
+	}
+}
+
+func TestAgentSkillRefs_IncludesMemoryForRuntimeAgents(t *testing.T) {
+	agents := []string{
+		"atlas-orchestrator",
+		"atlas-worker",
+		"atlas-review-quality",
+		"atlas-review-architecture",
+		"atlas-review-risk",
+		"atlas-review-refuter",
+		"atlas-sdd-explore",
+		"atlas-sdd-implement",
+	}
+	for _, id := range agents {
+		refs := skills.AgentSkillRefs(id)
+		found := false
+		for _, r := range refs {
+			if r == "memory" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s missing memory skill ref: %v", id, refs)
+		}
+	}
+}
+
+func TestReconcile_MemorySkill_CursorAndOpenCode(t *testing.T) {
+	skills.RegisterDefaultProjector(adaptercursor.NewSkillsProjector())
+	skills.RegisterDefaultProjector(adapteropencode.NewSkillsProjector())
+	root := t.TempDir()
+	homePath := t.TempDir()
+	cat, err := skills.DiscoverCatalog(homePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := skills.ReconcileInput{
+		Root:       root,
+		HomePath:   homePath,
+		ProjectID:  "mem-proj",
+		Enabled:    []skills.Pin{{ID: "memory", Version: "1.0.0"}},
+		Adapters:   []string{"cursor", "opencode"},
+		Projectors: skills.DefaultProjectors(),
+		Catalog:    cat,
+	}
+	res, err := skills.Reconcile(in)
+	if err != nil || res.Blocked {
+		t.Fatalf("project memory: err=%v blocked=%v errors=%v", err, res.Blocked, res.Errors)
+	}
+	for _, rel := range []string{
+		".cursor/skills/memory/SKILL.md",
+		".opencode/skills/memory/SKILL.md",
+	} {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("missing projection %s: %v", rel, err)
+		}
+		if !strings.Contains(string(data), "atlas memory context") {
+			t.Fatalf("%s missing CLI contract", rel)
+		}
+	}
+	in.Ownership = res.Ownership
+	res2, err := skills.Reconcile(in)
+	if err != nil || res2.Blocked {
+		t.Fatalf("idempotent memory reconcile: err=%v blocked=%v", err, res2.Blocked)
+	}
+
+	// Drift: mutate Atlas-owned projection and expect health to notice.
+	cursorSkill := filepath.Join(root, ".cursor", "skills", "memory", "SKILL.md")
+	original, err := os.ReadFile(cursorSkill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cursorSkill, []byte("---\nname: memory\ndescription: drifted\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := skills.Inspect(skills.InspectInput{
+		Root:       root,
+		HomePath:   homePath,
+		ProjectID:  "mem-proj",
+		Enabled:    in.Enabled,
+		Adapters:   in.Adapters,
+		Projectors: in.Projectors,
+		Ownership:  res2.Ownership,
+	})
+	if h.Ready() {
+		t.Fatalf("drifted memory projection must not be Ready: %+v", h)
+	}
+	// Restore owned bytes so removal is allowed (drift refuses removal by design).
+	if err := os.WriteFile(cursorSkill, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove memory pin → reconcile removes Atlas-owned projections.
+	in.Enabled = nil
+	in.Ownership = res2.Ownership
+	res3, err := skills.Reconcile(in)
+	if err != nil || res3.Blocked {
+		t.Fatalf("remove memory: err=%v blocked=%v errors=%v", err, res3.Blocked, res3.Errors)
+	}
+	if _, err := os.Lstat(filepath.Join(root, ".cursor", "skills", "memory")); !os.IsNotExist(err) {
+		t.Fatalf("cursor memory projection should be removed, err=%v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, ".opencode", "skills", "memory")); !os.IsNotExist(err) {
+		t.Fatalf("opencode memory projection should be removed, err=%v", err)
 	}
 }

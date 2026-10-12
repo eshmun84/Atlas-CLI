@@ -35,6 +35,8 @@ func TestApplyConfig_ProjectsSkillsForSelectedAdapters(t *testing.T) {
 		".opencode/skills/testing/SKILL.md",
 		".cursor/skills/code-review/SKILL.md",
 		".opencode/skills/documentation/SKILL.md",
+		".cursor/skills/memory/SKILL.md",
+		".opencode/skills/memory/SKILL.md",
 	} {
 		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
 			t.Fatalf("missing %s: %v", rel, err)
@@ -44,7 +46,7 @@ func TestApplyConfig_ProjectsSkillsForSelectedAdapters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(reg), "testing") || strings.Contains(string(reg), "http://") {
+	if !strings.Contains(string(reg), "testing") || !strings.Contains(string(reg), "memory") || strings.Contains(string(reg), "http://") {
 		t.Fatalf("unexpected skill registry:\n%s", reg)
 	}
 	doc, err := config.LoadProjectDocumentAt(root)
@@ -78,11 +80,21 @@ func TestSkillPins_ExactOnlyInConfig(t *testing.T) {
 
 func TestAgentSkillRefs_InRegistry(t *testing.T) {
 	text := config.RenderAgentRegistry("demo", []string{"cursor"}, "")
-	if !strings.Contains(text, "Skills:") || !strings.Contains(text, "`testing`") {
+	if !strings.Contains(text, "Skills:") || !strings.Contains(text, "`testing`") || !strings.Contains(text, "`memory`") {
 		t.Fatalf("agent registry missing skill ids:\n%s", text)
 	}
 	if strings.Contains(text, ".cursor/skills") {
 		t.Fatal("registry must not require provider skill paths")
 	}
-	_ = skills.DefaultPins()
+	pins := skills.DefaultPins()
+	found := false
+	for _, p := range pins {
+		if p.ID == "memory" && p.Version == "1.0.0" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("DefaultPins missing memory@1.0.0: %+v", pins)
+	}
 }

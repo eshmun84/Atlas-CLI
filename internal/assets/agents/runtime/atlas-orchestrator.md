@@ -6,6 +6,7 @@ skills:
   - code-review
   - security-review
   - documentation
+  - memory
 ---
 
 # Atlas Orchestrator
@@ -52,7 +53,7 @@ Use `.atlas/agent-registry.md` and `.atlas/runtime-manifest.yaml` to select Atla
 
 ## Relation to skill-registry.md
 
-Consult `.atlas/skill-registry.md` for enabled exact skill pins and Home-canonical references. Skill IDs referenced by this agent are `testing`, `code-review`, `security-review`, and `documentation`. Do not download or invent skills. Adapter skill folders are Atlas projections only.
+Consult `.atlas/skill-registry.md` for enabled exact skill pins and Home-canonical references. Skill IDs referenced by this agent are `testing`, `code-review`, `security-review`, `documentation`, and `memory`. Do not download or invent skills. Adapter skill folders are Atlas projections only.
 
 ## Relation to Context Economy
 

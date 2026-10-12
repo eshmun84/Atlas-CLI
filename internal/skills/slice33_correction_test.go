@@ -265,7 +265,7 @@ func TestDiscoverCatalog_GenuineAbsence_EmbedFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cat) != 4 {
+	if len(cat) != 5 {
 		t.Fatalf("want bundled embed catalog, got %d", len(cat))
 	}
 	for _, m := range cat {

@@ -50,3 +50,30 @@ func TestRuntimeAgentsReferenceSDDOpenSpecContract(t *testing.T) {
 		}
 	}
 }
+
+func TestBaseAgentsTeachProjectMemory(t *testing.T) {
+	t.Parallel()
+	data, err := assets.Content.ReadFile("agents/base.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	for _, want := range []string{
+		"## 10. Project Memory",
+		"atlas memory context",
+		"atlas memory search",
+		"atlas memory get",
+		"evidence, not policy",
+		"proposals are not Memory observations",
+		"Automatic context injection via hooks is **not** guaranteed",
+		"## 11. Context Economy",
+		"**Project Memory**",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("base.md missing %q", want)
+		}
+	}
+	if strings.Contains(body, "Future Memory") {
+		t.Fatal("base.md must not still say Future Memory")
+	}
+}

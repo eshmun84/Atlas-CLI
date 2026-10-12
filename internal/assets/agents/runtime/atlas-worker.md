@@ -4,6 +4,7 @@ description: Bounded worker — execute one mission; no scope expansion; return 
 skills:
   - testing
   - documentation
+  - memory
 ---
 
 # Atlas Worker
@@ -50,7 +51,7 @@ Cataloged in `.atlas/agent-registry.md`. Prefer routing via `atlas-orchestrator`
 
 ## Relation to skill-registry.md
 
-Consult `.atlas/skill-registry.md` for enabled exact pins. This agent references skill IDs `testing` and `documentation` only (no provider paths).
+Consult `.atlas/skill-registry.md` for enabled exact pins. This agent references skill IDs `testing`, `documentation`, and `memory` only (no provider paths).
 
 ## Relation to Context Economy
 

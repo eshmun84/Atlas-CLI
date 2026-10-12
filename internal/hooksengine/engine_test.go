@@ -413,8 +413,16 @@ func TestDispatch_RejectedInputNoFilesystemMutation(t *testing.T) {
 }
 
 func TestDefaultRegistryEmpty(t *testing.T) {
-	if hooksengine.DefaultRegistry().Len() != 0 {
+	reg := hooksengine.DefaultRegistry()
+	if reg.Len() != 0 {
 		t.Fatal("default registry must remain empty until production Actions register")
+	}
+	// Slice 36B.5 ships Memory Skill + CLI only — no production Memory Hooks Actions.
+	for _, regn := range reg.All() {
+		id := regn.Action.ID()
+		if strings.HasPrefix(id, "memory.") {
+			t.Fatalf("production registry must not register Memory Actions, got %s", id)
+		}
 	}
 }
 
