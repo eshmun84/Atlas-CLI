@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -126,6 +127,67 @@ func TestExecute_ContextComposeStructuredFailures(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected failure for missing task")
 	}
+	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != contextcompose.StatusInvalidRequest {
+		t.Fatalf("%#v", res)
+	}
+}
+
+func TestExecute_ContextComposeOversizedBudgetRejected(t *testing.T) {
+	prevTUI := cli.RunTUI
+	cli.RunTUI = func(tui.Options) error { t.Fatal("TUI"); return nil }
+	defer func() { cli.RunTUI = prevTUI }()
+
+	root, homePath := seedComposeCLIProject(t)
+	prev := cli.ComposeService
+	cli.ComposeService = func(in composeapp.Input) composeapp.Result {
+		in.Env = memoryretrieve.Env{Root: root, Home: homePath}
+		return composeapp.Compose(in)
+	}
+	defer func() { cli.ComposeService = prev }()
+
+	var stdout bytes.Buffer
+	err := cli.Execute(&stdout, &bytes.Buffer{}, []string{
+		"context", "compose", "orient", "--json",
+		"--budget", strconv.Itoa(contextcompose.MaxBudgetChars + 1),
+	})
+	if err == nil {
+		t.Fatal("expected non-zero for oversized budget")
+	}
+	var res composeapp.Result
+	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != contextcompose.StatusInvalidRequest {
+		t.Fatalf("%#v", res)
+	}
+	if res.UsedChars > res.BudgetChars && res.BudgetChars > 0 {
+		t.Fatalf("used=%d budget=%d", res.UsedChars, res.BudgetChars)
+	}
+}
+
+func TestExecute_ContextComposeOversizedTaskRejected(t *testing.T) {
+	prevTUI := cli.RunTUI
+	cli.RunTUI = func(tui.Options) error { t.Fatal("TUI"); return nil }
+	defer func() { cli.RunTUI = prevTUI }()
+
+	root, homePath := seedComposeCLIProject(t)
+	prev := cli.ComposeService
+	cli.ComposeService = func(in composeapp.Input) composeapp.Result {
+		in.Env = memoryretrieve.Env{Root: root, Home: homePath}
+		return composeapp.Compose(in)
+	}
+	defer func() { cli.ComposeService = prev }()
+
+	huge := strings.Repeat("t", contextcompose.MaxTaskRunes+8)
+	var stdout bytes.Buffer
+	err := cli.Execute(&stdout, &bytes.Buffer{}, []string{"context", "compose", huge, "--json"})
+	if err == nil {
+		t.Fatal("expected non-zero for oversized task")
+	}
+	var res composeapp.Result
 	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package memorysource_test
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/memory"
 	"github.com/eshmun84/Atlas-CLI/internal/memoryretrieve"
 	"gopkg.in/yaml.v3"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestRetrieve_SuccessWithObservations(t *testing.T) {
@@ -313,6 +316,36 @@ func TestRetrieve_EmptyDatabase(t *testing.T) {
 	}
 	if snapshotTree(t, homePath) != beforeHome || snapshotTree(t, root) != beforeRoot {
 		t.Fatal("empty-db retrieval mutated filesystem")
+	}
+}
+
+func TestRetrieve_IncompatibleSchemaFailsClosed(t *testing.T) {
+	env, homePath, projectID, _ := seedEnv(t, []memory.Observation{
+		{Type: memory.TypeFact, Title: "seed", Content: "compatible row"},
+	})
+	rel, err := memory.DatabaseRel(projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(homePath, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES (999, 't')`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	res := memorysource.Retrieve(memorysource.Input{Task: "compatible row", Env: env})
+	if res.RetrievalStatus != memoryretrieve.StatusIncompatibleSchema {
+		t.Fatalf("retrieval=%#v", res)
+	}
+	if res.SourceStatus.Status != contextcompose.SourceStatusFailed {
+		t.Fatalf("incompatible schema must fail closed: %#v", res.SourceStatus)
+	}
+	if len(res.Candidates) != 0 {
+		t.Fatal("candidates must be empty")
 	}
 }
 
