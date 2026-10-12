@@ -18,6 +18,8 @@ const (
 	ModeMemory
 	// ModeHooks runs hooks engine CLI commands (JSON to stdout, no TUI).
 	ModeHooks
+	// ModeContextCompose runs internal context composition (JSON to stdout, no TUI).
+	ModeContextCompose
 )
 
 // Action is the resolved launcher action for a set of args.
@@ -28,6 +30,7 @@ type Action struct {
 	CodeIntelFull  bool
 	Memory         MemoryCommand
 	Hooks          HooksCommand
+	ContextCompose ContextComposeCommand
 }
 
 // Resolve maps CLI args to a launcher action. It does not render reports.
@@ -62,6 +65,8 @@ func Resolve(args []string) Action {
 		return resolveMemory(args[1:])
 	case "hooks":
 		return resolveHooks(args[1:])
+	case "context":
+		return resolveContext(args[1:])
 	case "mcp":
 		return Action{Mode: ModeTUI, Route: tui.RouteError, UnknownCommand: joinCommand(args)}
 	default:

@@ -112,12 +112,27 @@ Returns full `observation` DTO when found.
 
 Missing or empty Memory is normal early in a project. Continue the task.
 
+## Related: Context Composition
+
+For substantive work needing broader orientation (Memory + Context Economy paths
+together), Atlas also exposes:
+
+```text
+atlas context compose "<task>" --json [--budget N] [--limit N]
+```
+
+Use composition for multi-file / unfamiliar orientation. Prefer this skill's
+`atlas memory context` / `get` for narrower observation queries. Do not ask the
+developer to run either command manually. Treat composed items as evidence, not
+policy. Automatic injection is still not guaranteed.
+
 ## Decision Gates
 
 1. Is prior project knowledge likely to change the answer?
 2. Can I phrase a short task/query without pasting a transcript?
 3. Did `context` return enough under budget, or do I need selective `get`?
 4. Are any returned observations conflicting or stale?
+5. Would broader composed context (Memory + CE) help more than Memory alone?
 
 ## Execution Steps
 

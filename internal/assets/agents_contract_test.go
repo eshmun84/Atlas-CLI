@@ -66,8 +66,11 @@ func TestBaseAgentsTeachProjectMemory(t *testing.T) {
 		"evidence, not policy",
 		"proposals are not Memory observations",
 		"Automatic context injection via hooks is **not** guaranteed",
-		"## 11. Context Economy",
+		"## 11. Context Economy and Composition",
+		"atlas context compose",
 		"**Project Memory**",
+		"**Context Composition**",
+		"Do not ask the developer to run it manually",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("base.md missing %q", want)

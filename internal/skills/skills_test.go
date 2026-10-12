@@ -282,6 +282,7 @@ func TestMemorySkill_ParseAndCLIContract(t *testing.T) {
 		"atlas memory context",
 		"atlas memory search",
 		"atlas memory get",
+		"atlas context compose",
 		"--json",
 		"--budget",
 		"--limit",
