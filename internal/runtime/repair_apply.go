@@ -400,7 +400,11 @@ func captureRepairMutationSnapshot(root, homePath, projectID string, plan Runtim
 	if err := add(config.FileState); err != nil {
 		return snap, err
 	}
-	for _, rel := range []string{".cursor/hooks.json", ".cursor/hooks/atlas/dispatch"} {
+	for _, rel := range []string{
+		".cursor/hooks.json",
+		".cursor/hooks/atlas/dispatch",
+		".opencode/plugins/atlas-hooks/index.ts",
+	} {
 		if err := add(rel); err != nil {
 			return snap, err
 		}

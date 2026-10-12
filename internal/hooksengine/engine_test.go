@@ -50,13 +50,14 @@ func TestDispatch_ProductionCursorHooksEnabledEmptyRegistry(t *testing.T) {
 	}
 }
 
-func TestDispatch_ProductionOpenCodeHooksDisabled(t *testing.T) {
+func TestDispatch_ProductionOpenCodeWithoutBridgeUnsupported(t *testing.T) {
 	eng, projectID := seedEngine(t, hooksengine.DefaultRegistry(), nil)
 	req := validSessionRequest(projectID)
 	req.Adapter = string(adapters.OpenCode)
 	resp := eng.Dispatch(context.Background(), req)
-	if resp.Status != hooksengine.StatusHooksDisabled {
-		t.Fatalf("status=%q want hooks_disabled for opencode: %#v", resp.Status, resp)
+	// ClassHooks is enabled, but package tests do not register the CLI bridge.
+	if resp.Status != hooksengine.StatusUnsupportedEvent {
+		t.Fatalf("status=%q want unsupported_event for opencode without bridge: %#v", resp.Status, resp)
 	}
 }
 
@@ -413,7 +414,7 @@ func TestDispatch_RejectedInputNoFilesystemMutation(t *testing.T) {
 
 func TestDefaultRegistryEmpty(t *testing.T) {
 	if hooksengine.DefaultRegistry().Len() != 0 {
-		t.Fatal("default registry must be empty in 36B.2")
+		t.Fatal("default registry must remain empty until production Actions register")
 	}
 }
 
@@ -442,11 +443,11 @@ func TestCapability_MissingBridgeFailClosed(t *testing.T) {
 				t.Fatalf("cursor without bridge must advertise no events: %v", cap.SupportedEvents())
 			}
 		case adapters.OpenCode:
-			if cap.HooksCapability {
-				t.Fatal("opencode HooksCapability must remain false")
+			if !cap.HooksCapability {
+				t.Fatal("opencode ClassHooks must be enabled")
 			}
 			if len(cap.SupportedEvents()) != 0 {
-				t.Fatalf("opencode advertised events=%v", cap.SupportedEvents())
+				t.Fatalf("opencode without bridge must advertise no events: %v", cap.SupportedEvents())
 			}
 		}
 	}
@@ -469,11 +470,11 @@ func TestCapability_PartialBridgeDeclarations(t *testing.T) {
 		t.Fatal("undeclared events must stay unsupported")
 	}
 
-	// OpenCode ClassHooks is false: declarations ignored.
-	ocBridge := stubBridge{id: adapters.OpenCode, declared: hooks.KnownEventTypes()}
+	// OpenCode ClassHooks is true: declared events are honored.
+	ocBridge := stubBridge{id: adapters.OpenCode, declared: []hooks.EventType{hooks.EventSessionStart}}
 	cap = hooksengine.NegotiateAdapterForTest(adapters.OpenCode, ocBridge)
-	if cap.HooksCapability || len(cap.SupportedEvents()) != 0 {
-		t.Fatalf("opencode hooks disabled must ignore declarations: %#v", cap)
+	if !cap.HooksCapability || !cap.Supports(hooks.EventSessionStart) {
+		t.Fatalf("opencode must honor bridge declarations: %#v", cap)
 	}
 
 	// Mismatched bridge identity fails closed to empty declarations.

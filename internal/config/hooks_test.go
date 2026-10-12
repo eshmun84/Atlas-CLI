@@ -50,7 +50,7 @@ func TestReconcileHookProjections_CursorOnly(t *testing.T) {
 		t.Fatal("stop must not be materialized")
 	}
 
-	// OpenCode-only selection must not project Cursor hooks.
+	// OpenCode-only selection removes Cursor hooks and projects OpenCode plugin.
 	docOC := config.ProjectDocument{
 		Project:  config.ProjectPersist{Name: "hooks-proj"},
 		Adapters: config.AdaptersPersist{Selected: []string{"opencode"}},
@@ -60,7 +60,13 @@ func TestReconcileHookProjections_CursorOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res2.Blocked {
-		t.Fatalf("opencode deselect blocked: %v", res2.Errors)
+		t.Fatalf("opencode select blocked: %v", res2.Errors)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".opencode", "plugins", "atlas-hooks", "index.ts")); err != nil {
+		t.Fatal("opencode plugin missing:", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".cursor", "hooks", "atlas", "dispatch")); !os.IsNotExist(err) {
+		t.Fatal("cursor wrapper must be removed when cursor deselected")
 	}
 
 	pid, err := home.ProjectID(root, doc.Project.Name)

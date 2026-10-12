@@ -61,18 +61,7 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 	}
 	sort.Strings(adapterList)
 
-	type plan struct {
-		adapter      string
-		proj         Projector
-		writeWrapper bool
-		writeConfig  bool
-		remove       bool
-		noop         bool
-		wrapperBytes []byte
-		configBytes  []byte
-		nextOwned    []OwnedEntry
-	}
-	var plans []plan
+	var plans []reconcilePlan
 	dirty := false
 
 	for _, adapter := range adapterList {
@@ -86,202 +75,31 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 			continue
 		}
 		_, isSelected := selected[adapter]
-		ownedWrapper, hasWrapperOwn := result.Ownership.LookupKind(adapter, KindWrapper)
-		ownedConfig, hasConfigOwn := result.Ownership.LookupKind(adapter, KindConfig)
 
-		if !isSelected {
-			if !hasWrapperOwn && !hasConfigOwn {
-				result.Ownership.ClearAdapter(adapter)
-				continue
-			}
-			p := plan{adapter: adapter, proj: proj, remove: true}
-			if hasWrapperOwn {
-				still, err := artifactMatchesOwnership(in.Root, ownedWrapper)
-				if err != nil {
-					return result, err
-				}
-				if !still {
-					result.Blocked = true
-					result.Errors = append(result.Errors,
-						fmt.Sprintf("hooks wrapper digest drift at %s; refusing removal", ownedWrapper.PathRel))
-					keep := []OwnedEntry{ownedWrapper}
-					if hasConfigOwn {
-						keep = append(keep, ownedConfig)
-					}
-					plans = append(plans, plan{adapter: adapter, proj: proj, nextOwned: keep, noop: true})
-					continue
-				}
-			}
-			if hasConfigOwn {
-				okOwn, err := configMatchesOwnership(in.Root, proj, ownedConfig)
-				if err != nil {
-					return result, err
-				}
-				if !okOwn {
-					result.Blocked = true
-					result.Errors = append(result.Errors,
-						fmt.Sprintf("hooks config digest drift at %s; refusing removal", ownedConfig.PathRel))
-					keep := []OwnedEntry{}
-					if hasWrapperOwn {
-						keep = append(keep, ownedWrapper)
-					}
-					keep = append(keep, ownedConfig)
-					plans = append(plans, plan{adapter: adapter, proj: proj, nextOwned: keep, noop: true})
-					continue
-				}
-			}
-			result.Actions = append(result.Actions, fmt.Sprintf("remove hooks %s", adapter))
-			dirty = true
-			plans = append(plans, p)
-			continue
+		var (
+			p       *reconcilePlan
+			marked  bool
+			blocked bool
+			perr    error
+		)
+		switch proj.Style() {
+		case StylePluginFile:
+			p, marked, blocked, perr = planPlugin(in, &result, adapter, proj, isSelected, stamp)
+		default:
+			p, marked, blocked, perr = planConfigMerge(in, &result, adapter, proj, isSelected, stamp)
 		}
-
-		wrapperRel := proj.WrapperRel()
-		configRel := proj.HooksJSONRel()
-		command := proj.ManagedCommand()
-		events := proj.ManagedEvents()
-		wrapperBytes := append([]byte(nil), proj.WrapperBytes()...)
-		if len(wrapperBytes) == 0 {
-			result.Blocked = true
-			result.Errors = append(result.Errors, "hooks wrapper asset missing")
-			continue
-		}
-		desiredWrapperDigest := DigestBytes(wrapperBytes)
-
-		// Wrapper path safety + ownership evidence before any write.
-		wrapperState, err := inspectOwnedPath(in.Root, wrapperRel, hasWrapperOwn, ownedWrapper, in.ReclaimUnowned)
-		if err != nil {
-			return result, err
-		}
-		if wrapperState.conflict {
-			result.Blocked = true
-			result.Errors = append(result.Errors, wrapperState.reason)
-			if hasWrapperOwn || hasConfigOwn {
-				keep := []OwnedEntry{}
-				if hasWrapperOwn {
-					keep = append(keep, ownedWrapper)
-				}
-				if hasConfigOwn {
-					keep = append(keep, ownedConfig)
-				}
-				plans = append(plans, plan{adapter: adapter, proj: proj, nextOwned: keep, noop: true})
-			}
-			continue
-		}
-
-		rawConfig, configExists, configErr := readProjectFile(in.Root, configRel)
-		if configErr != nil {
-			return result, configErr
-		}
-		if configExists {
-			info, lerr := fsafety.LstatContained(in.Root, configRel)
-			if lerr != nil {
-				if isUnsafePathErr(lerr) {
-					result.Blocked = true
-					result.Errors = append(result.Errors, fmt.Sprintf("hooks config unsafe at %s", configRel))
-					continue
-				}
-				return result, lerr
-			}
-			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-				result.Blocked = true
-				result.Errors = append(result.Errors, fmt.Sprintf("hooks config unsafe at %s", configRel))
-				continue
-			}
-		}
-		doc, perr := parseHooksJSON(rawConfig)
 		if perr != nil {
-			result.Blocked = true
-			result.Errors = append(result.Errors, fmt.Sprintf("hooks config malformed at %s", configRel))
+			return result, perr
+		}
+		if blocked {
 			continue
 		}
-
-		// Unowned managed command → never adopt by path/content equality.
-		if hasManagedCommand(doc, command) && !hasConfigOwn && !in.ReclaimUnowned {
-			result.Blocked = true
-			result.Errors = append(result.Errors,
-				fmt.Sprintf("hooks config conflict at %s (managed command present without ownership)", configRel))
-			continue
-		}
-
-		// Owned config: verify managed fingerprint before update.
-		if hasConfigOwn {
-			currentFP := managedFingerprint(doc, command, ownedConfig.Events)
-			if len(ownedConfig.Events) == 0 {
-				currentFP = managedFingerprint(doc, command, events)
+		if p != nil {
+			if marked {
+				dirty = true
 			}
-			if configExists && currentFP != ownedConfig.Digest {
-				result.Blocked = true
-				result.Errors = append(result.Errors,
-					fmt.Sprintf("hooks config digest drift at %s; refusing update", configRel))
-				keep := []OwnedEntry{}
-				if hasWrapperOwn {
-					keep = append(keep, ownedWrapper)
-				}
-				keep = append(keep, ownedConfig)
-				plans = append(plans, plan{adapter: adapter, proj: proj, nextOwned: keep, noop: true})
-				continue
-			}
+			plans = append(plans, *p)
 		}
-
-		merged := mergeManaged(doc, command, events)
-		configBytes, merr := marshalHooksJSON(merged)
-		if merr != nil {
-			return result, merr
-		}
-		desiredConfigDigest := managedFingerprint(merged, command, events)
-
-		writeWrapper := true
-		writeConfig := true
-		if wrapperState.exists && wrapperState.digest == desiredWrapperDigest {
-			writeWrapper = false
-		}
-		if configExists && desiredConfigDigest == managedFingerprint(doc, command, events) &&
-			hasConfigOwn && ownedConfig.Digest == desiredConfigDigest {
-			// Already merged and owned fingerprint matches desired — still rewrite
-			// only when bytes differ (formatting/extras). Compare raw bytes.
-			if bytesEqual(rawConfig, configBytes) {
-				writeConfig = false
-			}
-		}
-		// If owned wrapper digest matches desired and no write needed for either, noop.
-		if !writeWrapper && !writeConfig && hasWrapperOwn && hasConfigOwn &&
-			ownedWrapper.Digest == desiredWrapperDigest && ownedConfig.Digest == desiredConfigDigest {
-			plans = append(plans, plan{
-				adapter: adapter, proj: proj, noop: true,
-				nextOwned: []OwnedEntry{ownedWrapper, ownedConfig},
-			})
-			continue
-		}
-
-		next := []OwnedEntry{
-			{
-				Kind:      KindWrapper,
-				PathRel:   wrapperRel,
-				Digest:    desiredWrapperDigest,
-				Source:    SourceBundled,
-				UpdatedAt: stamp,
-			},
-			{
-				Kind:      KindConfig,
-				PathRel:   configRel,
-				Digest:    desiredConfigDigest,
-				Events:    append([]string(nil), events...),
-				Source:    SourceBundled,
-				UpdatedAt: stamp,
-			},
-		}
-		result.Actions = append(result.Actions, fmt.Sprintf("project hooks %s", adapter))
-		dirty = true
-		plans = append(plans, plan{
-			adapter:      adapter,
-			proj:         proj,
-			writeWrapper: writeWrapper,
-			writeConfig:  writeConfig,
-			wrapperBytes: wrapperBytes,
-			configBytes:  configBytes,
-			nextOwned:    next,
-		})
 	}
 
 	if result.Blocked {
@@ -303,7 +121,6 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 	}
 
 	if !dirty {
-		// Pure no-op reconcile: keep ownership as planned nextOwned when provided.
 		for _, p := range plans {
 			if len(p.nextOwned) > 0 {
 				sort.Slice(p.nextOwned, func(i, j int) bool { return p.nextOwned[i].Kind < p.nextOwned[j].Kind })
@@ -320,9 +137,6 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 		return result, fmt.Errorf("%w (rolled back)", cause)
 	}
 
-	// Apply order: per adapter → remove (config then wrapper) OR write wrapper
-	// then config → finally ownership metadata. Baselines are captured before
-	// each mutation so partial failure can restore every successful write.
 	if err := runApplyPhase("before_apply"); err != nil {
 		return fail(err)
 	}
@@ -344,8 +158,12 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 			result.Ownership.ClearAdapter(p.adapter)
 			continue
 		}
-		if p.writeWrapper {
-			if err := writeProjectFile(in.Root, p.proj.WrapperRel(), p.wrapperBytes, 0o755, &result.Mutation); err != nil {
+		if p.writeArtifact {
+			mode := p.proj.ArtifactFileMode()
+			if mode == 0 {
+				mode = 0o644
+			}
+			if err := writeProjectFile(in.Root, p.proj.ArtifactRel(), p.artifactBytes, mode, &result.Mutation); err != nil {
 				return fail(err)
 			}
 			if err := runApplyPhase("after_wrapper"); err != nil {
@@ -353,7 +171,7 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 			}
 		}
 		if p.writeConfig {
-			if err := writeProjectFile(in.Root, p.proj.HooksJSONRel(), p.configBytes, 0o644, &result.Mutation); err != nil {
+			if err := writeProjectFile(in.Root, p.proj.ConfigMergeRel(), p.configBytes, 0o644, &result.Mutation); err != nil {
 				return fail(err)
 			}
 			if err := runApplyPhase("after_config"); err != nil {
@@ -374,7 +192,6 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 
 	result.Ownership.UpdatedAt = stamp
 	fp, err := SaveOwnershipTracked(in.HomePath, in.ProjectID, result.Ownership)
-	// Merge footprint before checking err so partial ownership writes are reversible.
 	result.Mutation.HomeFootprint.MergeFootprint(fp)
 	result.Mutation.noteTouch()
 	if err != nil {
@@ -383,10 +200,279 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 	if err := runApplyPhase("after_ownership"); err != nil {
 		return fail(err)
 	}
-	// Full commit only after every required write succeeds.
 	result.Mutation.Applied = true
 	result.Applied = true
 	return result, nil
+}
+
+type reconcilePlan struct {
+	adapter       string
+	proj          Projector
+	writeArtifact bool
+	writeConfig   bool
+	remove        bool
+	noop          bool
+	artifactBytes []byte
+	configBytes   []byte
+	nextOwned     []OwnedEntry
+}
+
+func planPlugin(in ReconcileInput, result *ReconcileResult, adapter string, proj Projector, isSelected bool, stamp string) (*reconcilePlan, bool, bool, error) {
+	ownedPlugin, hasPluginOwn := result.Ownership.LookupKind(adapter, KindPlugin)
+	artifactRel := proj.ArtifactRel()
+
+	if !isSelected {
+		if !hasPluginOwn {
+			result.Ownership.ClearAdapter(adapter)
+			return nil, false, false, nil
+		}
+		still, err := artifactMatchesOwnership(in.Root, ownedPlugin)
+		if err != nil {
+			return nil, false, false, err
+		}
+		if !still {
+			result.Blocked = true
+			result.Errors = append(result.Errors,
+				fmt.Sprintf("hooks plugin digest drift at %s; refusing removal", ownedPlugin.PathRel))
+			return &reconcilePlan{adapter: adapter, proj: proj, nextOwned: []OwnedEntry{ownedPlugin}, noop: true}, false, true, nil
+		}
+		result.Actions = append(result.Actions, fmt.Sprintf("remove hooks %s", adapter))
+		return &reconcilePlan{adapter: adapter, proj: proj, remove: true}, true, false, nil
+	}
+
+	artifactBytes := append([]byte(nil), proj.ArtifactBytes()...)
+	if len(artifactBytes) == 0 {
+		result.Blocked = true
+		result.Errors = append(result.Errors, "hooks plugin asset missing")
+		return nil, false, true, nil
+	}
+	desiredDigest := DigestBytes(artifactBytes)
+
+	state, err := inspectOwnedPath(in.Root, artifactRel, hasPluginOwn, ownedPlugin, in.ReclaimUnowned)
+	if err != nil {
+		return nil, false, false, err
+	}
+	if state.conflict {
+		result.Blocked = true
+		result.Errors = append(result.Errors, state.reason)
+		if hasPluginOwn {
+			return &reconcilePlan{adapter: adapter, proj: proj, nextOwned: []OwnedEntry{ownedPlugin}, noop: true}, false, true, nil
+		}
+		return nil, false, true, nil
+	}
+
+	writeArtifact := true
+	if state.exists && state.digest == desiredDigest {
+		writeArtifact = false
+	}
+	if !writeArtifact && hasPluginOwn && ownedPlugin.Digest == desiredDigest {
+		return &reconcilePlan{
+			adapter: adapter, proj: proj, noop: true,
+			nextOwned: []OwnedEntry{ownedPlugin},
+		}, false, false, nil
+	}
+
+	next := []OwnedEntry{{
+		Kind:      KindPlugin,
+		PathRel:   artifactRel,
+		Digest:    desiredDigest,
+		Events:    append([]string(nil), proj.ManagedEvents()...),
+		Source:    SourceBundled,
+		UpdatedAt: stamp,
+	}}
+	result.Actions = append(result.Actions, fmt.Sprintf("project hooks %s", adapter))
+	return &reconcilePlan{
+		adapter:       adapter,
+		proj:          proj,
+		writeArtifact: writeArtifact,
+		artifactBytes: artifactBytes,
+		nextOwned:     next,
+	}, true, false, nil
+}
+
+func planConfigMerge(in ReconcileInput, result *ReconcileResult, adapter string, proj Projector, isSelected bool, stamp string) (*reconcilePlan, bool, bool, error) {
+	ownedWrapper, hasWrapperOwn := result.Ownership.LookupKind(adapter, KindWrapper)
+	ownedConfig, hasConfigOwn := result.Ownership.LookupKind(adapter, KindConfig)
+
+	if !isSelected {
+		if !hasWrapperOwn && !hasConfigOwn {
+			result.Ownership.ClearAdapter(adapter)
+			return nil, false, false, nil
+		}
+		if hasWrapperOwn {
+			still, err := artifactMatchesOwnership(in.Root, ownedWrapper)
+			if err != nil {
+				return nil, false, false, err
+			}
+			if !still {
+				result.Blocked = true
+				result.Errors = append(result.Errors,
+					fmt.Sprintf("hooks wrapper digest drift at %s; refusing removal", ownedWrapper.PathRel))
+				keep := []OwnedEntry{ownedWrapper}
+				if hasConfigOwn {
+					keep = append(keep, ownedConfig)
+				}
+				return &reconcilePlan{adapter: adapter, proj: proj, nextOwned: keep, noop: true}, false, true, nil
+			}
+		}
+		if hasConfigOwn {
+			okOwn, err := configMatchesOwnership(in.Root, proj, ownedConfig)
+			if err != nil {
+				return nil, false, false, err
+			}
+			if !okOwn {
+				result.Blocked = true
+				result.Errors = append(result.Errors,
+					fmt.Sprintf("hooks config digest drift at %s; refusing removal", ownedConfig.PathRel))
+				keep := []OwnedEntry{}
+				if hasWrapperOwn {
+					keep = append(keep, ownedWrapper)
+				}
+				keep = append(keep, ownedConfig)
+				return &reconcilePlan{adapter: adapter, proj: proj, nextOwned: keep, noop: true}, false, true, nil
+			}
+		}
+		result.Actions = append(result.Actions, fmt.Sprintf("remove hooks %s", adapter))
+		return &reconcilePlan{adapter: adapter, proj: proj, remove: true}, true, false, nil
+	}
+
+	artifactRel := proj.ArtifactRel()
+	configRel := proj.ConfigMergeRel()
+	command := proj.ManagedCommand()
+	events := proj.ManagedEvents()
+	artifactBytes := append([]byte(nil), proj.ArtifactBytes()...)
+	if len(artifactBytes) == 0 {
+		result.Blocked = true
+		result.Errors = append(result.Errors, "hooks wrapper asset missing")
+		return nil, false, true, nil
+	}
+	desiredArtifactDigest := DigestBytes(artifactBytes)
+
+	wrapperState, err := inspectOwnedPath(in.Root, artifactRel, hasWrapperOwn, ownedWrapper, in.ReclaimUnowned)
+	if err != nil {
+		return nil, false, false, err
+	}
+	if wrapperState.conflict {
+		result.Blocked = true
+		result.Errors = append(result.Errors, wrapperState.reason)
+		if hasWrapperOwn || hasConfigOwn {
+			keep := []OwnedEntry{}
+			if hasWrapperOwn {
+				keep = append(keep, ownedWrapper)
+			}
+			if hasConfigOwn {
+				keep = append(keep, ownedConfig)
+			}
+			return &reconcilePlan{adapter: adapter, proj: proj, nextOwned: keep, noop: true}, false, true, nil
+		}
+		return nil, false, true, nil
+	}
+
+	rawConfig, configExists, configErr := readProjectFile(in.Root, configRel)
+	if configErr != nil {
+		return nil, false, false, configErr
+	}
+	if configExists {
+		info, lerr := fsafety.LstatContained(in.Root, configRel)
+		if lerr != nil {
+			if isUnsafePathErr(lerr) {
+				result.Blocked = true
+				result.Errors = append(result.Errors, fmt.Sprintf("hooks config unsafe at %s", configRel))
+				return nil, false, true, nil
+			}
+			return nil, false, false, lerr
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			result.Blocked = true
+			result.Errors = append(result.Errors, fmt.Sprintf("hooks config unsafe at %s", configRel))
+			return nil, false, true, nil
+		}
+	}
+	doc, perr := parseHooksJSON(rawConfig)
+	if perr != nil {
+		result.Blocked = true
+		result.Errors = append(result.Errors, fmt.Sprintf("hooks config malformed at %s", configRel))
+		return nil, false, true, nil
+	}
+
+	if hasManagedCommand(doc, command) && !hasConfigOwn && !in.ReclaimUnowned {
+		result.Blocked = true
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("hooks config conflict at %s (managed command present without ownership)", configRel))
+		return nil, false, true, nil
+	}
+
+	if hasConfigOwn {
+		currentFP := managedFingerprint(doc, command, ownedConfig.Events)
+		if len(ownedConfig.Events) == 0 {
+			currentFP = managedFingerprint(doc, command, events)
+		}
+		if configExists && currentFP != ownedConfig.Digest {
+			result.Blocked = true
+			result.Errors = append(result.Errors,
+				fmt.Sprintf("hooks config digest drift at %s; refusing update", configRel))
+			keep := []OwnedEntry{}
+			if hasWrapperOwn {
+				keep = append(keep, ownedWrapper)
+			}
+			keep = append(keep, ownedConfig)
+			return &reconcilePlan{adapter: adapter, proj: proj, nextOwned: keep, noop: true}, false, true, nil
+		}
+	}
+
+	merged := mergeManaged(doc, command, events)
+	configBytes, merr := marshalHooksJSON(merged)
+	if merr != nil {
+		return nil, false, false, merr
+	}
+	desiredConfigDigest := managedFingerprint(merged, command, events)
+
+	writeArtifact := true
+	writeConfig := true
+	if wrapperState.exists && wrapperState.digest == desiredArtifactDigest {
+		writeArtifact = false
+	}
+	if configExists && desiredConfigDigest == managedFingerprint(doc, command, events) &&
+		hasConfigOwn && ownedConfig.Digest == desiredConfigDigest {
+		if bytesEqual(rawConfig, configBytes) {
+			writeConfig = false
+		}
+	}
+	if !writeArtifact && !writeConfig && hasWrapperOwn && hasConfigOwn &&
+		ownedWrapper.Digest == desiredArtifactDigest && ownedConfig.Digest == desiredConfigDigest {
+		return &reconcilePlan{
+			adapter: adapter, proj: proj, noop: true,
+			nextOwned: []OwnedEntry{ownedWrapper, ownedConfig},
+		}, false, false, nil
+	}
+
+	next := []OwnedEntry{
+		{
+			Kind:      KindWrapper,
+			PathRel:   artifactRel,
+			Digest:    desiredArtifactDigest,
+			Source:    SourceBundled,
+			UpdatedAt: stamp,
+		},
+		{
+			Kind:      KindConfig,
+			PathRel:   configRel,
+			Digest:    desiredConfigDigest,
+			Events:    append([]string(nil), events...),
+			Source:    SourceBundled,
+			UpdatedAt: stamp,
+		},
+	}
+	result.Actions = append(result.Actions, fmt.Sprintf("project hooks %s", adapter))
+	return &reconcilePlan{
+		adapter:       adapter,
+		proj:          proj,
+		writeArtifact: writeArtifact,
+		writeConfig:   writeConfig,
+		artifactBytes: artifactBytes,
+		configBytes:   configBytes,
+		nextOwned:     next,
+	}, true, false, nil
 }
 
 type pathState struct {
@@ -421,13 +507,13 @@ func inspectOwnedPath(root, rel string, owned bool, entry OwnedEntry, reclaim bo
 	if !owned && !reclaim {
 		return pathState{
 			exists: true, digest: dig, conflict: true,
-			reason: fmt.Sprintf("hooks wrapper conflict at %s (unknown/user-owned; preserved)", rel),
+			reason: fmt.Sprintf("hooks artifact conflict at %s (unknown/user-owned; preserved)", rel),
 		}, nil
 	}
 	if owned && dig != entry.Digest {
 		return pathState{
 			exists: true, digest: dig, conflict: true,
-			reason: fmt.Sprintf("hooks wrapper digest drift at %s; refusing update", rel),
+			reason: fmt.Sprintf("hooks artifact digest drift at %s; refusing update", rel),
 		}, nil
 	}
 	return pathState{exists: true, digest: dig}, nil
@@ -439,7 +525,7 @@ func artifactMatchesOwnership(root string, e OwnedEntry) (bool, error) {
 		return false, err
 	}
 	if !exists {
-		return true, nil // already gone — safe to clear ownership
+		return true, nil
 	}
 	info, err := fsafety.LstatContained(root, e.PathRel)
 	if err != nil {
@@ -478,7 +564,14 @@ func configMatchesOwnership(root string, proj Projector, e OwnedEntry) (bool, er
 }
 
 func applyRemove(root string, proj Projector, mut *MutationState) error {
-	configRel := proj.HooksJSONRel()
+	if proj.Style() == StylePluginFile {
+		if err := removeProjectFile(root, proj.ArtifactRel(), mut); err != nil {
+			return err
+		}
+		return runApplyPhase("after_wrapper_remove")
+	}
+
+	configRel := proj.ConfigMergeRel()
 	raw, exists, err := readProjectFile(root, configRel)
 	if err != nil {
 		return err
@@ -506,7 +599,7 @@ func applyRemove(root string, proj Projector, mut *MutationState) error {
 			return err
 		}
 	}
-	if err := removeProjectFile(root, proj.WrapperRel(), mut); err != nil {
+	if err := removeProjectFile(root, proj.ArtifactRel(), mut); err != nil {
 		return err
 	}
 	return runApplyPhase("after_wrapper_remove")

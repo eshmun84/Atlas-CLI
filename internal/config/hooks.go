@@ -5,12 +5,14 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/adapters"
 	adaptercursor "github.com/eshmun84/Atlas-CLI/internal/adapters/cursor"
+	adapteropencode "github.com/eshmun84/Atlas-CLI/internal/adapters/opencode"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/hookproj"
 )
 
 func init() {
 	hookproj.RegisterDefaultProjector(adaptercursor.NewHooksProjector())
+	hookproj.RegisterDefaultProjector(adapteropencode.NewHooksProjector())
 }
 
 // HookProjectors returns registered hooks projectors.

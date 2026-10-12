@@ -10,16 +10,19 @@ import (
 	"time"
 
 	adaptercursor "github.com/eshmun84/Atlas-CLI/internal/adapters/cursor"
+	adapteropencode "github.com/eshmun84/Atlas-CLI/internal/adapters/opencode"
+	"github.com/eshmun84/Atlas-CLI/internal/hooks"
 	"github.com/eshmun84/Atlas-CLI/internal/hooksengine"
 )
 
 func init() {
 	ensureCursorHooksBridge()
+	ensureOpenCodeHooksBridge()
 }
 
 // HooksCommand is a resolved non-TUI hooks CLI action.
 type HooksCommand struct {
-	Name string // dispatch | cursor
+	Name string // dispatch | cursor | opencode
 	JSON bool
 }
 
@@ -35,7 +38,7 @@ func resolveHooks(args []string) Action {
 	rest := args[1:]
 
 	switch cmd.Name {
-	case "dispatch", "cursor":
+	case "dispatch", "cursor", "opencode":
 	default:
 		return Action{
 			Mode:           ModeHooks,
@@ -63,7 +66,7 @@ var HooksEngine = func() hooksengine.Engine {
 	return hooksengine.New()
 }
 
-// HooksInput returns the request body reader for dispatch/cursor. Overridable in tests.
+// HooksInput returns the request body reader for dispatch/native. Overridable in tests.
 var HooksInput = func() io.Reader {
 	return os.Stdin
 }
@@ -72,6 +75,8 @@ func executeHooks(stdout io.Writer, cmd HooksCommand, unknown string) error {
 	switch {
 	case cmd.Name == "cursor":
 		return executeHooksCursor(stdout, cmd, unknown)
+	case cmd.Name == "opencode":
+		return executeHooksOpenCode(stdout, cmd, unknown)
 	default:
 		return executeHooksDispatch(stdout, cmd, unknown)
 	}
@@ -135,37 +140,68 @@ func executeHooksCursor(stdout io.Writer, cmd HooksCommand, unknown string) erro
 	}
 	ensureCursorHooksBridge()
 	dispatch := func(ctx context.Context, req adaptercursor.CanonicalDispatch) string {
-		er := hooksengine.Request{
-			SchemaVersion: req.SchemaVersion,
-			Adapter:       string(req.Adapter),
-			Event: hooksengine.EventInput{
-				ID:         req.Event.ID,
-				Type:       string(req.Event.Type),
-				OccurredAt: req.Event.OccurredAt.UTC().Format(time.RFC3339Nano),
-				Payload: hooksengine.PayloadInput{
-					ProjectID:        req.Event.Payload.ProjectID,
-					SessionID:        req.Event.Payload.SessionID,
-					TaskID:           req.Event.Payload.TaskID,
-					ToolName:         req.Event.Payload.ToolName,
-					ToolCallID:       req.Event.Payload.ToolCallID,
-					Status:           req.Event.Payload.Status,
-					Reason:           req.Event.Payload.Reason,
-					TaskSummary:      req.Event.Payload.TaskSummary,
-					TaskSummaryState: string(req.Event.Payload.TaskSummaryState),
-				},
-			},
-		}
-		return HooksEngine().Dispatch(ctx, er).Status
+		return HooksEngine().Dispatch(ctx, engineRequestFromEvent(req.SchemaVersion, string(req.Adapter), req.Event)).Status
 	}
 	if err := adaptercursor.RunNative(context.Background(), dispatch, HooksInput(), stdout); err != nil {
 		return fmt.Errorf("hooks cursor: %w", err)
 	}
-	// Native Cursor contract: deny via JSON body; process exit stays 0.
 	return nil
+}
+
+func executeHooksOpenCode(stdout io.Writer, cmd HooksCommand, unknown string) error {
+	if unknown != "" || !cmd.JSON || cmd.Name != "opencode" {
+		resp := hooksUsage("opencode", "usage: atlas hooks opencode --json < native.json")
+		if unknown != "" {
+			resp = hooksUsage("opencode", "invalid hooks command usage")
+		} else if !cmd.JSON {
+			resp = hooksUsage("opencode", "--json is required")
+		}
+		enc := json.NewEncoder(stdout)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(resp); err != nil {
+			return fmt.Errorf("hooks: encode json: %w", err)
+		}
+		return hooksengine.ExitError{Status: resp.Status}
+	}
+	ensureOpenCodeHooksBridge()
+	dispatch := func(ctx context.Context, req adapteropencode.CanonicalDispatch) string {
+		return HooksEngine().Dispatch(ctx, engineRequestFromEvent(req.SchemaVersion, string(req.Adapter), req.Event)).Status
+	}
+	if err := adapteropencode.RunNative(context.Background(), dispatch, HooksInput(), stdout); err != nil {
+		return fmt.Errorf("hooks opencode: %w", err)
+	}
+	return nil
+}
+
+func engineRequestFromEvent(schemaVersion int, adapter string, ev hooks.Event) hooksengine.Request {
+	return hooksengine.Request{
+		SchemaVersion: schemaVersion,
+		Adapter:       adapter,
+		Event: hooksengine.EventInput{
+			ID:         ev.ID,
+			Type:       string(ev.Type),
+			OccurredAt: ev.OccurredAt.UTC().Format(time.RFC3339Nano),
+			Payload: hooksengine.PayloadInput{
+				ProjectID:        ev.Payload.ProjectID,
+				SessionID:        ev.Payload.SessionID,
+				TaskID:           ev.Payload.TaskID,
+				ToolName:         ev.Payload.ToolName,
+				ToolCallID:       ev.Payload.ToolCallID,
+				Status:           ev.Payload.Status,
+				Reason:           ev.Payload.Reason,
+				TaskSummary:      ev.Payload.TaskSummary,
+				TaskSummaryState: string(ev.Payload.TaskSummaryState),
+			},
+		},
+	}
 }
 
 func ensureCursorHooksBridge() {
 	hooksengine.RegisterBridge(adaptercursor.NewHooksBridge())
+}
+
+func ensureOpenCodeHooksBridge() {
+	hooksengine.RegisterBridge(adapteropencode.NewHooksBridge())
 }
 
 func hooksUsage(command, message string) hooksengine.Response {
@@ -182,7 +218,6 @@ func hooksUsage(command, message string) hooksengine.Response {
 }
 
 func hooksClassifyDecode(err error) (status, message string) {
-	// Decode errors are always invalid_request; keep messages generic.
 	_ = err
 	return hooksengine.StatusInvalidRequest, "invalid hooks request"
 }

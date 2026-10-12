@@ -43,8 +43,8 @@ func TestCapabilityLookupNoProviderBranching(t *testing.T) {
 	if !adapters.Supports(adapters.Cursor, adapters.ClassHooks) {
 		t.Fatal("cursor hooks must be enabled")
 	}
-	if adapters.Supports(adapters.OpenCode, adapters.ClassHooks) {
-		t.Fatal("opencode hooks must remain disabled")
+	if !adapters.Supports(adapters.OpenCode, adapters.ClassHooks) {
+		t.Fatal("opencode hooks must be enabled")
 	}
 	if !adapters.Supports(adapters.Cursor, adapters.ClassAgents) || !adapters.Supports(adapters.Cursor, adapters.ClassMCP) {
 		t.Fatal("cursor must advertise agents and mcp")

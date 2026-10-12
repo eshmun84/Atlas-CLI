@@ -1,27 +1,51 @@
 // Package hookproj materializes Atlas-owned native hook projections.
-// Adapter-neutral ownership/reconcile; Cursor projector lives under adapters/cursor.
+// Adapter-neutral ownership/reconcile; provider projectors live under adapters/.
 package hookproj
 
-import "github.com/eshmun84/Atlas-CLI/internal/adapters"
+import (
+	"os"
+
+	"github.com/eshmun84/Atlas-CLI/internal/adapters"
+)
 
 const (
 	OwnershipSchemaVersion = 1
 
 	KindWrapper = "wrapper"
 	KindConfig  = "config"
+	KindPlugin  = "plugin"
 
 	SourceBundled = "bundled"
+)
+
+// Style selects how an adapter materializes native hooks artifacts.
+type Style string
+
+const (
+	// StyleConfigMerge is Cursor-style: executable artifact + hooks.json merge.
+	StyleConfigMerge Style = "config_merge"
+	// StylePluginFile is OpenCode-style: a single project-local plugin source file.
+	StylePluginFile Style = "plugin_file"
 )
 
 // Projector is the adapter-owned hooks projection contract.
 type Projector interface {
 	ID() adapters.ID
 	SupportsHooks() bool
-	HooksJSONRel() string
-	WrapperRel() string
-	WrapperBytes() []byte
-	ManagedCommand() string
+	Style() Style
 	ManagedEvents() []string
+
+	// ArtifactRel is the primary Atlas-owned runtime artifact path.
+	ArtifactRel() string
+	ArtifactBytes() []byte
+	ArtifactFileMode() os.FileMode
+
+	// ConfigMergeRel is the optional merge document (e.g. Cursor hooks.json).
+	// Empty when Style is StylePluginFile.
+	ConfigMergeRel() string
+	// ManagedCommand identifies Atlas-managed entries inside a merge document.
+	// Empty when Style is StylePluginFile.
+	ManagedCommand() string
 }
 
 // OwnershipDocument is machine-local Atlas ownership for hook projections.

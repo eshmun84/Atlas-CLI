@@ -43,6 +43,8 @@ var initDirCandidates = []string{
 	".cursor/agents",
 	".cursor/rules",
 	".cursor",
+	".opencode/plugins/atlas-hooks",
+	".opencode/plugins",
 	".opencode/agents",
 	".opencode",
 	"docs/atlas",
@@ -119,6 +121,7 @@ func captureInitMutationSnapshot(root, homePath, projectID string, targets []str
 		".cursor/mcp.json",
 		".cursor/hooks.json",
 		".cursor/hooks/atlas/dispatch",
+		".opencode/plugins/atlas-hooks/index.ts",
 		"opencode.json",
 		FileProjectDocsREADME,
 	} {
@@ -243,6 +246,7 @@ func captureConfigureMutationSnapshot(root, homePath, projectID string) (configu
 		".cursor/mcp.json",
 		".cursor/hooks.json",
 		".cursor/hooks/atlas/dispatch",
+		".opencode/plugins/atlas-hooks/index.ts",
 		"opencode.json",
 		FileProjectDocsREADME,
 	} {

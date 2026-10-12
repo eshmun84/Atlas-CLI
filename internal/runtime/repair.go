@@ -312,6 +312,23 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 			plan.Drift = append(plan.Drift, "missing hooks wrapper: "+wrapper)
 		}
 	}
+	if selected["opencode"] && adapters.Supports(adapters.OpenCode, adapters.ClassHooks) {
+		plugin := ".opencode/plugins/atlas-hooks/index.ts"
+		present, err := config.AtlasOwnedFileExists(root, plugin)
+		if err != nil {
+			plan.Blocked = true
+			plan.Blockers = append(plan.Blockers, "unsafe Atlas-owned OpenCode hooks path: "+plugin+": "+err.Error())
+		} else if !present {
+			addRepairTarget(&plan, RuntimeRepairTarget{
+				Path:    plugin,
+				Action:  RepairActionCreate,
+				Kind:    RepairKindHook,
+				Reason:  "Atlas-owned OpenCode hooks plugin missing",
+				Adapter: "opencode",
+			})
+			plan.Drift = append(plan.Drift, "missing hooks plugin: "+plugin)
+		}
+	}
 
 	if health.Initialized || health.RuntimeMaterialized {
 		switch {
@@ -454,6 +471,9 @@ func atlasOwnedPathsUnderAdapter(adapter string) []string {
 		}
 	case "opencode":
 		out = append(out, config.FileOpenCodeAtlas)
+		if adapters.Supports(adapters.OpenCode, adapters.ClassHooks) {
+			out = append(out, ".opencode/plugins/atlas-hooks/index.ts")
+		}
 	}
 	out = append(out, config.AtlasAgentRuntimePaths([]string{adapter})...)
 	sort.Strings(out)

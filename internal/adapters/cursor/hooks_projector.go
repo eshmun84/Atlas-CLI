@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"os"
 	"sync"
 
 	"github.com/eshmun84/Atlas-CLI/internal/adapters"
@@ -21,13 +22,13 @@ type HooksProjector struct{}
 // NewHooksProjector returns a Cursor hooks projector.
 func NewHooksProjector() HooksProjector { return HooksProjector{} }
 
-func (HooksProjector) ID() adapters.ID      { return adapters.Cursor }
-func (HooksProjector) SupportsHooks() bool  { return true }
-func (HooksProjector) HooksJSONRel() string { return hooksJSONRel }
-func (HooksProjector) WrapperRel() string   { return hooksWrapperRel }
-func (HooksProjector) ManagedCommand() string {
-	return hooksManagedCmd
-}
+func (HooksProjector) ID() adapters.ID               { return adapters.Cursor }
+func (HooksProjector) SupportsHooks() bool           { return true }
+func (HooksProjector) Style() hookproj.Style         { return hookproj.StyleConfigMerge }
+func (HooksProjector) ArtifactRel() string           { return hooksWrapperRel }
+func (HooksProjector) ArtifactFileMode() os.FileMode { return 0o755 }
+func (HooksProjector) ConfigMergeRel() string        { return hooksJSONRel }
+func (HooksProjector) ManagedCommand() string        { return hooksManagedCmd }
 
 func (HooksProjector) ManagedEvents() []string {
 	out := make([]string, len(SupportedNativeEvents))
@@ -40,7 +41,7 @@ var (
 	wrapperBody []byte
 )
 
-func (HooksProjector) WrapperBytes() []byte {
+func (HooksProjector) ArtifactBytes() []byte {
 	wrapperOnce.Do(func() {
 		data, err := assets.Content.ReadFile(hooksWrapperAsset)
 		if err != nil {

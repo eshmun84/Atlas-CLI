@@ -50,7 +50,7 @@ var table = map[ID]Capabilities{
 	OpenCode: {
 		Skills:        true,
 		Rules:         false,
-		Hooks:         false,
+		Hooks:         true,
 		Agents:        true,
 		MCP:           true,
 		SkillsRootRel: ".opencode/skills",
