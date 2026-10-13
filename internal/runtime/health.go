@@ -12,6 +12,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/memoryhealth"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 	"github.com/eshmun84/Atlas-CLI/internal/skills"
@@ -94,6 +95,10 @@ type Health struct {
 	SDDContractRenderError string
 
 	ContextEconomy atlascontext.StatusSnapshot
+
+	// Memory is a read-only Memory diagnostics snapshot (Slice 36D).
+	// Never creates, migrates, or repairs Memory storage.
+	Memory memoryhealth.Diagnostics
 
 	// CodeIntelligence is an optional provider snapshot (read-only Probe/Status).
 	// Absence or errors never fail Atlas discovery.
@@ -283,6 +288,7 @@ func EvaluateHealth(root string, atlas project.AtlasStatus, files project.FileIn
 		projectID = id
 	}
 	health.CodeIntelligence = probeCodeIntelligence(root, health.Home.Path, projectID)
+	health.Memory = inspectMemory(health, root, projectID)
 
 	for _, path := range forbiddenRuntimeArtifacts {
 		health.ForbiddenArtifacts = append(health.ForbiddenArtifacts, ForbiddenArtifactStatus{
@@ -432,6 +438,23 @@ func probeCodeIntelligence(root, homePath, projectID string) codeintel.Snapshot 
 		ID:       projectID,
 		HomePath: homePath,
 	})
+}
+
+// inspectMemory gathers read-only Memory diagnostics for Status/Doctor.
+func inspectMemory(h Health, root, projectID string) memoryhealth.Diagnostics {
+	in := memoryhealth.Input{
+		Root:        root,
+		HomePath:    h.Home.Path,
+		ProjectID:   projectID,
+		Initialized: h.Initialized,
+		ConfigLoads: h.ConfigLoads,
+	}
+	if h.ConfigLoads {
+		cfg := h.Document.ToConfig()
+		in.MemoryEnabled = cfg.Memory.Enabled
+		in.PersistenceMode = cfg.Memory.Persistence.Mode
+	}
+	return memoryhealth.Inspect(in)
 }
 
 func fileMatches(root, rel, expected string) bool {

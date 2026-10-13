@@ -636,6 +636,8 @@ func TestStatusGitTechLibraries(t *testing.T) {
 		"Bubble Tea",
 		"Atlas Runtime",
 		"materialized",
+		"Memory",
+		"Status:",
 		"Adapters",
 		"Source Control / Delivery Tools",
 		"Health",

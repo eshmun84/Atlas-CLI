@@ -8,6 +8,7 @@ import (
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/memoryhealth"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/sdd"
@@ -642,8 +643,10 @@ func evaluateRuntime(h runtime.Health) []Check {
 		}
 	}
 
-	// Code Intelligence uses the shared discovery snapshot only (no second probe).
+	// Code Intelligence / Memory / Context Economy use the shared discovery
+	// snapshot only (no second probe).
 	checks = append(checks, evaluateCodeIntelligence(h)...)
+	checks = append(checks, evaluateMemory(h)...)
 	checks = append(checks, evaluateContextEconomy(h)...)
 
 	switch {
@@ -983,6 +986,108 @@ func evaluateContextEconomy(h runtime.Health) []Check {
 			Message:  "n/a",
 		}}
 	}
+}
+
+// evaluateMemory maps the shared Memory diagnostics snapshot into doctor checks.
+// Evidence is gathered once in runtime.EvaluateHealth — no second DB open here.
+func evaluateMemory(h runtime.Health) []Check {
+	d := h.Memory
+	if len(d.Checks) == 0 && d.Status == "" {
+		return []Check{{
+			Severity: SeverityInfo,
+			Name:     "memory",
+			Message:  "n/a",
+		}}
+	}
+
+	checks := make([]Check, 0, len(d.Checks)+1)
+	checks = append(checks, Check{
+		Severity: memoryStatusSeverity(d.Status),
+		Name:     "memory",
+		Message:  memoryStatusMessage(d),
+	})
+	for _, c := range d.Checks {
+		checks = append(checks, Check{
+			Severity: memoryCheckSeverity(c.Severity),
+			Name:     "memory " + shortMemoryCheckName(c.ID),
+			Message:  memoryCheckMessage(c),
+		})
+	}
+	return checks
+}
+
+func memoryStatusSeverity(st memoryhealth.Status) Severity {
+	switch st {
+	case memoryhealth.StatusHealthy:
+		return SeverityPass
+	case memoryhealth.StatusDegraded:
+		return SeverityWarn
+	case memoryhealth.StatusUnavailable:
+		return SeverityInfo
+	case memoryhealth.StatusFailed:
+		return SeverityFail
+	default:
+		return SeverityInfo
+	}
+}
+
+func memoryCheckSeverity(sev memoryhealth.CheckSeverity) Severity {
+	switch sev {
+	case memoryhealth.SeverityPass:
+		return SeverityPass
+	case memoryhealth.SeverityWarn:
+		return SeverityWarn
+	case memoryhealth.SeverityFail:
+		return SeverityFail
+	default:
+		return SeverityInfo
+	}
+}
+
+func memoryStatusMessage(d memoryhealth.Diagnostics) string {
+	switch d.Status {
+	case memoryhealth.StatusHealthy:
+		return fmt.Sprintf(
+			"healthy · storage %s · schema %s · retrieval %s · persistence %s · observations %d · quality %s",
+			d.StorageLabel, d.SchemaLabel, d.RetrievalLabel, d.PersistenceLabel,
+			d.Metrics.ObservationCount, d.QualityLabel,
+		)
+	case memoryhealth.StatusDegraded:
+		return fmt.Sprintf(
+			"degraded · storage %s · persistence %s · quality %s",
+			d.StorageLabel, d.PersistenceLabel, d.QualityLabel,
+		)
+	case memoryhealth.StatusFailed:
+		return fmt.Sprintf("failed · storage %s · schema %s", d.StorageLabel, d.SchemaLabel)
+	case memoryhealth.StatusUnavailable:
+		if !d.Enabled {
+			return "unavailable (disabled)"
+		}
+		return fmt.Sprintf("unavailable · storage %s · persistence %s", d.StorageLabel, d.PersistenceLabel)
+	default:
+		return "n/a"
+	}
+}
+
+func memoryCheckMessage(c memoryhealth.Check) string {
+	msg := strings.TrimSpace(c.Message)
+	if hint := strings.TrimSpace(c.RemediationHint); hint != "" {
+		if msg == "" {
+			return hint
+		}
+		return msg + " (" + hint + ")"
+	}
+	return msg
+}
+
+func shortMemoryCheckName(id string) string {
+	id = strings.TrimPrefix(strings.TrimSpace(id), "memory.")
+	id = strings.ReplaceAll(id, "_", " ")
+	id = strings.ReplaceAll(id, ".", " ")
+	if id == "" {
+		return "check"
+	}
+	return id
 }
 
 func evaluateHome(h runtime.Health) []Check {

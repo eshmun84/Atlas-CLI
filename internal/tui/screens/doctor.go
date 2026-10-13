@@ -26,6 +26,7 @@ var doctorSectionOrder = []string{
 	"SDD",
 	"Adapters",
 	"Atlas Home",
+	"Memory",
 	"Context",
 	"Code Intelligence",
 	"MCP / External Context",
@@ -95,6 +96,8 @@ func doctorSectionFor(name string) string {
 		return "Atlas Configuration"
 	case strings.HasPrefix(name, "atlas home"):
 		return "Atlas Home"
+	case name == "memory" || strings.HasPrefix(name, "memory "):
+		return "Memory"
 	case name == "context graph" || name == "context economy":
 		return "Context"
 	case name == "code intelligence" || name == "codegraph" || strings.HasPrefix(name, "codegraph "):

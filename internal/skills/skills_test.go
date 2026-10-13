@@ -304,6 +304,9 @@ func TestMemorySkill_ParseAndCLIContract(t *testing.T) {
 		"Never send a self-confirm boolean",
 		"Do not self-label a",
 		"Prefer `explicit` only",
+		"atlas doctor",
+		"atlas status",
+		"Diagnostics are **read-only**",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("memory skill missing %q", want)

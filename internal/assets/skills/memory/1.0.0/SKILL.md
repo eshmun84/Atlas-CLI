@@ -162,6 +162,15 @@ Inferred / confirmed → `confirmation_required` (no write). Prefer `explicit` o
 
 Missing or empty Memory is normal early in a project. Continue the task.
 
+## Diagnostics (read-only)
+
+When Memory retrieval or persistence appears broken, inspect Atlas diagnostics:
+
+- `atlas status` — executive Memory summary (status / storage / schema / retrieval / persistence / observations / quality)
+- `atlas doctor` — deep Memory checks
+
+Diagnostics are **read-only**. They never create the Memory DB, migrate schema, repair records, or write observations. Do **not** treat health output as project policy. Do **not** invent a separate diagnostics CLI.
+
 ## Related: Context Composition
 
 For substantive work needing broader orientation (Memory + Context Economy paths

@@ -76,6 +76,9 @@ func TestBaseAgentsTeachProjectMemory(t *testing.T) {
 		"**Context Composition**",
 		"Do not ask the developer to run it manually",
 		"quality-governed persistence",
+		"atlas doctor",
+		"atlas status",
+		"do not treat health output as project policy",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("base.md missing %q", want)

@@ -11,6 +11,7 @@ import (
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
+	"github.com/eshmun84/Atlas-CLI/internal/memoryhealth"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/sdd"
@@ -49,6 +50,7 @@ func StatusWithReport(result inspect.Inspection, report doctor.Report) string {
 
 	writeStatusWorkspace(&b, result)
 	writeStatusRuntime(&b, result)
+	writeStatusMemory(&b, result)
 	writeStatusSourceControl(&b, result)
 	writeStatusTechnology(&b, result)
 	writeStatusAdapters(&b, result)
@@ -79,7 +81,20 @@ func writeStatusRuntime(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintf(b, "  AGENTS.md contract: %s\n", agentsContractSummary(rt))
 	fmt.Fprintf(b, "  SDD/OpenSpec contract: %s\n", sddContractStatus(rt))
 	fmt.Fprintf(b, "  Context Economy: %s\n", contextEconomyStatus(rt))
+	fmt.Fprintf(b, "  Memory: %s\n", memoryStatusCompact(rt))
 	fmt.Fprintf(b, "  Code Intelligence: %s\n\n", codeIntelligenceStatus(rt))
+}
+
+func writeStatusMemory(b *strings.Builder, result inspect.Inspection) {
+	d := result.Runtime.Memory
+	fmt.Fprintln(b, statusHead.Render("Memory"))
+	fmt.Fprintf(b, "  Status: %s\n", memoryStatusStyled(d.Status))
+	fmt.Fprintf(b, "  Storage: %s\n", displayOrDash(d.StorageLabel))
+	fmt.Fprintf(b, "  Schema: %s\n", displayOrDash(d.SchemaLabel))
+	fmt.Fprintf(b, "  Retrieval: %s\n", displayOrDash(d.RetrievalLabel))
+	fmt.Fprintf(b, "  Persistence: %s\n", displayOrDash(d.PersistenceLabel))
+	fmt.Fprintf(b, "  Observations: %d\n", d.Metrics.ObservationCount)
+	fmt.Fprintf(b, "  Quality: %s\n\n", displayOrDash(d.QualityLabel))
 }
 
 func writeStatusSourceControl(b *strings.Builder, result inspect.Inspection) {
@@ -249,6 +264,7 @@ func writeStatusHealth(b *strings.Builder, result inspect.Inspection, report doc
 	}
 	fmt.Fprintf(b, "  Atlas Home: %s\n", homePresenceLabel(rt))
 	fmt.Fprintf(b, "  Context Economy: %s\n", contextEconomyStatus(rt))
+	fmt.Fprintf(b, "  Memory: %s\n", memoryStatusCompact(rt))
 	fmt.Fprintf(b, "  Code Intelligence: %s\n", codeIntelligenceStatus(rt))
 	fmt.Fprintf(b, "  Suggested next action: %s\n", statusAct.Render(suggestedAction(result)))
 }
@@ -546,6 +562,25 @@ func contextEconomyStatus(rt runtime.Health) string {
 		return statusFail.Render("ERROR (unreadable)")
 	case atlascontext.StatusPresent:
 		return statusYes.Render("present")
+	default:
+		return statusNo.Render("n/a")
+	}
+}
+
+func memoryStatusCompact(rt runtime.Health) string {
+	return memoryStatusStyled(rt.Memory.Status)
+}
+
+func memoryStatusStyled(st memoryhealth.Status) string {
+	switch st {
+	case memoryhealth.StatusHealthy:
+		return statusYes.Render("healthy")
+	case memoryhealth.StatusDegraded:
+		return statusWarn.Render("degraded")
+	case memoryhealth.StatusFailed:
+		return statusFail.Render("failed")
+	case memoryhealth.StatusUnavailable:
+		return statusNo.Render("unavailable")
 	default:
 		return statusNo.Render("n/a")
 	}
