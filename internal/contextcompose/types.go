@@ -26,8 +26,13 @@ const (
 	MaxBudgetChars     = 32000
 	// MemoryBudgetPercent is the default memory source share of the global budget.
 	MemoryBudgetPercent = 50
-	MaxCandidates       = 32
-	MaxCEPaths          = 24
+	// CodeGraphBudgetPercent is the default CodeGraph source share of the global budget.
+	// Kept below Memory so CodeGraph cannot starve Memory or Context Economy.
+	CodeGraphBudgetPercent = 25
+	MaxCandidates          = 32
+	MaxCEPaths             = 24
+	// MaxCodeGraphResults is the default retrieve-time cap for CodeGraph candidates.
+	MaxCodeGraphResults = 8
 	MaxExcerptChars     = 280
 	DefaultMaxItems     = 32
 

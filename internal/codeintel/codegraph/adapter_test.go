@@ -263,6 +263,10 @@ func TestArgs_WithDB(t *testing.T) {
 	if !contains(query, "--json") {
 		t.Fatalf("QueryArgs missing --json: %v", query)
 	}
+	limited := codegraph.QueryLimitArgs(db, "Foo", 8)
+	if !containsPair(limited, "--limit", "8") || limited[1] != "Foo" {
+		t.Fatalf("QueryLimitArgs=%v", limited)
+	}
 }
 
 func TestStatus_DistinctProjectStorage(t *testing.T) {

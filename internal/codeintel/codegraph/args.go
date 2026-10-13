@@ -1,6 +1,9 @@
 package codegraph
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // VersionArgs returns argv for obtaining the CodeGraph CLI version.
 // Official form: codegraph --version
@@ -55,10 +58,22 @@ func StatsArgs(dbPath string) []string {
 	return WithJSON(WithDB([]string{"stats"}, dbPath))
 }
 
-// QueryArgs prepares a future symbol query against the Atlas-owned DB.
-// Not executed by Probe/Status.
+// QueryArgs prepares a symbol query against the Atlas-owned DB.
+// Official form: codegraph query <name> --db <path> --json [--limit N]
+// Not executed by Probe/Status/Refresh.
 func QueryArgs(dbPath string, queryParts ...string) []string {
 	args := []string{"query"}
 	args = append(args, queryParts...)
 	return WithJSON(WithDB(args, dbPath))
+}
+
+// QueryLimitArgs prepares a bounded symbol query against the Atlas-owned DB.
+// limit <= 0 omits --limit (provider default applies).
+func QueryLimitArgs(dbPath, symbol string, limit int) []string {
+	symbol = strings.TrimSpace(symbol)
+	parts := []string{symbol}
+	if limit > 0 {
+		parts = append(parts, "--limit", strconv.Itoa(limit))
+	}
+	return QueryArgs(dbPath, parts...)
 }

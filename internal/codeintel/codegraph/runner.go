@@ -17,9 +17,10 @@ const (
 
 // RunResult is the bounded outcome of one provider process invocation.
 type RunResult struct {
-	Stdout   []byte
-	Stderr   []byte
-	ExitCode int
+	Stdout    []byte
+	Stderr    []byte
+	ExitCode  int
+	Truncated bool // true when stdout or stderr hit MaxOutput
 }
 
 // Runner executes CodeGraph CLI invocations. Implementations must never use a shell.
@@ -55,13 +56,16 @@ func (r ExecRunner) Run(ctx context.Context, executable string, args []string) (
 
 	cmd := exec.CommandContext(runCtx, executable, args...)
 	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &limitedWriter{buf: &stdoutBuf, limit: maxOut}
-	cmd.Stderr = &limitedWriter{buf: &stderrBuf, limit: maxOut}
+	stdoutW := &limitedWriter{buf: &stdoutBuf, limit: maxOut}
+	stderrW := &limitedWriter{buf: &stderrBuf, limit: maxOut}
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
 
 	err := cmd.Run()
 	result := RunResult{
-		Stdout: append([]byte(nil), stdoutBuf.Bytes()...),
-		Stderr: append([]byte(nil), stderrBuf.Bytes()...),
+		Stdout:    append([]byte(nil), stdoutBuf.Bytes()...),
+		Stderr:    append([]byte(nil), stderrBuf.Bytes()...),
+		Truncated: stdoutW.truncated || stderrW.truncated,
 	}
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()
@@ -72,6 +76,9 @@ func (r ExecRunner) Run(ctx context.Context, executable string, args []string) (
 	}
 	if runCtx.Err() == context.Canceled {
 		return result, fmt.Errorf("codegraph: command canceled: %w", context.Canceled)
+	}
+	if result.Truncated {
+		return result, fmt.Errorf("codegraph: output exceeded %d bytes: %w", maxOut, ErrOutputExceeded)
 	}
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -84,19 +91,25 @@ func (r ExecRunner) Run(ctx context.Context, executable string, args []string) (
 }
 
 type limitedWriter struct {
-	buf   *bytes.Buffer
-	limit int64
-	n     int64
+	buf       *bytes.Buffer
+	limit     int64
+	n         int64
+	truncated bool
 }
 
 func (w *limitedWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
 	if w.limit > 0 && w.n >= w.limit {
+		w.truncated = true
 		return len(p), nil
 	}
 	remain := w.limit - w.n
 	if w.limit > 0 && int64(len(p)) > remain {
 		_, _ = w.buf.Write(p[:remain])
 		w.n = w.limit
+		w.truncated = true
 		return len(p), nil
 	}
 	n, err := w.buf.Write(p)
@@ -109,7 +122,8 @@ var _ io.Writer = (*limitedWriter)(nil)
 
 // Sentinel errors normalized by the adapter.
 var (
-	ErrTimeout       = errors.New("provider timeout")
-	ErrProcessFailed = errors.New("provider process failed")
-	ErrInvalidJSON   = errors.New("invalid provider JSON")
+	ErrTimeout        = errors.New("provider timeout")
+	ErrProcessFailed  = errors.New("provider process failed")
+	ErrInvalidJSON    = errors.New("invalid provider JSON")
+	ErrOutputExceeded = errors.New("provider output exceeded bound")
 )

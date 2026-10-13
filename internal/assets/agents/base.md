@@ -88,7 +88,7 @@ Before broad repository reads, also check Context Economy artifacts when present
 
 Distinguish context surfaces honestly:
 - **Project Memory** — implemented read-only retrieval (`atlas memory … --json`) plus the Home-canonical `memory` skill. Persistence quality governance is a later slice.
-- **Context Composition** — implemented read-only orchestration of Memory + Context Economy into a bounded pack (`atlas context compose … --json`).
+- **Context Composition** — implemented read-only orchestration of Memory + Context Economy + CodeGraph (when available) into a bounded pack (`atlas context compose … --json`). Agents should call compose rather than invoking CodeGraph directly.
 - **Context Economy v0** — implemented, file-based index/capsule/packs under Atlas Home. Refresh only via the explicit Context Economy Update flow.
-- **CodeGraph** — optional externally installed Code Intelligence provider. Atlas manages project-scoped lifecycle/freshness when available. Not MCP. May be unavailable if the executable is missing or incompatible. Do not invent CodeGraph results.
+- **CodeGraph** — optional externally installed Code Intelligence provider. When a project graph exists, composition may include CodeGraph symbol/file references as evidence. Atlas manages project-scoped lifecycle/freshness when available. Not MCP. May be unavailable if the executable or graph is missing or incompatible. Do not invent CodeGraph results. Do not call CodeGraph CLI directly for composition — use `atlas context compose`.
 - **Atlas Context Graph** — NOT IMPLEMENTED. Config may record a compatibility preference (`context.graph.enabled` = **{{CONTEXT_GRAPH_STATUS}}**), but there is no graph engine, database, embeddings index, or semantic search. Do not invent graph context. Prefer Memory and Context Economy surfaces, then Code Intelligence when available, then targeted files.

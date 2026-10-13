@@ -81,6 +81,36 @@ func TestCompose_CEOnly(t *testing.T) {
 	}
 }
 
+func TestCompose_CodeGraphUnavailableContinues(t *testing.T) {
+	env, _, _, _ := seedProject(t, true, true, []memory.Observation{
+		{Type: memory.TypeFact, Title: "Compose token", Content: "memory survives codegraph absence"},
+	})
+	res := composeapp.Compose(composeapp.Input{
+		Task: "memory survives codegraph absence helper",
+		Env:  env,
+	})
+	if res.Status != contextcompose.StatusSuccess && res.Status != contextcompose.StatusPartial {
+		t.Fatalf("%#v", res)
+	}
+	if sourceStatus(res, contextcompose.SourceCodeGraph) != contextcompose.SourceStatusUnavailable {
+		t.Fatalf("codegraph status=%q sources=%#v", sourceStatus(res, contextcompose.SourceCodeGraph), res.Sources)
+	}
+	var sawMem, sawCE bool
+	for _, it := range res.Items {
+		switch it.Source {
+		case contextcompose.SourceMemory:
+			sawMem = true
+		case contextcompose.SourceContextEconomy:
+			sawCE = true
+		case contextcompose.SourceCodeGraph:
+			t.Fatalf("unexpected codegraph item %#v", it)
+		}
+	}
+	if !sawMem || !sawCE {
+		t.Fatalf("expected memory+ce items; mem=%v ce=%v items=%#v", sawMem, sawCE, res.Items)
+	}
+}
+
 func TestCompose_CombinedMemoryAndCE(t *testing.T) {
 	env, _, _, _ := seedProject(t, true, true, []memory.Observation{
 		{Type: memory.TypeFact, Title: "Compose token", Content: "combined composition memory and context economy"},
