@@ -69,7 +69,7 @@ Memory Actions that claim delivery.
 - No automatic Git.
 - Any future native inject must reuse `memoryretrieve` budgets (and likely a
   stricter inject cap). Full Context Economy composition is Slice **36B.6**.
-- Quality-governed automatic persistence is Slice **36C**.
+- Quality-governed automatic persistence is Slice **36C** (`atlas memory propose --json`).
 
 ## Default for 36B.5
 

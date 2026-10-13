@@ -38,6 +38,12 @@ const (
 	MemoryProviderSQLite = "sqlite"
 )
 
+// Allowed memory persistence modes (Slice 36C).
+const (
+	MemoryPersistenceGoverned = "governed"
+	MemoryPersistenceOff      = "off"
+)
+
 // Allowed assets sources.
 const (
 	AssetsSourceEmbedded = "embedded"
@@ -91,6 +97,11 @@ func Validate(cfg Config) error {
 			errs = append(errs, "memory.provider is required when memory is enabled")
 		} else if cfg.Memory.Provider != MemoryProviderSQLite {
 			errs = append(errs, fmt.Sprintf("memory.provider %q is invalid; only %q is supported", cfg.Memory.Provider, MemoryProviderSQLite))
+		}
+	}
+	if mode := strings.TrimSpace(cfg.Memory.Persistence.Mode); mode != "" {
+		if !oneOf(mode, MemoryPersistenceGoverned, MemoryPersistenceOff) {
+			errs = append(errs, fmt.Sprintf("memory.persistence.mode %q is invalid; only %q or %q is supported", mode, MemoryPersistenceGoverned, MemoryPersistenceOff))
 		}
 	}
 

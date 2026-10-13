@@ -78,7 +78,13 @@ type SourceControlPersist struct {
 
 // MemoryPersist is the persisted memory strategy.
 type MemoryPersist struct {
-	Strategy string `yaml:"strategy"`
+	Strategy    string                   `yaml:"strategy"`
+	Persistence MemoryPersistencePersist `yaml:"persistence,omitempty"`
+}
+
+// MemoryPersistencePersist is the persisted automatic persistence mode (Slice 36C).
+type MemoryPersistencePersist struct {
+	Mode string `yaml:"mode,omitempty"` // governed | off; empty defaults to governed
 }
 
 // ContextPersist is the persisted context preferences.
@@ -264,6 +270,9 @@ func BuildProjectDocument(draft ConfigDraft, mcp MCPDraft) ProjectDocument {
 		},
 		Memory: MemoryPersist{
 			Strategy: fieldValueOr(draft, "memory.strategy", MemoryStrategyBoth),
+			Persistence: MemoryPersistencePersist{
+				Mode: MemoryPersistenceGoverned,
+			},
 		},
 		Context: ContextPersist{
 			Graph: ContextGraphPersist{
@@ -377,6 +386,11 @@ func ValidateProjectDocument(doc ProjectDocument) error {
 	}
 	if !oneOf(doc.Memory.Strategy, MemoryStrategySQLite, MemoryStrategyCapsule, MemoryStrategyBoth) {
 		errs = append(errs, fmt.Sprintf("memory.strategy %q is invalid", doc.Memory.Strategy))
+	}
+	if pmode := strings.TrimSpace(doc.Memory.Persistence.Mode); pmode != "" {
+		if !oneOf(pmode, MemoryPersistenceGoverned, MemoryPersistenceOff) {
+			errs = append(errs, fmt.Sprintf("memory.persistence.mode %q is invalid", doc.Memory.Persistence.Mode))
+		}
 	}
 	errs = append(errs, validateAdaptersSelected(doc.Adapters.Selected)...)
 	errs = append(errs, validateSkillPins(doc.Skills.Enabled)...)
@@ -582,6 +596,11 @@ func (d ProjectDocument) ToConfig() Config {
 	default:
 		cfg.Memory.CapsuleEnabled = true
 	}
+	mode := strings.TrimSpace(d.Memory.Persistence.Mode)
+	if mode == "" {
+		mode = MemoryPersistenceGoverned
+	}
+	cfg.Memory.Persistence.Mode = mode
 	cfg.ExternalContextProviders.JiraEnabled = d.MCP.Builtins.Jira.Enabled
 	cfg.ExternalContextProviders.MCPEnabled = d.MCP.Builtins.Filesystem.Enabled ||
 		d.MCP.Builtins.GitHub.Enabled ||

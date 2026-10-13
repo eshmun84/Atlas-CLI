@@ -67,6 +67,22 @@ func TestValidate_InvalidMemoryProvider(t *testing.T) {
 	}
 }
 
+func TestValidate_MemoryPersistenceMode(t *testing.T) {
+	cfg := config.DefaultConfig("demo")
+	cfg.Memory.Persistence.Mode = "aggressive"
+	err := config.Validate(cfg)
+	if err == nil {
+		t.Fatal("expected invalid persistence mode")
+	}
+	if !strings.Contains(err.Error(), "memory.persistence.mode") {
+		t.Fatalf("err=%v", err)
+	}
+	cfg.Memory.Persistence.Mode = config.MemoryPersistenceOff
+	if err := config.Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestValidate_MemoryEnabledEmptyProvider(t *testing.T) {
 	t.Parallel()
 

@@ -117,6 +117,57 @@ func (s *Store) SaveObservation(in Observation) (res SaveResult, err error) {
 	var created Observation
 	created, err = insertObservationTx(tx, in, hash, now)
 	if err != nil {
+		// Concurrent equivalent inserts race UNIQUE indexes. Re-resolve the
+		// winning row and treat as duplicate/update rather than failing closed.
+		if isUniqueConstraint(err) {
+			if existing, ok, getErr := getByHashTx(tx, s.projectID, hash); getErr != nil {
+				err = getErr
+				return SaveResult{}, err
+			} else if ok {
+				var updated Observation
+				updated, err = bumpDuplicateTx(tx, existing, now)
+				if err != nil {
+					return SaveResult{}, err
+				}
+				if err = tx.Commit(); err != nil {
+					return SaveResult{}, err
+				}
+				committed = true
+				return SaveResult{Action: SaveDuplicate, Observation: updated}, nil
+			}
+			if topic != "" {
+				if existing, ok, getErr := getByTopicTx(tx, s.projectID, in.Scope, topic); getErr != nil {
+					err = getErr
+					return SaveResult{}, err
+				} else if ok {
+					if existing.ContentHash == hash {
+						var updated Observation
+						updated, err = bumpDuplicateTx(tx, existing, now)
+						if err != nil {
+							return SaveResult{}, err
+						}
+						if err = tx.Commit(); err != nil {
+							return SaveResult{}, err
+						}
+						committed = true
+						return SaveResult{Action: SaveDuplicate, Observation: updated}, nil
+					}
+					var updated Observation
+					updated, err = reviseTopicTx(tx, existing, in, hash, now)
+					if err != nil {
+						return SaveResult{}, err
+					}
+					if err = syncFTSTx(tx, updated); err != nil {
+						return SaveResult{}, err
+					}
+					if err = tx.Commit(); err != nil {
+						return SaveResult{}, err
+					}
+					committed = true
+					return SaveResult{Action: SaveUpdated, Observation: updated}, nil
+				}
+			}
+		}
 		return SaveResult{}, err
 	}
 	if err = syncFTSTx(tx, created); err != nil {

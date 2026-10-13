@@ -79,12 +79,19 @@ type SourceControlConfig struct {
 
 // MemoryConfig controls local Atlas memory.
 type MemoryConfig struct {
-	Enabled        bool   `yaml:"enabled"`
-	Provider       string `yaml:"provider"`
-	SQLitePath     string `yaml:"sqlite_path"`
-	CapsuleEnabled bool   `yaml:"capsule_enabled"`
-	CapsulePath    string `yaml:"capsule_path"`
-	GraphEnabled   bool   `yaml:"graph_enabled"`
+	Enabled        bool                    `yaml:"enabled"`
+	Provider       string                  `yaml:"provider"`
+	SQLitePath     string                  `yaml:"sqlite_path"`
+	CapsuleEnabled bool                    `yaml:"capsule_enabled"`
+	CapsulePath    string                  `yaml:"capsule_path"`
+	GraphEnabled   bool                    `yaml:"graph_enabled"`
+	Persistence    MemoryPersistenceConfig `yaml:"persistence"`
+}
+
+// MemoryPersistenceConfig controls automatic Memory write governance (Slice 36C).
+type MemoryPersistenceConfig struct {
+	// Mode is "governed" (default) or "off".
+	Mode string `yaml:"mode"`
 }
 
 // AssetsConfig controls how Atlas assets are sourced and installed.

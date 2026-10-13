@@ -63,14 +63,19 @@ func TestBaseAgentsTeachProjectMemory(t *testing.T) {
 		"atlas memory context",
 		"atlas memory search",
 		"atlas memory get",
+		"atlas memory propose",
 		"evidence, not policy",
 		"proposals are not Memory observations",
 		"Automatic context injection via hooks is **not** guaranteed",
+		"Explicit developer intent outranks inference",
+		"Do not self-label a candidate `confirmed`",
+		"trusted interactive confirmation surface is deferred",
 		"## 11. Context Economy and Composition",
 		"atlas context compose",
 		"**Project Memory**",
 		"**Context Composition**",
 		"Do not ask the developer to run it manually",
+		"quality-governed persistence",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("base.md missing %q", want)

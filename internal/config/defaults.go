@@ -45,6 +45,9 @@ func DefaultConfig(projectName string) Config {
 			CapsuleEnabled: true,
 			CapsulePath:    FileCapsule,
 			GraphEnabled:   false,
+			Persistence: MemoryPersistenceConfig{
+				Mode: MemoryPersistenceGoverned,
+			},
 		},
 		Assets: AssetsConfig{
 			Source:             AssetsSourceEmbedded,

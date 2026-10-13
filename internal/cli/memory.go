@@ -4,15 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 
+	"github.com/eshmun84/Atlas-CLI/internal/memorypersist"
 	"github.com/eshmun84/Atlas-CLI/internal/memoryretrieve"
 )
 
 // MemoryCommand is a resolved non-TUI memory CLI action.
 type MemoryCommand struct {
-	Name   string // search | get | context
+	Name   string // search | get | context | propose
 	Query  string // search query / context task / get id
 	Limit  int
 	Budget int
@@ -31,13 +33,29 @@ func resolveMemory(args []string) Action {
 	rest := args[1:]
 
 	switch cmd.Name {
-	case "search", "get", "context":
+	case "search", "get", "context", "propose":
 	default:
 		return Action{
 			Mode:           ModeMemory,
 			Memory:         MemoryCommand{},
 			UnknownCommand: joinCommand(append([]string{"memory"}, args...)),
 		}
+	}
+
+	// propose: --json only; candidate body via stdin (no positional args).
+	if cmd.Name == "propose" {
+		for i := 0; i < len(rest); i++ {
+			arg := rest[i]
+			switch {
+			case arg == "--json":
+				cmd.JSON = true
+			case strings.HasPrefix(arg, "-"):
+				return Action{Mode: ModeMemory, Memory: cmd, UnknownCommand: joinCommand(append([]string{"memory"}, args...))}
+			default:
+				return Action{Mode: ModeMemory, Memory: cmd, UnknownCommand: joinCommand(append([]string{"memory"}, args...))}
+			}
+		}
+		return Action{Mode: ModeMemory, Memory: cmd}
 	}
 
 	positional := make([]string, 0, 1)
@@ -103,11 +121,25 @@ var MemoryService = func() memoryretrieve.Service {
 	return memoryretrieve.Service{}
 }
 
+// MemoryPersistService builds the governed persistence service. Overridable in tests.
+var MemoryPersistService = func() memorypersist.Service {
+	return memorypersist.Service{}
+}
+
+// MemoryProposeInput returns the candidate JSON reader for propose. Overridable in tests.
+var MemoryProposeInput = func() io.Reader {
+	return os.Stdin
+}
+
 func executeMemory(stdout io.Writer, cmd MemoryCommand, unknown string) error {
+	if cmd.Name == "propose" {
+		return executeMemoryPropose(stdout, cmd, unknown)
+	}
+
 	var resp memoryretrieve.Response
 	switch {
 	case cmd.Name == "":
-		resp = usageResponse("memory", "usage: atlas memory <search|get|context> ... --json")
+		resp = usageResponse("memory", "usage: atlas memory <search|get|context|propose> ... --json")
 	case unknown != "":
 		name := cmd.Name
 		if name == "" {
@@ -126,7 +158,7 @@ func executeMemory(stdout io.Writer, cmd MemoryCommand, unknown string) error {
 		case "context":
 			resp = svc.Context(memoryretrieve.ContextInput{Task: cmd.Query, Limit: cmd.Limit, Budget: cmd.Budget})
 		default:
-			resp = usageResponse("memory", "usage: atlas memory <search|get|context> ... --json")
+			resp = usageResponse("memory", "usage: atlas memory <search|get|context|propose> ... --json")
 		}
 	}
 
@@ -137,6 +169,58 @@ func executeMemory(stdout io.Writer, cmd MemoryCommand, unknown string) error {
 	}
 	if memoryretrieve.ShouldExitNonZero(resp.Status) {
 		return memoryretrieve.ExitError{Status: resp.Status}
+	}
+	return nil
+}
+
+func executeMemoryPropose(stdout io.Writer, cmd MemoryCommand, unknown string) error {
+	var resp memorypersist.Response
+	switch {
+	case unknown != "":
+		resp = memorypersist.Response{
+			SchemaVersion: memorypersist.SchemaVersion,
+			Command:       memorypersist.CommandPropose,
+			Status:        memorypersist.StatusInvalidUsage,
+			Error: &memorypersist.ErrorBody{
+				Code:    memorypersist.StatusInvalidUsage,
+				Message: "invalid memory propose usage",
+			},
+		}
+	case !cmd.JSON:
+		resp = memorypersist.Response{
+			SchemaVersion: memorypersist.SchemaVersion,
+			Command:       memorypersist.CommandPropose,
+			Status:        memorypersist.StatusInvalidUsage,
+			Error: &memorypersist.ErrorBody{
+				Code:    memorypersist.StatusInvalidUsage,
+				Message: "--json is required",
+			},
+		}
+	default:
+		candidate, err := memorypersist.DecodeCandidate(MemoryProposeInput())
+		if err != nil {
+			status, msg := memorypersist.ClassifyDecodeError(err)
+			resp = memorypersist.Response{
+				SchemaVersion: memorypersist.SchemaVersion,
+				Command:       memorypersist.CommandPropose,
+				Status:        status,
+				Error: &memorypersist.ErrorBody{
+					Code:    status,
+					Message: msg,
+				},
+			}
+		} else {
+			resp = MemoryPersistService().Propose(candidate)
+		}
+	}
+
+	enc := json.NewEncoder(stdout)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(resp); err != nil {
+		return fmt.Errorf("memory: encode json: %w", err)
+	}
+	if memorypersist.ShouldExitNonZero(resp.Status) {
+		return memorypersist.ExitError{Status: resp.Status}
 	}
 	return nil
 }

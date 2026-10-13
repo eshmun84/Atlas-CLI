@@ -282,6 +282,7 @@ func TestMemorySkill_ParseAndCLIContract(t *testing.T) {
 		"atlas memory context",
 		"atlas memory search",
 		"atlas memory get",
+		"atlas memory propose",
 		"atlas context compose",
 		"--json",
 		"--budget",
@@ -296,6 +297,13 @@ func TestMemorySkill_ParseAndCLIContract(t *testing.T) {
 		"project-scoped",
 		"not Memory observations",
 		"Automatic hook injection is **not** guaranteed",
+		"confirmation_required",
+		"explicitness",
+		"Do **not** assume every interaction is remembered",
+		"trusted interactive confirmation is deferred",
+		"Never send a self-confirm boolean",
+		"Do not self-label a",
+		"Prefer `explicit` only",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("memory skill missing %q", want)

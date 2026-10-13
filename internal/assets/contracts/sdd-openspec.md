@@ -236,7 +236,7 @@ Atlas does **not** create a parallel evidence store (no `.atlas/evidence/`, no d
 
 Update project documentation only when the change itself requires it (for example API change → API docs; architectural change → architecture/ADR; operational change → deployment/ops docs).
 
-Do **not** create documentation solely to leave evidence that Atlas executed a phase. SDD history belongs in OpenSpec; Memory may later distill knowledge from archived change references without copying archives. Quality-governed automatic persistence is out of scope for the Memory Skill slice.
+Do **not** create documentation solely to leave evidence that Atlas executed a phase. SDD history belongs in OpenSpec; Memory may distill durable knowledge from archived change references without copying archives. Quality-governed automatic persistence is available via `atlas memory propose` — not by logging phase transcripts.
 
 ## 6. Cross-cutting rules
 
