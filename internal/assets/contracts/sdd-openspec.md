@@ -1,20 +1,56 @@
 # Atlas SDD / OpenSpec Operational Contract
 
-This file is the Atlas-owned operational contract for Spec-Driven Development (SDD) work that may later integrate with OpenSpec. It guides Atlas agents through real work sessions. It does **not** execute OpenSpec CLI commands, install OpenSpec, create live specs/tasks, or automate Git.
+This file is the Atlas-owned operational contract for Spec-Driven Development (SDD) with OpenSpec-compatible change artifacts.
 
 Canonical project path: `.atlas/contracts/sdd-openspec.md`  
 Canonical Home path: `$ATLAS_HOME/assets/contracts/sdd-openspec.md` (mirrored from bundled assets)
+
+**Activation:** This contract is materialized only when `.atlas/config.yaml` has `governance.workflow=sdd` **and** `governance.spec_engine=openspec`.
+
+When activated, material product work MUST enter this governed route automatically. The human need not say “plan”, “spec”, “SDD”, or “OpenSpec”.
+
+This contract does **not** require OpenSpec CLI for every step. Agents MUST produce/use live OpenSpec-compatible change artifacts before Implement. CLI may be used when available and appropriate. NEVER invent CLI output. NEVER automate Git/delivery.
+
+### Change artifact layout (Atlas-recognized)
+
+Atlas recognizes the following OpenSpec change tree (same paths the OpenSpec adapter inspects). Do not invent a parallel layout.
+
+Active change root:
+
+```text
+openspec/changes/<change-id>/
+```
+
+Minimum material artifacts **before Implement**:
+
+| Path | Role |
+|------|------|
+| `openspec/changes/<change-id>/proposal.md` | Required. Intent/problem, scope, non-scope when applicable, acceptance criteria / requirements, approach when needed |
+| `openspec/changes/<change-id>/tasks.md` | Required. Implementable, verifiable tasks |
+| `openspec/changes/<change-id>/specs/<domain>/spec.md` | When the change needs domain requirements/specs — one or more domains as needed |
+| `openspec/changes/<change-id>/design.md` | Optional. Include when the change needs an explicit design commitment |
+
+Do not require unused files for simple changes. Archived changes live under `openspec/changes/archive/` (observation only for Archive phase).
 
 ## 1. Purpose
 
 Provide a single, phase-aware operating procedure so Atlas agents:
 
+- classify and route material work into governed SDD automatically when configured
 - frame, explore, research, propose, update, implement, verify, and archive changes consistently
 - keep scope and authority with the human
 - produce evidence instead of invented progress
-- remain compatible with a future real OpenSpec engine without pretending one is present today
+- remain compatible with OpenSpec change layouts without pretending CLI results exist
 
 `AGENTS.md` remains the project authority. This contract specializes SDD/OpenSpec behavior under that authority. If guidance conflicts, `AGENTS.md` wins.
+
+### 1.1 Fail-closed activation
+
+If this contract is required for the route but missing/corrupt, or required change artifacts/acceptance cannot be established:
+
+- status = `blocked` or `interaction_required`
+- MUST NOT mutate product files
+- MUST NOT fall back to direct implementation because “planning failed” or “user did not request planning”
 
 ## 2. Authority model
 
@@ -127,11 +163,11 @@ Do not skip Propose → Implement acceptance. Do not jump to Archive without Ver
 
 **Expected input:** Accepted intent; explore/research outputs; constraints.
 
-**Expected output:** Proposal with scope, non-scope, tasks, risks, validation plan, rollback/limits, and explicit acceptance request.
+**Expected output:** Proposal with scope, non-scope, tasks, risks, validation plan, rollback/limits, and explicit acceptance request; files under `openspec/changes/<change-id>/` (`proposal.md`, `tasks.md`, and specs/design when needed).
 
-**Allowed:** Draft proposal text/structure; define tasks and checks; request human acceptance.
+**Allowed:** Create/update that change tree; define tasks and checks; request human acceptance.
 
-**Forbidden:** Implement before acceptance; silently widen scope; claim approval; OpenSpec CLI execution; Git delivery.
+**Forbidden:** Implement before acceptance; silently widen scope; claim approval; invent OpenSpec CLI output; Git delivery.
 
 **Ask when:** Scope boundaries or acceptance criteria are ambiguous.
 
@@ -149,9 +185,9 @@ Do not skip Propose → Implement acceptance. Do not jump to Archive without Ver
 
 **Expected output:** Updated proposal with change log of what shifted, what stayed, and what still needs acceptance.
 
-**Allowed:** Edit proposal/scope documents under Atlas/human direction; restate limits.
+**Allowed:** Edit the same `openspec/changes/<change-id>/` tree under Atlas/human direction; restate limits.
 
-**Forbidden:** Implement by itself; silently reopen closed scope; drop acceptance gates; OpenSpec CLI; Git automation.
+**Forbidden:** Implement by itself; silently reopen closed scope; drop acceptance gates; invent OpenSpec CLI output; Git automation.
 
 **Ask when:** Feedback conflicts with prior acceptance or with `AGENTS.md`.
 
@@ -165,13 +201,13 @@ Do not skip Propose → Implement acceptance. Do not jump to Archive without Ver
 
 **Purpose:** Implement only the accepted scope.
 
-**Expected input:** Accepted proposal (or accepted update); allowed paths/actions; success criteria.
+**Expected input:** Accepted proposal (or accepted update) with required files present under `openspec/changes/<change-id>/`; allowed paths/actions; success criteria.
 
 **Expected output:** Code/docs changes within scope; file list; evidence of intended checks run or explicitly not-run; blockers.
 
 **Allowed:** Mutate agreed surfaces; run local checks needed for the accepted work; report limits.
 
-**Forbidden:** Expand scope; “while here” refactors; silent Git commit/push/PR; invent test results; OpenSpec CLI unless human explicitly requests a concrete supported command.
+**Forbidden:** Implement without verifying `proposal.md` + `tasks.md` (and required specs/design) exist and are sufficient; expand scope; “while here” refactors; silent Git commit/push/PR; invent test results; invent OpenSpec CLI output.
 
 **Ask when:** A material conflict, missing dependency, or safer alternative appears.
 
@@ -297,11 +333,24 @@ Consult `.atlas/skill-registry.md` when present. Missing entries mean unavailabl
 
 When an OpenSpec project tree is present, OpenSpec owns the change artifacts. Atlas Status/Doctor may observe lifecycle and emit normalized references. Do not duplicate those artifacts into Atlas storage.
 
-- do not execute real OpenSpec CLI by default unless the human explicitly requests a concrete supported command
+Before **Implement**, the active change under `openspec/changes/<change-id>/` MUST include at least `proposal.md` and `tasks.md`, plus `specs/<domain>/spec.md` when domain requirements apply, and `design.md` when an explicit design is required. Those files MUST unambiguously identify:
+
+- change identity (`<change-id>`)
+- intent/problem
+- scope
+- requirements/acceptance criteria
+- approved design/approach when applicable
+- implementation tasks
+- human acceptance when this contract requires it
+
+Rules:
+
+- OpenSpec CLI may be used when available; it is not the only allowed materialization path
 - do not install OpenSpec as a side effect
-- do not invent command output or pretend specs/tasks exist
-- do not copy proposal/spec/design/tasks/verify/archive contents into `.atlas/`
-- you may describe intended OpenSpec shapes as proposals only when artifacts are absent
+- do not invent command output or pretend `proposal.md` / `tasks.md` / specs exist
+- do not copy proposal/spec/design/tasks/verify/archive contents into `.atlas/` as a parallel store
+- creating the layout above via the governed agent path is allowed and expected when CLI is absent
+- requesting a feature is **not** acceptance of a proposal that did not yet exist
 
 ## 7. Reviewer stance
 

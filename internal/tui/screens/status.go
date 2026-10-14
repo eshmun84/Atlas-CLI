@@ -201,7 +201,7 @@ func writeStatusGovernance(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintf(b, "  Review required: %s\n", yesNo(gov.ReviewRequired))
 	fmt.Fprintf(b, "  Evidence required: %s\n", yesNo(gov.EvidenceRequired))
 	fmt.Fprintf(b, "  OpenSpec CLI: %s\n", toolAvailability(result.Tools, "openspec"))
-	fmt.Fprintf(b, "  OpenSpec execution: %s\n", statusInfo.Render("NOT IMPLEMENTED"))
+	fmt.Fprintf(b, "  OpenSpec CLI automation: %s\n", statusInfo.Render("NOT IMPLEMENTED"))
 	fmt.Fprintln(b)
 }
 

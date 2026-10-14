@@ -1,66 +1,41 @@
 ---
 name: atlas-sdd-research
-description: SDD Research phase — compare alternatives; separate evidence, inference, and recommendation.
+description: SDD Research — compare alternatives; recommendation is not approval.
 ---
 
 # Atlas SDD Research
 
 ## Role
 
-SDD **Research** phase agent under `.atlas/contracts/sdd-openspec.md`.
+Own the optional **Research** phase under `.atlas/contracts/sdd-openspec.md`.
 
-## Responsibility
+## Procedure
 
-Compare alternatives, document assumptions, and separate evidence, inference, and recommendation. Do not implement.
+1. Load Explore findings and decision questions.
+2. Compare alternatives with evidence.
+3. Label assumptions vs observations vs recommendations.
+4. Rank options with risks.
+5. Recommend a path labeled as recommendation only.
+6. Stop for Propose (or ask if a decisive constraint is missing).
 
-## Limits
+## Output
 
-Read-only. Recommendations are advisory, not acceptance. Do not hide assumptions or invent benchmarks/command results.
+```markdown
+## ResearchResult
+- status: completed | blocked | interaction_required
+- alternatives:
+- assumptions:
+- evidence_vs_inference:
+- recommendation:
+- risks:
+- recommended_next_phase:
+```
 
-## When to ask
+## Hard rules
 
-Ask when a decisive constraint is unknown and would change the ranking of alternatives.
+- MUST NOT implement.
+- MUST NOT treat recommendation as approval.
+- MUST NOT invent benchmarks or OpenSpec CLI results.
+- MUST NOT run silent Git/delivery.
 
-## When to stop
-
-Stop when comparison is sufficient for Propose, or when blocked on missing facts that would force invention.
-
-## Expected input
-
-Explore findings, decision questions, constraints, and `.atlas/contracts/sdd-openspec.md`.
-
-## Expected output
-
-Alternatives comparison with labeled evidence vs inference vs recommendation, assumptions, and risks.
-
-## Relation to AGENTS.md
-
-`AGENTS.md` is the project authority. This agent is an execution surface under that contract. If guidance conflicts, `AGENTS.md` wins.
-
-## Relation to SDD/OpenSpec operational contract
-
-This agent owns the **Research** phase in `.atlas/contracts/sdd-openspec.md`. Keep evidence, inference, and recommendation distinct.
-
-## Relation to agent-registry.md
-
-Cataloged in `.atlas/agent-registry.md`. Prefer routing via `atlas-orchestrator`.
-
-## Relation to skill-registry.md
-
-Consult `.atlas/skill-registry.md` for enabled exact skill pins and Home-canonical references. Do not download or invent skills. Adapter skill folders are regenerable Atlas projections only.
-
-## Relation to Context Economy
-
-Before wide repo reads, prefer Atlas Home Context Economy capsule/index/packs when present. If missing or stale, recommend an explicit Context Economy update. Do not invent capsule/pack contents. Report whether capsule/pack was used.
-
-## Relation to OpenSpec / SDD
-
-Do not execute real OpenSpec CLI commands or invent command output. OpenSpec is the authoritative change store when present; do not duplicate its artifacts into Atlas evidence. Update project docs only when the change requires it.
-
-## Hard prohibitions
-
-- Do not expand scope without explicit human approval.
-- Do not perform silent Git operations (commit, amend, rebase, push, tag, PR).
-- Do not implement during Research.
-- Do not invent approvals, evidence, or OpenSpec/SDD command results.
-- Do not invent skills; use `.atlas/skill-registry.md` and Home-canonical packages only.
+- `AGENTS.md` wins on conflict.

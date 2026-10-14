@@ -99,8 +99,8 @@ Interactive TUI click-through remains optional human confirmation.
 | CodeGraph | Optional Code Intelligence provider (externally installed; not MCP; may be unavailable) |
 | Atlas Context Graph | Preference only; NOT IMPLEMENTED |
 | MCP | Desired state + Atlas-owned projections; no auth/connection/verification; secrets not stored |
-| OpenSpec | Operational contract only; no CLI execution |
-| Git | Discovery only; no automation |
+| OpenSpec | Operational contract + governed change artifacts; OpenSpec CLI automation deferred |
+| Git | Discovery + explicit Init bootstrap; no commit/remote/push/PR/merge/tag automation |
 | Skills v1 | Local Home catalog + exact pins + Cursor/OpenCode projections (no marketplace) |
 | Marketplace / community registry | Not implemented |
 | Claude / Codex | Not activated |
@@ -108,4 +108,4 @@ Interactive TUI click-through remains optional human confirmation.
 
 ## Out of scope for this RC
 
-Final V1, Atlas Context Graph engine, MCP authentication/connection/verification orchestration, secret manager, marketplace/community registry / remote skill install, real OpenSpec CLI, Claude/Codex activation, Git automation, hooks, embeddings, daemon, new CLI commands, tag/release/publish.
+Final V1, Atlas Context Graph engine, MCP authentication/connection/verification orchestration, secret manager, marketplace/community registry / remote skill install, OpenSpec CLI automation, Claude/Codex activation, Git delivery automation beyond Init bootstrap, hooks, embeddings, daemon, new CLI commands, tag/release/publish.

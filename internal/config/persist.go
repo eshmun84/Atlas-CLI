@@ -74,6 +74,7 @@ type SourceControlPersist struct {
 	BranchStrategy  string `yaml:"branch_strategy"`
 	GovernanceFiles string `yaml:"governance_files"`
 	DeliveryAssist  bool   `yaml:"delivery_assist"`
+	SigningRequired bool   `yaml:"signing_required"`
 }
 
 // MemoryPersist is the persisted memory strategy.
@@ -267,6 +268,7 @@ func BuildProjectDocument(draft ConfigDraft, mcp MCPDraft) ProjectDocument {
 			BranchStrategy:  fieldValueOr(draft, "source_control.branch_strategy", "manual"),
 			GovernanceFiles: fieldValueOr(draft, "source_control.governance_storage", GovernanceFilesLocalOnly),
 			DeliveryAssist:  boolField(draft, "source_control.delivery_assist", false),
+			SigningRequired: boolField(draft, "source_control.signing_required", false),
 		},
 		Memory: MemoryPersist{
 			Strategy: fieldValueOr(draft, "memory.strategy", MemoryStrategyBoth),
@@ -372,8 +374,14 @@ func ValidateProjectDocument(doc ProjectDocument) error {
 	if !oneOf(doc.Governance.Workflow, WorkflowSDD) {
 		errs = append(errs, fmt.Sprintf("governance.workflow %q is invalid", doc.Governance.Workflow))
 	}
-	if !oneOf(doc.Governance.SpecEngine, SpecProviderOpenSpec, SpecProviderNone) {
+	// SpecProviderNone remains parseable for legacy YAML, but V1 effective config
+	// requires openspec whenever workflow is sdd (the only supported workflow).
+	engine := strings.TrimSpace(doc.Governance.SpecEngine)
+	if engine != "" && !oneOf(engine, SpecProviderOpenSpec, SpecProviderNone) {
 		errs = append(errs, fmt.Sprintf("governance.spec_engine %q is invalid", doc.Governance.SpecEngine))
+	}
+	if doc.Governance.Workflow == WorkflowSDD && engine != SpecProviderOpenSpec {
+		errs = append(errs, "governance.spec_engine must be openspec when governance.workflow is sdd (Atlas V1)")
 	}
 	if !oneOf(doc.SourceControl.Mode, SourceControlNone, SourceControlGitLocal, SourceControlGitGitHub) {
 		errs = append(errs, fmt.Sprintf("source_control.mode %q is invalid", doc.SourceControl.Mode))
@@ -529,6 +537,7 @@ func ApplyProjectDocument(draft *ConfigDraft, doc ProjectDocument) {
 	setDraftValue(draft, "source_control.branch_strategy", doc.SourceControl.BranchStrategy)
 	setDraftValue(draft, "source_control.governance_storage", doc.SourceControl.GovernanceFiles)
 	setDraftValue(draft, "source_control.delivery_assist", boolText(doc.SourceControl.DeliveryAssist))
+	setDraftValue(draft, "source_control.signing_required", boolText(doc.SourceControl.SigningRequired))
 	setDraftValue(draft, "memory.strategy", doc.Memory.Strategy)
 	setDraftValue(draft, "context.graph.enabled", boolText(doc.ContextGraphEnabled()))
 	SyncDevelopmentDelivery(draft)
@@ -586,6 +595,7 @@ func (d ProjectDocument) ToConfig() Config {
 		cfg.SourceControl.Provider = SourceControlNone
 	}
 	cfg.SourceControl.DeliveryEnabled = d.SourceControl.DeliveryAssist
+	cfg.SourceControl.SigningRequired = d.SourceControl.SigningRequired
 	cfg.Memory.Enabled = true
 	cfg.Memory.Provider = MemoryProviderSQLite
 	switch d.Memory.Strategy {

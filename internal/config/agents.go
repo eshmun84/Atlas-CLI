@@ -70,10 +70,10 @@ func IsAtlasAgentRuntimePath(rel string) bool {
 
 // DependsOnSDDOpenSpecContract reports whether the project expects the
 // SDD/OpenSpec operational contract to be present and resolvable.
+// Aligned with NeedsOpenSpecBootstrap: both require workflow=sdd AND
+// spec_engine=openspec. Do not drift these predicates.
 func DependsOnSDDOpenSpecContract(doc ProjectDocument) bool {
-	workflow := strings.TrimSpace(doc.Governance.Workflow)
-	engine := strings.TrimSpace(doc.Governance.SpecEngine)
-	return workflow == WorkflowSDD || engine == SpecProviderOpenSpec
+	return NeedsOpenSpecBootstrap(doc)
 }
 
 // RenderSDDOpenSpecContract returns the operational contract content.
@@ -140,7 +140,7 @@ func RenderAgentRegistry(projectName string, selected []string, homePath string)
 		}
 		fmt.Fprintf(&b, "- Atlas Home: `$ATLAS_HOME/%s`\n", home.RelHomePath(homePath, home.AssetHomePath(homePath, homeAsset)))
 	}
-	fmt.Fprintf(&b, "- SDD phase agents must follow this contract. Do not execute real OpenSpec CLI commands in this slice unless explicitly requested and supported.\n\n")
+	fmt.Fprintf(&b, "- SDD phase agents must follow this contract. Prefer live OpenSpec-compatible change artifacts before Implement. Do not invent OpenSpec CLI results; CLI is optional when available and appropriate.\n\n")
 
 	if len(adapters) == 0 {
 		fmt.Fprintf(&b, "## Status\n\n")

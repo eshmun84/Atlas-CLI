@@ -9,6 +9,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/adapters"
 	adaptercursor "github.com/eshmun84/Atlas-CLI/internal/adapters/cursor"
 	adapteropencode "github.com/eshmun84/Atlas-CLI/internal/adapters/opencode"
+	"github.com/eshmun84/Atlas-CLI/internal/assets"
 	"github.com/eshmun84/Atlas-CLI/internal/skills"
 )
 
@@ -278,6 +279,22 @@ func TestMemorySkill_ParseAndCLIContract(t *testing.T) {
 	if fm.Name != "memory" || fm.Description == "" {
 		t.Fatalf("unexpected frontmatter: %+v", fm)
 	}
+	// Progressive disclosure: CLI depth lives in references/.
+	var combined strings.Builder
+	combined.WriteString(body)
+	for _, rel := range []string{
+		"skills/memory/1.0.0/references/taxonomy.md",
+		"skills/memory/1.0.0/references/retrieval.md",
+		"skills/memory/1.0.0/references/persistence.md",
+		"skills/memory/1.0.0/references/diagnostics.md",
+	} {
+		raw, err := assets.Content.ReadFile(rel)
+		if err != nil {
+			t.Fatalf("missing %s: %v", rel, err)
+		}
+		combined.Write(raw)
+	}
+	full := combined.String()
 	for _, want := range []string{
 		"atlas memory context",
 		"atlas memory search",
@@ -294,22 +311,19 @@ func TestMemorySkill_ParseAndCLIContract(t *testing.T) {
 		"used_chars",
 		"budget_chars",
 		"read-only",
-		"project-scoped",
+		"Project-scoped",
 		"not Memory observations",
-		"Automatic hook injection is **not** guaranteed",
+		"Automatic injection is **not** guaranteed",
 		"confirmation_required",
 		"explicitness",
-		"Do **not** assume every interaction is remembered",
-		"trusted interactive confirmation is deferred",
-		"Never send a self-confirm boolean",
-		"Do not self-label a",
 		"Prefer `explicit` only",
 		"atlas doctor",
 		"atlas status",
-		"Diagnostics are **read-only**",
+		"Diagnostics never create",
+		"references/taxonomy.md",
 	} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("memory skill missing %q", want)
+		if !strings.Contains(full, want) {
+			t.Fatalf("memory skill package missing %q", want)
 		}
 	}
 	for _, banned := range []string{
@@ -319,7 +333,7 @@ func TestMemorySkill_ParseAndCLIContract(t *testing.T) {
 		".cursor/skills/memory",
 		".opencode/skills/memory",
 	} {
-		if strings.Contains(body, banned) {
+		if strings.Contains(full, banned) {
 			t.Fatalf("memory skill must not contain %q", banned)
 		}
 	}

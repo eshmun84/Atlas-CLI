@@ -1,17 +1,17 @@
 ## Cursor Adapter Guidance
 
-Cursor must treat root `AGENTS.md` as the project authority for this repository.
+Cursor must treat root `AGENTS.md` as the project authority.
 
-`.cursor/rules/atlas.mdc` is only the Cursor-native entrypoint. It exists to point Cursor at this contract, at `.cursor/agents/atlas-orchestrator.md`, at `.atlas/agent-registry.md`, and at `.atlas/contracts/sdd-openspec.md`. It is not an independent policy source and must not duplicate or dilute the full Atlas contract.
+`.cursor/rules/atlas.mdc` is only the Cursor-native entrypoint. Prefer `.cursor/agents/atlas-orchestrator.md` as the primary routing agent for work that may mutate product files.
 
-Atlas-owned Cursor agents are materialized under `.cursor/agents/` and cataloged in `.atlas/agent-registry.md`. Prefer `atlas-orchestrator` for routing. For SDD/OpenSpec phase work, follow `.atlas/contracts/sdd-openspec.md`. Developer-owned non-Atlas agents in that directory remain outside Atlas ownership.
+Atlas-owned Cursor agents live under `.cursor/agents/` and are cataloged in `.atlas/agent-registry.md`. For governed SDD work, follow `.atlas/contracts/sdd-openspec.md` when present.
 
-Cursor features such as rules, Composer, agent modes, and any subagent-style helpers remain inside Atlas authority. They may assist execution, but they must not bypass:
+Cursor features may assist execution but MUST NOT bypass:
 
-- human authority and explicit approval boundaries
-- scope control
-- Git and delivery authorization
-- verification honesty
-- skill and contract loading rules
+- task classification and governance routing in `AGENTS.md`
+- human authority and acceptance gates
+- Git/delivery authorization and signing policy
+- skill/agent registry rules
+- provider semantics (Cursor ≠ Cursor Origin; `origin` is a remote name)
 
-If Cursor guidance conflicts with this file, this file wins.
+If Cursor guidance conflicts with `AGENTS.md`, `AGENTS.md` wins.

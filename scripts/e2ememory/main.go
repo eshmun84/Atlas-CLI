@@ -118,8 +118,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(string(agentsMD), "## 10. Project Memory") {
-		return fmt.Errorf("AGENTS.md missing Project Memory")
+	if !strings.Contains(string(agentsMD), "## 11. Memory / Context / Code Intelligence entrypoints") &&
+		!strings.Contains(string(agentsMD), "memory** skill") &&
+		!strings.Contains(string(agentsMD), "memory skill") {
+		return fmt.Errorf("AGENTS.md missing Memory entrypoint")
 	}
 	if strings.Contains(string(agentsMD), "Future Memory") {
 		return fmt.Errorf("AGENTS.md still says Future Memory")

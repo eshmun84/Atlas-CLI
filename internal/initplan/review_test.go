@@ -296,7 +296,14 @@ func TestBuildReview_GitMissingIsBlocker(t *testing.T) {
 	plan := initplan.BuildReview(initplan.ReviewInput{
 		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(),
 	})
-	if len(plan.Blockers) == 0 || !strings.Contains(plan.Blockers[0].Message, "not found on PATH") {
+	foundGit := false
+	for _, b := range plan.Blockers {
+		if strings.Contains(b.Message, "not found on PATH") {
+			foundGit = true
+			break
+		}
+	}
+	if !foundGit {
 		t.Fatalf("expected git PATH blocker: %#v", plan.Blockers)
 	}
 	if !strings.Contains(plan.GitSafetyStatement, "blocked") {

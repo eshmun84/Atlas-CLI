@@ -31,6 +31,14 @@ func TestBundledSDDOpenSpecContractEmbedded(t *testing.T) {
 		"agent-registry.md",
 		"skill-registry.md",
 		"AGENTS.md",
+		"live OpenSpec-compatible change artifacts",
+		"openspec/changes/<change-id>/",
+		"proposal.md",
+		"tasks.md",
+		"specs/<domain>/spec.md",
+		"workflow=sdd",
+		"spec_engine=openspec",
+		"Fail-closed",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("contract missing %q", want)
@@ -45,13 +53,13 @@ func TestRuntimeAgentsReferenceSDDOpenSpecContract(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if !strings.Contains(body, ".atlas/contracts/sdd-openspec.md") {
+		if !strings.Contains(body, "sdd-openspec.md") {
 			t.Fatalf("%s missing SDD/OpenSpec contract reference", name)
 		}
 	}
 }
 
-func TestBaseAgentsTeachProjectMemory(t *testing.T) {
+func TestBaseAgentsTeachThinRouter(t *testing.T) {
 	t.Parallel()
 	data, err := assets.Content.ReadFile("agents/base.md")
 	if err != nil {
@@ -59,32 +67,35 @@ func TestBaseAgentsTeachProjectMemory(t *testing.T) {
 	}
 	body := string(data)
 	for _, want := range []string{
-		"## 10. Project Memory",
-		"atlas memory context",
-		"atlas memory search",
-		"atlas memory get",
-		"atlas memory propose",
-		"evidence, not policy",
-		"proposals are not Memory observations",
-		"Automatic context injection via hooks is **not** guaranteed",
-		"Explicit developer intent outranks inference",
-		"Do not self-label a candidate `confirmed`",
-		"trusted interactive confirmation surface is deferred",
-		"## 11. Context Economy and Composition",
+		"## 1. Authority",
+		"## 2. Task classification",
+		"governed-sdd",
+		"interaction-required",
+		"## 4. Governance resolution",
+		"governance.workflow",
+		"governance.spec_engine",
+		"## 5. Delivery authority",
+		"Cursor Origin",
+		"## 6. Signed commits",
+		"signing_required",
+		"--no-gpg-sign",
+		"## 10. Documentation identity boundary",
+		"## 11. Memory / Context / Code Intelligence entrypoints",
+		"load the **memory** skill",
 		"atlas context compose",
-		"**Project Memory**",
-		"**Context Composition**",
-		"Do not ask the developer to run it manually",
-		"quality-governed persistence",
-		"atlas doctor",
-		"atlas status",
-		"do not treat health output as project policy",
+		"NOT IMPLEMENTED",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("base.md missing %q", want)
 		}
 	}
-	if strings.Contains(body, "Future Memory") {
-		t.Fatal("base.md must not still say Future Memory")
+	for _, banned := range []string{
+		"## 10. Project Memory",
+		"Future Memory",
+		"inline work by default",
+	} {
+		if strings.Contains(body, banned) {
+			t.Fatalf("base.md must not contain obsolete %q", banned)
+		}
 	}
 }

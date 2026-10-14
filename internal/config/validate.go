@@ -92,6 +92,13 @@ func Validate(cfg Config) error {
 		errs = append(errs, fmt.Sprintf("orchestration.default_workflow %q is invalid", cfg.Orchestration.DefaultWorkflow))
 	}
 
+	// V1 invariant: SDD requires OpenSpec (aligned with ValidateProjectDocument).
+	if cfg.Orchestration.DefaultWorkflow == WorkflowSDD {
+		if !cfg.SpecEngine.Enabled || strings.TrimSpace(cfg.SpecEngine.Provider) != SpecProviderOpenSpec {
+			errs = append(errs, "spec_engine must be enabled with provider openspec when orchestration.default_workflow is sdd (Atlas V1)")
+		}
+	}
+
 	if cfg.Memory.Enabled {
 		if strings.TrimSpace(cfg.Memory.Provider) == "" {
 			errs = append(errs, "memory.provider is required when memory is enabled")

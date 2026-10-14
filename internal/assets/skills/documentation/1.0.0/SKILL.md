@@ -1,6 +1,6 @@
 ---
 name: documentation
-description: Produce accurate, minimal documentation for Atlas-governed surfaces. Use for README, contracts, and operator notes.
+description: "Trigger: docs, documentation, readme, explain. Write accurate project docs; keep Atlas runtime identity out by default."
 triggers:
   - docs
   - documentation
@@ -12,33 +12,43 @@ triggers:
 
 ## Activation Contract
 
-Use when writing or updating project documentation, operator notes, or contract prose.
+Load when writing or updating project documentation, operator notes, or product-facing prose.
 
 ## Hard Rules
 
-- Prefer truth over completeness; do not invent features.
-- Keep docs compact and actionable.
-- Align terminology with AGENTS.md and Atlas contracts.
-- Do not claim Skills marketplace, remote install, or unsupported adapters.
+- Prefer truth over aspiration; do not invent features.
+- Preserve project terminology.
+- Update only docs affected by the change.
+- Distinguish project docs from Atlas-owned governance docs.
+- **Project identity boundary:** project-facing docs describe the project, not Atlas.
+  MUST NOT introduce by default: Atlas/Cursor/OpenCode identity, workflow, spec engine, Atlas Home, runtime paths, Memory/Context/CodeGraph internals, hooks, governance state, delivery config, or agent metadata.
+  Exception: the human explicitly asks to document those surfaces.
 
 ## Decision Gates
 
-1. Who is the audience and what decision must they make?
-2. What is already documented elsewhere (link, do not duplicate)?
-3. Is the claim verified in the current codebase?
+| Question | Action |
+|----------|--------|
+| Audience + decision? | Write only what that decision needs |
+| Already documented elsewhere? | Link; do not duplicate |
+| Claim verified in codebase? | Keep; else mark unknown |
+| Atlas runtime detail? | Omit unless explicitly requested |
 
 ## Execution Steps
 
-1. Identify the audience and required decision.
+1. Identify audience and required decision.
 2. Draft the minimal accurate section.
 3. Cross-check against live code/config.
-4. Remove speculative or out-of-scope claims.
+4. Remove speculative or out-of-scope Atlas leakage.
 
 ## Output Contract
 
-- Audience + purpose
-- Updated documentation text
-- Explicit unknowns / deferred items
+```markdown
+## DocumentationResult
+- audience:
+- purpose:
+- updated_paths:
+- unknowns:
+```
 
 ## References
 

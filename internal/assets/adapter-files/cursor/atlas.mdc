@@ -6,10 +6,10 @@ alwaysApply: true
 # Atlas Cursor Entrypoint
 
 - Root `AGENTS.md` is the project authority; do not bypass it.
-- Prefer the Atlas orchestrator at `.cursor/agents/atlas-orchestrator.md` for routing and governed work.
-- Atlas agents are listed in `.atlas/agent-registry.md` and materialized under `.cursor/agents/`.
-- For SDD/OpenSpec phase work, follow `.atlas/contracts/sdd-openspec.md`.
-- Prefer Atlas Home Context Economy capsule/packs before broad repo reads; do not invent them.
-- This file is a Cursor-native entrypoint only, not a full Atlas contract.
-- Follow Atlas scope, Git authorization, verification, human authority, and skill-loading rules from `AGENTS.md`.
-- Project configuration lives under `.atlas/config.yaml`.
+- For any request that may mutate product files, route through `.cursor/agents/atlas-orchestrator.md` first: classify → resolve governance → gate → then act.
+- Do not implement material product changes directly because planning UI failed or the user did not say “plan/SDD/OpenSpec”.
+- Atlas agents: `.atlas/agent-registry.md` under `.cursor/agents/`.
+- SDD contract when present: `.atlas/contracts/sdd-openspec.md`.
+- Skills: `.atlas/skill-registry.md` (Home-canonical pins only).
+- Delivery: adapter Cursor ≠ hosting provider; remote name `origin` ≠ Cursor Origin. Honor `.atlas/config.yaml` `source_control.*`.
+- This file is an entrypoint only, not a second policy source.

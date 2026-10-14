@@ -33,20 +33,27 @@ type ProjectConfig struct {
 
 // GovernanceConfig controls Atlas governance behavior.
 type GovernanceConfig struct {
-	Enabled              bool   `yaml:"enabled"`
-	StorageMode          string `yaml:"storage_mode"`
-	RequestRouterEnabled bool   `yaml:"request_router_enabled"`
-	TestingRequired      bool   `yaml:"testing_required"`
-	ReviewRequired       bool   `yaml:"review_required"`
-	EvidenceRequired     bool   `yaml:"evidence_required"`
+	Enabled     bool   `yaml:"enabled"`
+	StorageMode string `yaml:"storage_mode"`
+	// RequestRouterEnabled is reserved legacy compatibility only. It is NOT
+	// authoritative for V1 task routing. Effective routing uses
+	// ProjectDocument governance.workflow + governance.spec_engine and the
+	// materialized AGENTS.md / atlas-orchestrator contracts.
+	RequestRouterEnabled bool `yaml:"request_router_enabled"`
+	TestingRequired      bool `yaml:"testing_required"`
+	ReviewRequired       bool `yaml:"review_required"`
+	EvidenceRequired     bool `yaml:"evidence_required"`
 }
 
 // OrchestrationConfig controls workflow selection and planning.
 type OrchestrationConfig struct {
-	DefaultWorkflow      string   `yaml:"default_workflow"`
-	SupportedWorkflows   []string `yaml:"supported_workflows"`
-	ProportionalPlanning bool     `yaml:"proportional_planning"`
-	SDDRequiredByDefault bool     `yaml:"sdd_required_by_default"`
+	DefaultWorkflow    string   `yaml:"default_workflow"`
+	SupportedWorkflows []string `yaml:"supported_workflows"`
+	// ProportionalPlanning and SDDRequiredByDefault are reserved legacy
+	// compatibility fields. They are NOT authoritative for V1. Do not make
+	// runtime routing decisions from them.
+	ProportionalPlanning bool `yaml:"proportional_planning"`
+	SDDRequiredByDefault bool `yaml:"sdd_required_by_default"`
 }
 
 // SpecEngineConfig controls optional specification-engine integration.
@@ -66,6 +73,7 @@ type AdaptersConfig struct {
 }
 
 // SourceControlConfig controls Git/GitHub automation settings.
+// Prefer ProjectDocument.SourceControl for Init/Configure persistence.
 type SourceControlConfig struct {
 	Enabled          bool   `yaml:"enabled"`
 	Provider         string `yaml:"provider"`
@@ -73,7 +81,7 @@ type SourceControlConfig struct {
 	GitEnabled       bool   `yaml:"git_enabled"`
 	GitHubEnabled    bool   `yaml:"github_enabled"`
 	BranchingEnabled bool   `yaml:"branching_enabled"`
-	SigningRequired  bool   `yaml:"signing_required"`
+	SigningRequired  bool   `yaml:"signing_required"` // mirrored into ProjectDocument when present
 	DeliveryEnabled  bool   `yaml:"delivery_enabled"`
 }
 

@@ -92,9 +92,11 @@ func TestBuildConfigDraft_VisibleSectionsAndDefaults(t *testing.T) {
 	}
 
 	engine, _ := draft.FieldByKey("governance.spec_engine")
-	labels := []string{engine.VisibleOptions()[0].Label, engine.VisibleOptions()[1].Label}
-	if labels[0] != "OpenSpec" || labels[1] != "None" {
-		t.Fatalf("spec engine labels = %#v", labels)
+	if len(engine.Options) != 1 || engine.Options[0] != "openspec" {
+		t.Fatalf("spec engine options = %#v", engine.Options)
+	}
+	if len(engine.VisibleOptions()) != 1 || engine.VisibleOptions()[0].Label != "OpenSpec" {
+		t.Fatalf("spec engine labels = %#v", engine.VisibleOptions())
 	}
 
 	branch, _ := draft.FieldByKey("source_control.branch_strategy")
@@ -233,8 +235,11 @@ func TestConfigDraft_Edits(t *testing.T) {
 		ToolOpenCodeAvailable: true,
 	})
 
-	if !draft.SelectOption("governance.spec_engine", "none") {
-		t.Fatal("expected spec engine change")
+	if draft.SelectOption("governance.spec_engine", "none") {
+		t.Fatal("V1 must not offer spec_engine=none as an editable choice")
+	}
+	if !draft.SelectOption("governance.spec_engine", "openspec") {
+		t.Fatal("expected openspec to remain selectable")
 	}
 	if !draft.ToggleMulti("adapters.selected", "opencode") {
 		t.Fatal("expected adapter toggle")

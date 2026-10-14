@@ -309,7 +309,6 @@ func TestConfigFormFinalSections(t *testing.T) {
 		"[x] SDD",
 		"Spec engine",
 		"[x] OpenSpec",
-		"[ ] None",
 		"[x] Testing required",
 		"[x] Review required",
 		"[x] Evidence required",
@@ -329,9 +328,9 @@ func TestConfigFormFinalSections(t *testing.T) {
 			t.Fatal("Init form must not expose Context section")
 		}
 	}
-	for _, bannedVisual := range []string{"[ Yes ]", "[ No ]", "[ OpenSpec ]", "[ None ]"} {
+	for _, bannedVisual := range []string{"[ Yes ]", "[ No ]", "[ OpenSpec ]", "[ None ]", "[ ] None"} {
 		if strings.Contains(view, bannedVisual) {
-			t.Fatalf("horizontal chips must not render %q:\n%s", bannedVisual, view)
+			t.Fatalf("horizontal chips / removed None must not render %q:\n%s", bannedVisual, view)
 		}
 	}
 	footer := screens.RenderActionFooter(screens.ActionFooterView{

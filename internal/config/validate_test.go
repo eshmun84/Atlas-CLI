@@ -134,6 +134,7 @@ func TestValidate_SpecEngineEnabledWithoutProvider(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.DefaultConfig("demo")
+	cfg.Orchestration.DefaultWorkflow = config.WorkflowGuided
 	cfg.SpecEngine.Enabled = true
 	cfg.SpecEngine.Provider = ""
 
@@ -143,6 +144,29 @@ func TestValidate_SpecEngineEnabledWithoutProvider(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "spec_engine.provider") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidate_SDDRequiresOpenSpec(t *testing.T) {
+	t.Parallel()
+
+	ok := config.DefaultConfig("demo")
+	if err := config.Validate(ok); err != nil {
+		t.Fatalf("default SDD+OpenSpec must be valid: %v", err)
+	}
+
+	disabled := config.DefaultConfig("demo")
+	disabled.SpecEngine.Enabled = false
+	err := config.Validate(disabled)
+	if err == nil || !strings.Contains(err.Error(), "openspec") {
+		t.Fatalf("SDD + disabled spec_engine must be invalid: %v", err)
+	}
+
+	none := config.DefaultConfig("demo")
+	none.SpecEngine.Provider = config.SpecProviderNone
+	err = config.Validate(none)
+	if err == nil || !strings.Contains(err.Error(), "openspec") {
+		t.Fatalf("SDD + provider none must be invalid: %v", err)
 	}
 }
 

@@ -47,16 +47,17 @@ func TestRenderAgentsMD_TextQuality(t *testing.T) {
 		config.AdapterBlockBegin("cursor"),
 		config.AdapterBlockBegin("opencode"),
 		config.AgentsUserBegin,
-		"## 10. Project Memory",
-		"atlas memory context",
-		"Context Economy v0",
+		"## 2. Task classification",
+		"governed-sdd",
+		"## 5. Delivery authority",
+		"Cursor Origin",
+		"## 6. Signed commits",
+		"## 11. Memory / Context / Code Intelligence entrypoints",
+		"memory** skill",
 		"CodeGraph",
 		"Atlas Context Graph",
 		"NOT IMPLEMENTED",
-		"optional externally installed Code Intelligence provider",
 		".atlas/contracts/sdd-openspec.md",
-		"Do not invent CodeGraph results",
-		"Do not invent graph context",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q", want)
@@ -96,8 +97,10 @@ func TestAdapterProjections_TextQuality(t *testing.T) {
 	assertTextQuality(t, "cursor atlas.mdc", cursor)
 	assertContains(t, cursor,
 		"AGENTS.md",
+		"atlas-orchestrator",
+		"classify",
 		".atlas/contracts/sdd-openspec.md",
-		"Context Economy",
+		"Cursor Origin",
 		".atlas/config.yaml",
 	)
 
@@ -105,8 +108,10 @@ func TestAdapterProjections_TextQuality(t *testing.T) {
 	assertTextQuality(t, "opencode atlas.md", opencode)
 	assertContains(t, opencode,
 		"AGENTS.md",
+		"atlas-orchestrator",
+		"classify",
 		".atlas/contracts/sdd-openspec.md",
-		"Context Economy",
+		"Cursor Origin",
 	)
 }
 
@@ -119,9 +124,13 @@ func TestSDDOpenSpecContract_TextQuality(t *testing.T) {
 	}
 	assertTextQuality(t, "sdd-openspec", got)
 	assertContains(t, got,
-		"does **not** execute OpenSpec CLI commands",
+		"openspec/changes/<change-id>/",
+		"proposal.md",
+		"tasks.md",
+		"specs/<domain>/spec.md",
 		"AGENTS.md",
 		"No silent Git",
+		"Fail-closed",
 	)
 }
 
@@ -145,13 +154,11 @@ func TestBundledAgentAssets_TextQuality(t *testing.T) {
 		if !strings.Contains(text, "AGENTS.md") {
 			t.Fatalf("%s missing AGENTS.md authority reference", entry.Name())
 		}
-		if strings.Contains(strings.ToLower(text), "execute openspec") &&
-			!strings.Contains(text, "Do not execute real OpenSpec") &&
-			!strings.Contains(text, "do not execute real OpenSpec") {
-			// Allow explicit prohibition wording only.
-			if !strings.Contains(text, "Do not execute") && !strings.Contains(text, "does not execute") {
-				t.Fatalf("%s may imply OpenSpec execution", entry.Name())
-			}
+		lower := strings.ToLower(text)
+		if strings.Contains(lower, "execute openspec") &&
+			!strings.Contains(lower, "do not") &&
+			!strings.Contains(lower, "never invent") {
+			t.Fatalf("%s may imply OpenSpec execution without prohibition", entry.Name())
 		}
 	}
 }
@@ -164,7 +171,7 @@ func TestAgentRegistry_TextQuality(t *testing.T) {
 	assertContains(t, got,
 		"# Atlas Agent Registry",
 		config.FileSDDOpenSpecContract,
-		"Do not execute real OpenSpec CLI commands",
+		"OpenSpec-compatible change artifacts",
 		"AGENTS.md",
 	)
 }

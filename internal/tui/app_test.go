@@ -1131,11 +1131,15 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 		"Health",
 		"Atlas Home:",
 		"Governance Tools",
+		"OpenSpec CLI automation:",
 		"MCP",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("status missing %q:\n%s", want, content)
 		}
+	}
+	if strings.Contains(content, "OpenSpec execution:") {
+		t.Fatal("status must not use ambiguous OpenSpec execution label")
 	}
 	// Runtime file inventories belong in Doctor / Repair, not Status.
 	if strings.Contains(content, "Runtime Artifacts") || strings.Contains(content, "AGENTS markers") {
@@ -1483,6 +1487,7 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 	assertActionNearFooter(t, view)
 
 	// Governance: arrows never mutate; Space/Enter selects Spec engine.
+	// V1 offers only OpenSpec (none removed from editable choices).
 	m = gotoConfigSection(t, m, "governance")
 	m = mustModel(m.Update(key("enter")))
 	workflow, _ := m.ConfigDraft().FieldByKey("governance.default_workflow")
@@ -1490,24 +1495,23 @@ func TestInitNoArtifactsHidesGateAndNextOpensStep2(t *testing.T) {
 		t.Fatalf("workflow = %q, want sdd", workflow.Value)
 	}
 	m = mustModel(m.Update(key("down"))) // OpenSpec row
-	m = mustModel(m.Update(key("down"))) // None row
 	engine, _ := m.ConfigDraft().FieldByKey("governance.spec_engine")
 	if engine.Value != "openspec" {
 		t.Fatalf("arrows mutated spec engine to %q", engine.Value)
 	}
 	m = mustModel(m.Update(key("enter")))
 	engine, _ = m.ConfigDraft().FieldByKey("governance.spec_engine")
-	if engine.Value != "none" {
-		t.Fatalf("spec engine = %q, want none", engine.Value)
+	if engine.Value != "openspec" {
+		t.Fatalf("spec engine = %q, want openspec", engine.Value)
 	}
 	m = mustModel(m.Update(key("left"))) // sections
 	engine, _ = m.ConfigDraft().FieldByKey("governance.spec_engine")
-	if engine.Value != "none" {
+	if engine.Value != "openspec" {
 		t.Fatalf("left mutated spec engine to %q", engine.Value)
 	}
 	m = mustModel(m.Update(key("enter"))) // back into governance
 	engine, _ = m.ConfigDraft().FieldByKey("governance.spec_engine")
-	if engine.Value != "none" {
+	if engine.Value != "openspec" {
 		t.Fatalf("returning lost spec engine, got %q", engine.Value)
 	}
 

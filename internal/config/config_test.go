@@ -27,6 +27,9 @@ func TestDefaultConfigIsValid(t *testing.T) {
 	if cfg.Orchestration.DefaultWorkflow != config.WorkflowSDD {
 		t.Fatalf("default_workflow = %q, want %q", cfg.Orchestration.DefaultWorkflow, config.WorkflowSDD)
 	}
+	if !cfg.SpecEngine.Enabled || cfg.SpecEngine.Provider != config.SpecProviderOpenSpec {
+		t.Fatalf("spec_engine = enabled=%v provider=%q, want openspec enabled", cfg.SpecEngine.Enabled, cfg.SpecEngine.Provider)
+	}
 	if cfg.Memory.Provider != config.MemoryProviderSQLite {
 		t.Fatalf("memory.provider = %q, want %q", cfg.Memory.Provider, config.MemoryProviderSQLite)
 	}

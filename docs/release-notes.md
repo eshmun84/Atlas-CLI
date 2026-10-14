@@ -10,10 +10,11 @@ Baseline closes Slices 24–28 on `develop` (Status landing, Init Setup, Home pr
 
 - TUI-first launcher: Status (default landing), Init / Setup, Configure, Doctor, Runtime Repair, Context Economy, Help
 - Config persistence under `.atlas/` (`config.yaml`, `local.yaml`, `state.yaml`, `assets.lock.yaml`, `agent-registry.md`, `runtime-manifest.yaml`, `contracts/`)
-- Atlas Home (`ATLAS_HOME` or `~/.atlas`) created/updated only by mutating flows (Init Apply, Runtime Repair Apply, Context Update Apply)
+- Atlas Home (`ATLAS_HOME` or `~/.atlas`) is created/materialized by install/`materializehome` and repaired by Runtime Repair; Init requires a healthy Home and fails closed (no silent Home bootstrap). Context Economy Update may write under an existing Home project footprint
 - Project-scoped Home storage under `projects/<project-id>/` (identity from canonical root, not name alone)
 - Runtime gateway: composed `AGENTS.md`; **Cursor and OpenCode** are the supported materialized runtimes; **14 Atlas agents per selected runtime**
-- SDD/OpenSpec operational contract at `.atlas/contracts/sdd-openspec.md` (guidance only; no OpenSpec CLI execution)
+- SDD/OpenSpec operational contract at `.atlas/contracts/sdd-openspec.md` (materialized when `workflow=sdd` and `spec_engine=openspec`; before Implement require `openspec/changes/<change-id>/proposal.md` + `tasks.md`, plus specs/design when needed; OpenSpec CLI optional, never invented)
+- Slice 2 runtime hardening: materialized runtime-contract task classification and governed routing (adapter-native surfaces; not a separate machine classifier), orchestrator routing gates, delivery provider ≠ adapter ≠ `origin`, signed-commit policy via `source_control.signing_required`, thin `AGENTS.md` router, specialized SDD/review agents, progressive Memory skill references (`docs/runtime-artifact-authoring.md`)
 - Status and Doctor are **read-only**
 - Runtime Repair is the **explicit** runtime mutation path (Review → Apply), with Home-backed backup/quarantine; preserves developer-owned files; does not wipe Context Economy payloads
 - Configure Apply is **config-only** (writes `.atlas/config.yaml`; optional Init-time docs scaffold); does not rematerialize runtime
@@ -30,7 +31,7 @@ Baseline closes Slices 24–28 on `develop` (Status landing, Init Setup, Home pr
 - Atlas Context Graph engine (preference flag only; not implemented)
 - Marketplace / community / remote skills-agents registry
 - Skills v1
-- Real OpenSpec CLI integration / live specs automation
+- Real OpenSpec CLI automation (governed agent create/update of `openspec/changes/<id>/` artifacts is supported; CLI orchestration remains deferred)
 - Claude / Codex activation (adapters not materialized)
 - MCP materialization, auth, or verification
 - Git commit/push/PR/tag automation
@@ -55,7 +56,7 @@ Baseline closes Slices 24–28 on `develop` (Status landing, Init Setup, Home pr
 - MCP remains preference-only
 - No Claude/Codex activation
 - No Skills v1 / marketplace
-- No Git automation
+- No Git delivery automation beyond the explicit Init repository bootstrap
 - No publish/tag/release automation in-tree
 - Tests and smoke must use temporary `ATLAS_HOME` to avoid touching `~/.atlas`
 

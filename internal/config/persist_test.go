@@ -91,6 +91,27 @@ func TestBuildProjectDocument_FromDraftAndMCP(t *testing.T) {
 	}
 }
 
+func TestProjectDocumentToConfig_SigningRequiredRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	base := config.BuildProjectDocument(config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: "sign",
+		ProjectMode: "new",
+	}), config.EmptyMCPDraft())
+
+	base.SourceControl.SigningRequired = true
+	cfgTrue := base.ToConfig()
+	if !cfgTrue.SourceControl.SigningRequired {
+		t.Fatal("SigningRequired=true must map into Config")
+	}
+
+	base.SourceControl.SigningRequired = false
+	cfgFalse := base.ToConfig()
+	if cfgFalse.SourceControl.SigningRequired {
+		t.Fatal("SigningRequired=false must map into Config")
+	}
+}
+
 func TestBuildLocalStateAndLockDocuments(t *testing.T) {
 	t.Parallel()
 

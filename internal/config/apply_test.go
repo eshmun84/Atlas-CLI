@@ -138,16 +138,16 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 		"<!-- ATLAS:USER:BEGIN -->",
 		"<!-- ATLAS:USER:END -->",
 		"Atlas-CLI",
-		"## 1. Purpose and Authority",
-		"## 10. Project Memory",
-		"## 11. Context Economy",
-		"atlas memory context",
-		"context.graph.enabled",
-		"Skills are canonical under Atlas Home",
+		"## 1. Authority",
+		"## 2. Task classification",
+		"governed-sdd",
+		"## 11. Memory / Context / Code Intelligence entrypoints",
 		".atlas/agent-registry.md",
 		".atlas/skill-registry.md",
 		".atlas/contracts/sdd-openspec.md",
 		"atlas-orchestrator",
+		"Cursor Origin",
+		"signing_required",
 	} {
 		if !strings.Contains(agentsText, want) {
 			t.Fatalf("AGENTS.md missing %q:\n%s", want, agentsText)

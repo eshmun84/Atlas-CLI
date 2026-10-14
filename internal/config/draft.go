@@ -401,7 +401,8 @@ func boolOptions(key string) []LabeledOption {
 			{Value: "true", Label: "Yes"},
 			{Value: "false", Label: "No"},
 		}
-	case "source_control.delivery_assist":
+	case "source_control.delivery_assist",
+		"source_control.signing_required":
 		return []LabeledOption{
 			{Value: "false", Label: "Disabled"},
 			{Value: "true", Label: "Enabled"},

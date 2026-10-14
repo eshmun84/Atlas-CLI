@@ -26,8 +26,8 @@ func DefaultConfig(projectName string) Config {
 			SupportedWorkflows: []string{WorkflowSDD, WorkflowGuided},
 		},
 		SpecEngine: SpecEngineConfig{
-			Enabled:  false,
-			Provider: SpecProviderNone,
+			Enabled:  true,
+			Provider: SpecProviderOpenSpec,
 		},
 		Adapters: AdaptersConfig{
 			Cursor:   false,

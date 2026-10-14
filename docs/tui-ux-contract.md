@@ -3,7 +3,7 @@
 This document defines the product UX contract for the Atlas CLI interactive shell.
 It governs navigation, Status, and Doctor. It does not authorize new product capabilities.
 
-**Release stance:** Alpha 2 is a release candidate, not final V1. Cursor and OpenCode are the supported materialized runtimes. Status/Doctor stay read-only; Runtime Repair is the explicit path for non-MCP runtime mutation; Configure Apply reconciles Atlas-owned MCP and Skills projections; Context Economy v0 is file-based and explicit-update; CodeGraph is an optional externally installed Code Intelligence provider (not MCP). Atlas Context Graph, MCP auth/connection/verification, skills marketplace/remote install, OpenSpec CLI execution, Git automation, and Claude/Codex activation remain out of scope. See [release-readiness.md](release-readiness.md).
+**Release stance:** Alpha 2 is a release candidate, not final V1. Cursor and OpenCode are the supported materialized runtimes. Status/Doctor stay read-only; Runtime Repair is the explicit path for non-MCP runtime mutation; Configure Apply reconciles Atlas-owned MCP and Skills projections; Context Economy v0 is file-based and explicit-update; CodeGraph is an optional externally installed Code Intelligence provider (not MCP). Atlas Context Graph, MCP auth/connection/verification, skills marketplace/remote install, OpenSpec CLI automation, Git delivery automation beyond Init bootstrap, and Claude/Codex activation remain out of scope. See [release-readiness.md](release-readiness.md).
 
 ## Principles
 
@@ -67,7 +67,7 @@ Sections, in order:
 4. **Source Control / Delivery Tools** — Git repo/branch/remote (`none` when empty). Remote default branch is resolved only from local `refs/remotes/<remote>/HEAD` (`unknown locally` when that ref is missing; `none` when there is no default remote). `gh` availability, delivery-assist preference. No Git mutations; Status never contacts remotes or runs `git remote set-head`.
 5. **Project Technology** — detected stack and libraries. PATH tool `go` appears only when the project stack includes Go.
 6. **Adapters** — selected adapters and high-level projection health (`selected` / `materialized` / `missing` / `NOT SELECTED` for inactive adapters).
-7. **Governance Tools** — workflow/spec-engine preferences and OpenSpec CLI availability (`NOT IMPLEMENTED` where Atlas does not run OpenSpec).
+7. **Governance Tools** — workflow/spec-engine preferences, OpenSpec CLI availability, and OpenSpec CLI automation (`NOT IMPLEMENTED`; governed change-artifact operations remain supported).
 8. **SDD** — concise Spec Engine presence from the Inspection snapshot (`SDD: none` or `SDD: OpenSpec` plus active change summary). Read-only; does not copy OpenSpec artifacts.
 9. **MCP** — selected MCP count and per-adapter projection health (`materialized` / `drifted` / `missing` / `malformed`). Read-only; no auth or network.
 10. **Health** — PASS/WARNING/ERROR counts and result label from the same `doctor.Evaluate` summary as Doctor, optional compact “Needs attention” list (top warnings/errors only), Atlas Home presence (not path-primary), Context Economy / Memory state, suggested next action. Status must not show a clean PASS when Doctor has warnings or errors.
@@ -116,7 +116,7 @@ Init configures governed runtime, adapters, governance, and delivery assistance.
 - Delivery: Platform, Governance files, Assisted operations only. Versioned only when GitHub is selected. No tools diagnostics or Git ops on this screen.
 - Memory is not an Init choice (always-on Atlas-managed memory).
 - Context is not an Init choice: Code Intelligence / CodeGraph is a separate surface; no Atlas Context Graph setup; Context Economy remains a separate explicit flow.
-- Review → Apply summarizes Project writes, Atlas Home writes, Atlas Home reset, and No Git operations. Status and Doctor remain read-only.
+- Review → Apply summarizes Project writes, Atlas Home writes, Atlas Home reset, and Git operations. When source control requires Git and no repository exists, Review may show Git bootstrap (initialize local repo with initial branch `main`). Apply never performs commit, remote, push, pull request, merge, or tag. Status and Doctor remain read-only.
 - When Atlas Home already holds project-scoped data for the same canonical project identity, Review requires explicit reset acceptance (`x`) before Apply. Reset deletes only `$ATLAS_HOME/projects/<project-id>/`.
 
 ## Atlas Home storage (Slice 26)
@@ -128,4 +128,4 @@ Init configures governed runtime, adapters, governance, and delivery assistance.
 
 ## Out of scope for this contract
 
-Final V1 claims, Atlas Context Graph engine, MCP auth/connection/verification, marketplace/community registry / remote skill install, OpenSpec CLI execution, Git automation, Claude/Codex activation, tag/release/publish, new CLI commands.
+Final V1 claims, Atlas Context Graph engine, MCP auth/connection/verification, marketplace/community registry / remote skill install, OpenSpec CLI automation, Git delivery automation beyond Init bootstrap, Claude/Codex activation, tag/release/publish, new CLI commands.

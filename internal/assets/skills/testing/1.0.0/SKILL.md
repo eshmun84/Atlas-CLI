@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Plan and execute bounded tests for Atlas-governed changes. Use when verifying behavior, writing tests, or judging test sufficiency.
+description: "Trigger: test, testing, coverage, verify. Plan and run minimum-sufficient tests with honest evidence."
 triggers:
   - test
   - testing
@@ -12,33 +12,46 @@ triggers:
 
 ## Activation Contract
 
-Use when the task requires verifying behavior with tests, designing a minimal test plan, or judging whether existing tests cover the change.
+Load when verifying behavior, writing tests, or judging whether existing tests cover a change.
 
 ## Hard Rules
 
-- Prefer the project's existing test runner and layout.
-- Do not invent coverage numbers or test results.
-- Keep the suite bounded to the change under review.
-- Fail closed when required fixtures or runners are missing.
+- Prefer the project's existing runner and layout.
+- Prefer focused tests first; expand only when risk/contract requires it.
+- Never invent coverage numbers or results.
+- Fail closed when required runners/fixtures are missing — say so.
+- Distinguish layers: unit / integration / E2E / regression.
 
 ## Decision Gates
 
-1. Is there an existing test command and convention?
-2. What is the smallest set of cases that proves the change?
-3. Are flaky or environment-dependent tests avoided?
+| Situation | Action |
+|-----------|--------|
+| Pure logic/parser change | Focused unit tests |
+| Boundary across modules/IO | Integration test at the smallest public boundary |
+| User-visible multi-component flow | Targeted E2E only if risk warrants |
+| Prior bug class | Add/adjust regression coverage |
+| Runner unavailable | Report not-run; do not invent PASS |
 
 ## Execution Steps
 
-1. Identify the changed surface and risk.
-2. Select or author the minimal tests.
-3. Run the relevant suite when the environment supports it.
-4. Report pass/fail evidence without inventing results.
+1. Identify changed behavior and risk.
+2. Choose the minimum sufficient test layer.
+3. Author or select focused cases first.
+4. Run the narrow suite; record exact commands.
+5. Expand only when residual risk requires it.
+6. Report what was tested and what was not.
 
 ## Output Contract
 
-- Test plan (what and why)
-- Commands run (or explicit reason not run)
-- Results summary with concrete evidence
+```markdown
+## TestingResult
+- changed_behavior:
+- risk:
+- layers_used: unit | integration | e2e | regression
+- commands:
+- results:
+- not_tested:
+```
 
 ## References
 
