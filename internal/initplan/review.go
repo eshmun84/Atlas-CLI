@@ -2,11 +2,13 @@ package initplan
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 )
 
 // Backup timestamp is never generated during review preview.
@@ -129,16 +131,14 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		ExistingArtifacts:  append([]string(nil), in.Artifacts...),
 		AcceptHomeReset:    in.AcceptHomeReset,
 		DeliveryPolicy: []string{
-			"Repository creation requires explicit request.",
-			"Branch creation requires explicit request.",
 			"Commit requires explicit request.",
 			"Push requires explicit request.",
 			"Pull request requires explicit request.",
 			"Merge requires explicit request.",
+			"Remote and tag creation require explicit request.",
 		},
-		PreviewOnly:        false,
-		ConfigApplyOnly:    false,
-		GitSafetyStatement: "No repository, branch, commit, push, pull request, merge or remote operation will be performed.",
+		PreviewOnly:     false,
+		ConfigApplyOnly: false,
 	}
 
 	plan.HomeDataPresence = "absent"
@@ -179,8 +179,22 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Path: config.FileSDDOpenSpecContract, Kind: "atlas", Status: status},
 		{Path: config.FileAgentsMD, Kind: "runtime", Status: status},
 	}
-	plan.HomeWrites = []PlannedFile{
-		{Path: "Atlas Home (ATLAS_HOME or ~/.atlas)", Kind: "home", Status: "ensure + mirror bundled assets on Apply"},
+	homeStatus := home.Inspect()
+	if !home.Healthy(homeStatus) {
+		plan.Blockers = append(plan.Blockers, PlanBlocker{
+			Message: home.RepairHomeHint,
+		})
+		plan.HomeWrites = []PlannedFile{{
+			Path:   "Atlas Home (ATLAS_HOME or ~/.atlas)",
+			Kind:   "home",
+			Status: "required healthy before Apply (install / Runtime Repair; Init does not bootstrap)",
+		}}
+	} else {
+		plan.HomeWrites = []PlannedFile{{
+			Path:   "Atlas Home (ATLAS_HOME or ~/.atlas)",
+			Kind:   "home",
+			Status: "already healthy — Init will not recreate or remirror global Home",
+		}}
 	}
 	if plan.ProjectID != "" {
 		plan.HomeWrites = append(plan.HomeWrites, PlannedFile{
@@ -199,6 +213,94 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 			plan.Blockers = append(plan.Blockers, PlanBlocker{
 				Message: "Home project data detected for this project. Accept reset of local Atlas data before Apply.",
 			})
+		}
+	}
+
+	doc := config.BuildProjectDocument(draft, in.MCP)
+	preserveOpenSpec := false
+	preserveReadme := false
+	var gitignoreBackup *PlannedBackup
+	if plan.ProjectRoot != "" && config.NeedsOpenSpecBootstrap(doc) {
+		assess, assessErr := openspec.AssessLayout(plan.ProjectRoot)
+		switch {
+		case assessErr != nil:
+			plan.Blockers = append(plan.Blockers, PlanBlocker{Message: "OpenSpec layout inspection failed: " + assessErr.Error()})
+		case assess.Incompatible:
+			plan.Blockers = append(plan.Blockers, PlanBlocker{
+				Message: "OpenSpec layout is partial or incompatible (" + assess.Reason + "). Fix or remove it before Apply.",
+			})
+		case assess.Absent:
+			plan.Creates = append(plan.Creates, PlannedFile{
+				Path:   "openspec/",
+				Kind:   "openspec",
+				Status: "create minimum OpenSpec layout (openspec/ + openspec/changes/) on Apply",
+			})
+		case assess.Valid:
+			preserveOpenSpec = true
+		}
+	}
+
+	if plan.ProjectRoot != "" && config.NeedsLocalOnlyGitignore(doc) {
+		gi, giErr := config.PlanLocalOnlyGitignore(plan.ProjectRoot, doc)
+		if giErr != nil {
+			plan.Blockers = append(plan.Blockers, PlanBlocker{Message: giErr.Error()})
+		} else if gi.Changed {
+			statusGI := "add/update Atlas local governance block on Apply"
+			if gi.Created {
+				statusGI = "create .gitignore with Atlas local governance block on Apply"
+			}
+			plan.Creates = append(plan.Creates, PlannedFile{
+				Path:   config.FileGitignore,
+				Kind:   "governance",
+				Status: statusGI,
+			})
+			if !gi.Created {
+				gitignoreBackup = &PlannedBackup{
+					Path:   BackupPlaceholderDir() + config.FileGitignore,
+					Source: config.FileGitignore,
+				}
+			}
+		}
+	}
+
+	if plan.ProjectRoot != "" {
+		_, readmeErr := os.Lstat(filepath.Join(plan.ProjectRoot, config.FileREADME))
+		switch {
+		case os.IsNotExist(readmeErr):
+			plan.Creates = append(plan.Creates, PlannedFile{
+				Path:   config.FileREADME,
+				Kind:   "project",
+				Status: "create once with \"# " + plan.ProjectName + "\" if missing",
+			})
+		case readmeErr == nil:
+			preserveReadme = true
+		}
+	}
+
+	gitBootstrap := false
+	if config.NeedsGitBootstrapMode(doc) && plan.ProjectRoot != "" {
+		need, needErr := config.NeedsGitBootstrap(plan.ProjectRoot, doc.SourceControl.Mode)
+		if needErr != nil {
+			plan.Warnings = append(plan.Warnings, PlanWarning{Message: "Git discovery: " + needErr.Error()})
+		} else if need {
+			if preflightErr := config.RequireGitForBootstrap(plan.ProjectRoot, doc.SourceControl.Mode); preflightErr != nil {
+				plan.Blockers = append(plan.Blockers, PlanBlocker{Message: preflightErr.Error()})
+				plan.GitSafetyStatement = "Git bootstrap is required but blocked: " + preflightErr.Error()
+			} else {
+				gitBootstrap = true
+				plan.Creates = append(plan.Creates, PlannedFile{
+					Path:   ".git/",
+					Kind:   "git",
+					Status: "Initialize local Git repository · Initial branch: " + config.DefaultInitialBranch,
+				})
+			}
+		}
+	}
+	if plan.GitSafetyStatement == "" {
+		if gitBootstrap {
+			plan.GitSafetyStatement = "Initialize local Git repository with initial branch main. No commit, remote, push, pull request, merge, or tag will be performed."
+		} else {
+			plan.GitSafetyStatement = "No repository init, commit, remote, push, pull request, merge, or tag will be performed."
 		}
 	}
 	if config.ChipSelected(adaptersValue, "cursor") {
@@ -236,10 +338,9 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		plan.Warnings = append(plan.Warnings, PlanWarning{Message: msg})
 	}
 	backupRoot := BackupPlaceholderDir()
-	if len(replaceTargets) == 0 {
-		plan.Backups = nil
-		plan.Replacements = nil
-	} else {
+	plan.Backups = nil
+	plan.Replacements = nil
+	if len(replaceTargets) > 0 {
 		plan.Backups = make([]PlannedBackup, 0, len(replaceTargets)+1)
 		plan.Replacements = make([]PlannedReplacement, 0, len(replaceTargets))
 		for _, target := range replaceTargets {
@@ -254,24 +355,35 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 			Source: "manifest",
 		})
 	}
+	if gitignoreBackup != nil {
+		plan.Backups = append(plan.Backups, *gitignoreBackup)
+	}
 
 	plan.Preservations = []PlannedPreservation{
 		{Statement: "Existing project source files are preserved."},
-		{Statement: "README.md is preserved unless future explicit README integration is enabled."},
 		{Statement: plan.GitSafetyStatement},
 		{Statement: "Secrets and credentials are not stored."},
 		{Statement: "Developer-owned non-Atlas agents under .cursor/agents/ and .opencode/agents/ are left untouched."},
 		{Statement: "Skills are Home-canonical with exact pins; adapter skill folders are regenerable Atlas projections only."},
 		{Statement: "Claude Code and Codex adapters are not materialized."},
 		{Statement: "Atlas Home reset affects only projects/<project-id>/ for this canonical project."},
-		{Statement: "No Git operations. Remotes, branches, and repo files outside Atlas Apply targets stay untouched."},
 		{Statement: "Developer-owned project docs under docs/atlas/ are never overwritten by Runtime Repair."},
+	}
+	if preserveReadme {
+		plan.Preservations = append(plan.Preservations, PlannedPreservation{
+			Statement: "Existing README.md is preserved byte-for-byte.",
+		})
+	}
+	if preserveOpenSpec {
+		plan.Preservations = append(plan.Preservations, PlannedPreservation{
+			Statement: "Existing valid openspec/ layout is preserved (no rewrite).",
+		})
 	}
 
 	if platform == config.SourceControlGitGitHub && storage == "versioned" {
-		plan.GovernanceNote = "Atlas governance files may be versioned according to explicit Atlas policy (GitHub selected). No Git operations run during Init."
+		plan.GovernanceNote = "Atlas governance files may be versioned according to explicit Atlas policy (GitHub selected)."
 	} else {
-		plan.GovernanceNote = "Atlas governance files stay Local only. Versioning requires a supported delivery platform (GitHub)."
+		plan.GovernanceNote = "Atlas governance files stay Local only (.gitignore managed block). Versioning requires a supported delivery platform (GitHub)."
 	}
 
 	if boolFieldTrue(draft, "project.docs_scaffold") {
@@ -282,20 +394,21 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		})
 	}
 
-	plan.Warnings = []PlanWarning{
-		{Message: "Apply is the only mutation step. Status and Doctor remain read-only."},
-		{Message: "Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files."},
-		{Message: "Apply creates/updates Atlas Home (ATLAS_HOME or ~/.atlas) and mirrors bundled Atlas-owned assets."},
-		{Message: "After Init, Configure Apply saves .atlas/config.yaml and reconciles MCP projections when MCP/adapters change; Runtime Repair rematerializes non-MCP runtime files; Context Economy Update refreshes context."},
-		{Message: "Runtime conflicts block Init and require manual cleanup in this slice."},
-		{Message: "MCP desired state is stored in Atlas config and materialized into selected agent MCP configs (Atlas-owned entries only)."},
-		{Message: "MCP authentication, connection, and verification may still depend on the provider or agent. Secrets are not stored."},
-		{Message: "Context Economy v0 is a separate explicit flow. CodeGraph is an optional externally installed Code Intelligence provider (not MCP; may be unavailable). Atlas Context Graph is NOT IMPLEMENTED."},
-		{Message: "Init performs no Git operations."},
-		{Message: plan.GitSafetyStatement},
-		{Message: "Secrets and credentials are not stored."},
-		{Message: "Optional project docs scaffold is developer-owned; Runtime Repair never overwrites docs/atlas/."},
-	}
+	// Append base warnings after any dynamic warnings already accumulated
+	// (Git discovery, unsafe runtime surfaces, etc.) so they are not discarded.
+	plan.Warnings = append(plan.Warnings,
+		PlanWarning{Message: "Apply is the only mutation step. Status and Doctor remain read-only."},
+		PlanWarning{Message: "Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files."},
+		PlanWarning{Message: "Apply requires a healthy Atlas Home (from install / Runtime Repair); Init does not bootstrap global Home."},
+		PlanWarning{Message: "After Init, Configure Apply saves .atlas/config.yaml and reconciles MCP projections when MCP/adapters change; Runtime Repair rematerializes non-MCP runtime files; Context Economy Update refreshes context."},
+		PlanWarning{Message: "Runtime conflicts block Init and require manual cleanup in this slice."},
+		PlanWarning{Message: "MCP desired state is stored in Atlas config and materialized into selected agent MCP configs (Atlas-owned entries only)."},
+		PlanWarning{Message: "MCP authentication, connection, and verification may still depend on the provider or agent. Secrets are not stored."},
+		PlanWarning{Message: "Context Economy v0 is a separate explicit flow. CodeGraph is an optional externally installed Code Intelligence provider (not MCP; may be unavailable). Atlas Context Graph is NOT IMPLEMENTED."},
+		PlanWarning{Message: plan.GitSafetyStatement},
+		PlanWarning{Message: "Secrets and credentials are not stored."},
+		PlanWarning{Message: "Optional project docs scaffold is developer-owned; Runtime Repair never overwrites docs/atlas/."},
+	)
 
 	if len(in.Artifacts) > 0 {
 		plan.Warnings = append(plan.Warnings, PlanWarning{

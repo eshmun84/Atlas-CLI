@@ -10,6 +10,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
@@ -19,6 +20,9 @@ import (
 func TestSlice28DogfoodingTextQualitySmoke(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("ATLAS_HOME", homeDir)
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 
 	pass := func(msg string) { t.Log("PASS", msg) }
 

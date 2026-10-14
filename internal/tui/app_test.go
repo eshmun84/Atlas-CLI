@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/tui"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
@@ -1091,6 +1092,9 @@ func TestShellViews(t *testing.T) {
 
 func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 	t.Setenv("ATLAS_HOME", t.TempDir())
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName:    "demo",
@@ -1159,6 +1163,9 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 
 func TestRuntimeRepairTUIApplyAndNoAutoMutation(t *testing.T) {
 	t.Setenv("ATLAS_HOME", t.TempDir())
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName:    "demo",
@@ -1805,14 +1812,13 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		"AGENTS.md",
 		"Atlas Home writes",
 		"Atlas Home reset",
-		"No Git operations",
+		"Git operations",
 		"No conflicting runtime surfaces detected.",
 		"No Atlas-managed backups required",
 		"Existing project source files are preserved.",
-		"README.md is preserved",
-		"Init performs no Git operations.",
-		"No repository, branch, commit, push, pull request, merge or remote operation",
-		"Repository creation requires explicit request.",
+		"Existing README.md is preserved byte-for-byte.",
+		"No repository init, commit, remote, push, pull request, merge, or tag",
+		"Apply requires a healthy Atlas Home",
 		"Runtime conflicts block Init and require manual cleanup",
 		"Context Economy v0 is a separate explicit flow",
 		"CodeGraph is an optional externally",
@@ -1881,6 +1887,9 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 
 func TestInitDeliveryPreselectsGitLocalWhenRepoDetected(t *testing.T) {
 	t.Setenv("ATLAS_HOME", t.TempDir())
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	gitCmd := func(args ...string) {
 		t.Helper()

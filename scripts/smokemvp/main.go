@@ -46,6 +46,10 @@ func run() error {
 			return err
 		}
 	}
+	// Slice 1: install/materialize owns Atlas Home; Init Apply requires it healthy.
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		return fmt.Errorf("materialize Atlas Home: %w", err)
+	}
 
 	steps := []struct {
 		name string
@@ -58,7 +62,7 @@ func run() error {
 		{"init fresh project (mode=new)", checkInitFreshNew},
 		{"init existing project (mode=existing)", checkInitExisting},
 		{"init Cursor+OpenCode happy path", checkInitHappyPath},
-		{"atlas home mirrored on init", checkAtlasHome},
+		{"atlas home machine-ready (install/repair contract)", checkAtlasHome},
 		{"ATLAS_HOME isolates default ~/.atlas", checkDefaultHomeUntouched},
 		{"same-name different-root isolation", checkSameNameDifferentRootIsolation},
 		{"initialized Cursor project", checkCursorProject},
@@ -736,8 +740,22 @@ func checkDeveloperOwnedPreserved() error {
 
 	for rel, body := range owned {
 		got, err := os.ReadFile(filepath.Join(root, rel))
-		if err != nil || string(got) != body {
-			return fmt.Errorf("developer-owned %s mutated: %q err=%v", rel, got, err)
+		if err != nil {
+			return fmt.Errorf("developer-owned %s: %v", rel, err)
+		}
+		switch rel {
+		case ".gitignore":
+			// local_only reconciles the Atlas managed block; project rules stay.
+			if !strings.HasPrefix(string(got), body) {
+				return fmt.Errorf("developer-owned .gitignore lost project rules: %q", got)
+			}
+			if !strings.Contains(string(got), config.AtlasLocalGovernanceGitignoreBlock()) {
+				return fmt.Errorf("developer-owned .gitignore missing Atlas block: %q", got)
+			}
+		default:
+			if string(got) != body {
+				return fmt.Errorf("developer-owned %s mutated: %q", rel, got)
+			}
 		}
 	}
 	ext, err := os.ReadFile(external)

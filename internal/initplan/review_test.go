@@ -2,6 +2,7 @@ package initplan_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -67,10 +68,10 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 	if len(plan.Backups) != 0 || len(plan.Replacements) != 0 {
 		t.Fatalf("unexpected backups/replacements: %#v %#v", plan.Backups, plan.Replacements)
 	}
-	if !strings.Contains(plan.GitSafetyStatement, "No repository, branch, commit, push, pull request, merge or remote operation") {
+	if !strings.Contains(plan.GitSafetyStatement, "No repository init, commit, remote, push, pull request, merge, or tag") {
 		t.Fatalf("git safety = %q", plan.GitSafetyStatement)
 	}
-	if len(plan.DeliveryPolicy) < 6 {
+	if len(plan.DeliveryPolicy) < 5 {
 		t.Fatalf("delivery policy = %#v", plan.DeliveryPolicy)
 	}
 	if !stringsContainsAll(plan, []string{
@@ -80,13 +81,12 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 		"Claude Code and Codex adapters are not materialized.",
 		"Apply is the only mutation step. Status and Doctor remain read-only.",
 		"Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files.",
-		"Apply creates/updates Atlas Home (ATLAS_HOME or ~/.atlas) and mirrors bundled Atlas-owned assets.",
+		"Apply requires a healthy Atlas Home",
 		"After Init, Configure Apply saves .atlas/config.yaml and reconciles MCP projections",
 		"MCP desired state is stored in Atlas config and materialized into selected agent MCP configs",
 		"Runtime conflicts block Init and require manual cleanup in this slice.",
 		"Context Economy v0 is a separate explicit flow. CodeGraph is an optional externally installed Code Intelligence provider",
 		"Atlas Context Graph is NOT IMPLEMENTED.",
-		"Init performs no Git operations.",
 	}) {
 		t.Fatalf("missing preserve/warning copy: %#v %#v", plan.Preservations, plan.Warnings)
 	}
@@ -222,6 +222,142 @@ func TestBuildReview_DoesNotWriteFiles(t *testing.T) {
 	})
 	_ = initplan.BuildReview(initplan.ReviewInput{Draft: draft, MCP: config.EmptyMCPDraft()})
 	assertNoAtlasOrAgents(t, root)
+}
+
+func TestBuildReview_GitSafetyNoBootstrap(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: "nogit", ProjectMode: "new", ToolCursorAvailable: true,
+	})
+	_ = draft.ToggleMulti("adapters.selected", "cursor")
+	plan := initplan.BuildReview(initplan.ReviewInput{
+		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(),
+	})
+	want := "No repository init, commit, remote, push, pull request, merge, or tag will be performed."
+	if plan.GitSafetyStatement != want {
+		t.Fatalf("GitSafetyStatement = %q", plan.GitSafetyStatement)
+	}
+	for _, c := range plan.Creates {
+		if c.Path == ".git/" {
+			t.Fatalf("unexpected git bootstrap create: %#v", c)
+		}
+	}
+}
+
+func TestBuildReview_GitBootstrapWhenMissingRepo(t *testing.T) {
+	config.SetLookPathGitForTest(exec.LookPath)
+	t.Cleanup(func() { config.SetLookPathGitForTest(nil) })
+
+	root := t.TempDir()
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: "gitboot", ProjectMode: "new", ToolCursorAvailable: true,
+	})
+	_ = draft.ToggleMulti("adapters.selected", "cursor")
+	if !draft.SelectOption("source_control.mode", "git_github") {
+		t.Fatal("git_github")
+	}
+	plan := initplan.BuildReview(initplan.ReviewInput{
+		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(),
+	})
+	want := "Initialize local Git repository with initial branch main. No commit, remote, push, pull request, merge, or tag will be performed."
+	if plan.GitSafetyStatement != want {
+		t.Fatalf("GitSafetyStatement = %q", plan.GitSafetyStatement)
+	}
+	found := false
+	for _, c := range plan.Creates {
+		if c.Path == ".git/" {
+			found = true
+			if !strings.Contains(c.Status, "Initialize local Git repository") || !strings.Contains(c.Status, "main") {
+				t.Fatalf("git create status = %q", c.Status)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected .git/ create: %#v", plan.Creates)
+	}
+}
+
+func TestBuildReview_GitMissingIsBlocker(t *testing.T) {
+	root := t.TempDir()
+	config.SetLookPathGitForTest(func(string) (string, error) {
+		return "", os.ErrNotExist
+	})
+	t.Cleanup(func() { config.SetLookPathGitForTest(nil) })
+
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: "gitblock", ProjectMode: "new", ToolCursorAvailable: true,
+	})
+	_ = draft.ToggleMulti("adapters.selected", "cursor")
+	if !draft.SelectOption("source_control.mode", "git_local") {
+		t.Fatal("git_local")
+	}
+	plan := initplan.BuildReview(initplan.ReviewInput{
+		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(),
+	})
+	if len(plan.Blockers) == 0 || !strings.Contains(plan.Blockers[0].Message, "not found on PATH") {
+		t.Fatalf("expected git PATH blocker: %#v", plan.Blockers)
+	}
+	if !strings.Contains(plan.GitSafetyStatement, "blocked") {
+		t.Fatalf("GitSafetyStatement = %q", plan.GitSafetyStatement)
+	}
+	for _, c := range plan.Creates {
+		if c.Path == ".git/" {
+			t.Fatalf("must not plan .git create when git missing: %#v", c)
+		}
+	}
+}
+
+func TestBuildReview_PreservesDynamicWarningsWithBase(t *testing.T) {
+	// Root "." is non-empty for Review but rejected by NeedsGitBootstrap,
+	// producing a dynamic "Git discovery" warning before base warnings are appended.
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: "warnkeep", ProjectMode: "new", ToolCursorAvailable: true,
+	})
+	_ = draft.ToggleMulti("adapters.selected", "cursor")
+	if !draft.SelectOption("source_control.mode", "git_local") {
+		t.Fatal("git_local")
+	}
+	plan := initplan.BuildReview(initplan.ReviewInput{
+		Root: ".", Draft: draft, MCP: config.EmptyMCPDraft(),
+	})
+
+	var foundGitDiscovery, foundBase bool
+	gitIdx, baseIdx := -1, -1
+	for i, w := range plan.Warnings {
+		if strings.HasPrefix(w.Message, "Git discovery:") {
+			foundGitDiscovery = true
+			if gitIdx < 0 {
+				gitIdx = i
+			}
+		}
+		if w.Message == "Apply is the only mutation step. Status and Doctor remain read-only." {
+			foundBase = true
+			if baseIdx < 0 {
+				baseIdx = i
+			}
+		}
+	}
+	if !foundGitDiscovery {
+		t.Fatalf("dynamic Git discovery warning lost: %#v", plan.Warnings)
+	}
+	if !foundBase {
+		t.Fatalf("base warning missing: %#v", plan.Warnings)
+	}
+	if gitIdx >= baseIdx {
+		t.Fatalf("expected dynamic warning before base warnings: gitIdx=%d baseIdx=%d", gitIdx, baseIdx)
+	}
+	// No duplicate dynamic warning.
+	count := 0
+	for _, w := range plan.Warnings {
+		if strings.HasPrefix(w.Message, "Git discovery:") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("Git discovery warning duplicated: count=%d warnings=%#v", count, plan.Warnings)
+	}
 }
 
 func assertCreatePaths(t *testing.T, plan initplan.MaterializationPlan, want []string) {

@@ -14,6 +14,9 @@ import (
 func TestApplyUpdate_StaleSignature_RecomputedUnderLock(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv(home.EnvAtlasHome, homeDir)
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName: "lock-ctx", ProjectMode: "new",

@@ -90,6 +90,19 @@ if [[ -x "$INSTALLED" ]]; then
 else
   bad "installed binary missing: $INSTALLED"
 fi
+if find "$SMOKE_PREFIX/bin" -name '.atlas.new.*' 2>/dev/null | grep -q .; then
+  bad "install left staged binary under $SMOKE_PREFIX/bin"
+else
+  ok "install left no staged binary"
+fi
+
+log
+log "-- installlocal unit tests (temp PREFIX/Home via t.TempDir) --"
+if go test ./scripts/installlocal/ -count=1; then
+  ok "go test ./scripts/installlocal"
+else
+  bad "go test ./scripts/installlocal"
+fi
 
 log
 log "-- atlas --version --"

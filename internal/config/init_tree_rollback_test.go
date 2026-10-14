@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/mcp"
 	"github.com/eshmun84/Atlas-CLI/internal/mcp/cursor"
 )
@@ -112,10 +113,13 @@ func TestInitApply_ExactTreeRollbackPreservesPreexistingDirs(t *testing.T) {
 	}
 }
 
-func TestInitApply_RestoresGlobalHomeMirrorOnFailure(t *testing.T) {
+func TestInitApply_DoesNotBootstrapOrMutateGlobalHomeOnFailure(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("ATLAS_HOME", homeDir)
-	// Home does not exist yet — failed Init must remove the Home it created.
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	beforeHome := listTree(t, homeDir)
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName: "home-mirror", ProjectMode: "new", ToolOpenCodeAvailable: true,
@@ -134,11 +138,25 @@ func TestInitApply_RestoresGlobalHomeMirrorOnFailure(t *testing.T) {
 		Root: root, Draft: draft, MCP: mcpDraft,
 		Now: func() time.Time { return time.Date(2026, 10, 8, 23, 10, 0, 0, time.UTC) },
 	})
-	if err == nil || !strings.Contains(err.Error(), "Atlas Home mirror baseline") {
-		t.Fatalf("expected home mirror rollback wording, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "rolled back") {
+		t.Fatalf("expected project rollback, got %v", err)
 	}
-	entries, _ := os.ReadDir(homeDir)
-	if len(entries) != 0 {
-		t.Fatalf("Atlas Home mirror must be cleared on failed Init: %v", entries)
+	afterHome := listTree(t, homeDir)
+	// Global Home layout/assets must remain; only project-scoped paths may differ and
+	// must be rolled back to absent for this failed Init.
+	for _, rel := range beforeHome {
+		if strings.HasPrefix(rel, "projects/") {
+			continue
+		}
+		found := false
+		for _, a := range afterHome {
+			if a == rel {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("global Home path lost after failed Init: %s", rel)
+		}
 	}
 }

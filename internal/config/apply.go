@@ -12,6 +12,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/mcp"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 	"github.com/eshmun84/Atlas-CLI/internal/project/mutatelock"
+	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 	"gopkg.in/yaml.v3"
 )
@@ -62,11 +63,13 @@ type ApplyResult struct {
 }
 
 // ApplyConfig persists Atlas-owned configuration under .atlas/ and materializes
-// allowlisted runtime entrypoints. It never modifies Git and never stores secrets.
+// allowlisted runtime entrypoints. It never stores secrets.
 //
-// Phase A (read-only): validate, preflight MCP/docs, human Home-reset gate, render,
-// and snapshot. Zero mutation until Phase B.
+// Phase A (read-only): validate, preflight MCP/docs/OpenSpec/Home, human Home-reset
+// gate, render, and snapshot. Zero mutation until Phase B.
 // Phase B (transaction): every error restores workspace files and staged Home project data.
+// Global Atlas Home must already be healthy (install / Runtime Repair); Init does not
+// bootstrap it. Git may be initialized when source_control implies it and Review consented.
 func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	root := filepath.Clean(strings.TrimSpace(in.Root))
 	if root == "" || root == "." {
@@ -123,6 +126,32 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		return ApplyResult{}, fmt.Errorf("apply config: %w", err)
 	}
 
+	// Init never bootstraps Atlas Home. Installation / Runtime Repair own that.
+	if _, err := home.RequireHealthy(); err != nil {
+		return ApplyResult{HomePath: homePath, ProjectID: projectID},
+			fmt.Errorf("apply config: %w", err)
+	}
+
+	if NeedsOpenSpecBootstrap(doc) {
+		assess, assessErr := openspec.AssessLayout(root)
+		if assessErr != nil {
+			return ApplyResult{HomePath: homePath, ProjectID: projectID},
+				fmt.Errorf("apply config: openspec: %w", assessErr)
+		}
+		if assess.Incompatible {
+			return ApplyResult{HomePath: homePath, ProjectID: projectID},
+				fmt.Errorf("apply config: openspec: incompatible existing layout: %s", assess.Reason)
+		}
+	}
+	if _, err := PlanLocalOnlyGitignore(root, doc); err != nil {
+		return ApplyResult{HomePath: homePath, ProjectID: projectID},
+			fmt.Errorf("apply config: %w", err)
+	}
+	if err := RequireGitForBootstrap(root, doc.SourceControl.Mode); err != nil {
+		return ApplyResult{HomePath: homePath, ProjectID: projectID},
+			fmt.Errorf("apply config: %w", err)
+	}
+
 	atlasRels := []string{
 		FileConfig, FileLocal, FileAssetsLock, FileAgentRegistry, FileRuntimeManifest, FileSkillRegistry, FileState,
 	}
@@ -131,7 +160,7 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	}
 
 	// Pre-render write payloads from locked filesystem observations.
-	// Skill registry is rendered after EnsureAndMirror so Home digests match.
+	// Skill registry digests read from the already-healthy Atlas Home.
 	registry := RenderAgentRegistry(doc.Project.Name, doc.Adapters.Selected, homePath)
 	manifest, err := RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
 	if err != nil {
@@ -214,31 +243,23 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	}
 
 	// ---------- Phase B: mutation transaction ----------
+	// Global Atlas Home is never created here; only project-scoped Home layout/files.
 	rollback := func(cause error) (ApplyResult, error) {
 		if restoreErr := restoreInitFiles(root, baseline); restoreErr != nil {
 			return ApplyResult{}, fmt.Errorf("apply config: %v (rollback failed: %v)", cause, restoreErr)
 		}
-		// Restores project workspace tree + project Home staging + global Home mirror
-		// snapshot captured before EnsureAndMirror.
-		return ApplyResult{}, fmt.Errorf("apply config: %w (rolled back project workspace and Atlas Home mirror baseline)", cause)
+		return ApplyResult{}, fmt.Errorf("apply config: %w (rolled back project workspace and Atlas Home project baseline)", cause)
 	}
 
-	homeResult, err := home.EnsureAndMirror(now)
-	// Merge partial Home footprint even when EnsureAndMirror fails mid-mutation.
-	baseline.mirror.Footprint = homeResult.Footprint
-	baseline.homeFootprint.MergeFootprint(homeResult.Footprint)
-	if err != nil {
-		return rollback(err)
-	}
 	result := ApplyResult{
-		HomePath:    homeResult.HomePath,
-		HomeCreated: homeResult.Created,
+		HomePath:    homePath,
+		HomeCreated: false,
 		ProjectID:   projectID,
 	}
 
 	if needsHomeReset {
 		stamp := mcp.NewBackupStamp(now)
-		staging, stageErr := home.StageProjectReset(homeResult.HomePath, projectID, stamp)
+		staging, stageErr := home.StageProjectReset(homePath, projectID, stamp)
 		if stageErr != nil {
 			return rollback(stageErr)
 		}
@@ -246,12 +267,12 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		result.HomeReset = staging.Active
 	}
 
-	layoutDirs, err := home.EnsureProjectLayoutCreated(homeResult.HomePath, projectID)
+	layoutDirs, err := home.EnsureProjectLayoutCreated(homePath, projectID)
 	baseline.homeFootprint.MergeDirs(layoutDirs)
 	if err != nil {
 		return rollback(err)
 	}
-	idWrote, idDirs, idErr := home.WriteProjectIdentityTracked(homeResult.HomePath, projectID, doc.Project.Name, root, now)
+	idWrote, idDirs, idErr := home.WriteProjectIdentityTracked(homePath, projectID, doc.Project.Name, root, now)
 	baseline.homeFootprint.MergeDirs(idDirs)
 	if idErr != nil {
 		return rollback(idErr)
@@ -263,7 +284,7 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	}
 	result.Directories = append(result.Directories, DirAtlas)
 
-	backupDir, _, backupFP, err := BackupExistingTargets(root, homeResult.HomePath, projectID, targets, now)
+	backupDir, _, backupFP, err := BackupExistingTargets(root, homePath, projectID, targets, now)
 	baseline.homeFootprint.MergeFootprint(backupFP)
 	if err != nil {
 		return rollback(err)
@@ -286,10 +307,10 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	if _, err := ReconcileMCPProjections(root, doc, in.MCP); err != nil {
 		return rollback(fmt.Errorf("mcp materialization failed: %w", err))
 	}
-	if err := recordOwnershipWriteFootprint(&baseline.homeFootprint, homeResult.HomePath, projectID, !baseline.ownershipExists); err != nil {
+	if err := recordOwnershipWriteFootprint(&baseline.homeFootprint, homePath, projectID, !baseline.ownershipExists); err != nil {
 		return rollback(fmt.Errorf("ownership footprint: %w", err))
 	}
-	skillRegistry, skillRegErr := RenderSkillRegistry(doc, homeResult.HomePath)
+	skillRegistry, skillRegErr := RenderSkillRegistry(doc, homePath)
 	if skillRegErr != nil {
 		return rollback(fmt.Errorf("render %s: %w", FileSkillRegistry, skillRegErr))
 	}
@@ -329,6 +350,56 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		return rollback(docsErr)
 	} else {
 		result.Files = append(result.Files, created...)
+	}
+
+	if NeedsOpenSpecBootstrap(doc) {
+		osResult, osErr := openspec.EnsureBootstrap(root)
+		baseline.footprint.MergeFootprint(osResult.Footprint)
+		if osErr != nil {
+			return rollback(fmt.Errorf("openspec: %w", osErr))
+		}
+		if osResult.Created {
+			result.Directories = append(result.Directories, osResult.Paths...)
+		}
+	}
+
+	giResult, giWorkspaceFP, giHomeFP, giErr := ReconcileLocalOnlyGitignore(root, homePath, projectID, doc, now)
+	baseline.footprint.MergeFootprint(giWorkspaceFP)
+	baseline.homeFootprint.MergeFootprint(giHomeFP)
+	if giErr != nil {
+		return rollback(giErr)
+	}
+	if giResult.Changed {
+		result.Files = append(result.Files, FileGitignore)
+		if giResult.BackupDir != "" && result.BackupDir == "" {
+			result.BackupDir = giResult.BackupDir
+		}
+	}
+
+	readmeCreated, readmeFP, readmeErr := EnsureRootREADME(root, doc.Project.Name)
+	baseline.footprint.MergeFootprint(readmeFP)
+	if readmeErr != nil {
+		return rollback(readmeErr)
+	}
+	if readmeCreated {
+		result.Files = append(result.Files, FileREADME)
+	}
+
+	if NeedsGitBootstrapMode(doc) {
+		needGit, gitNeedErr := NeedsGitBootstrap(root, doc.SourceControl.Mode)
+		if gitNeedErr != nil {
+			return rollback(gitNeedErr)
+		}
+		if needGit {
+			gitResult, gitErr := BootstrapGitRepo(root)
+			if gitErr != nil {
+				return rollback(gitErr)
+			}
+			if gitResult.Created {
+				baseline.gitBootstrapped = true
+				result.Directories = append(result.Directories, ".git")
+			}
+		}
 	}
 
 	if err := home.CommitProjectReset(baseline.homeStaging); err != nil {

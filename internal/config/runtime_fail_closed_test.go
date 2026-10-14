@@ -58,6 +58,9 @@ func TestRenderAgentsMD_HealthyUnchanged(t *testing.T) {
 func TestApplyConfig_AdapterAssetFailureBlocks(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv(home.EnvAtlasHome, homeDir)
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	config.SetLoadAgentsAssetForTest(func(rel string) (string, error) {
 		if strings.Contains(rel, "adapters/cursor") {

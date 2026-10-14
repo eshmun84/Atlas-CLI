@@ -68,7 +68,14 @@ func writeStatusWorkspace(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintf(b, "  Project: %s\n", name)
 	fmt.Fprintf(b, "  Root: %s\n", displayOrDash(result.RootPath))
 	fmt.Fprintf(b, "  Atlas state: %s\n", result.Atlas.State)
-	fmt.Fprintf(b, "  Project mode: %s\n\n", detectedModeLabel(result))
+	fmt.Fprintf(b, "  Project mode: %s\n", detectedModeLabel(result))
+	if !result.Atlas.Initialized() {
+		fmt.Fprintln(b)
+		fmt.Fprintln(b, statusWarn.Render("  Not an Atlas project"))
+		fmt.Fprintln(b, "  Run `atlas init` to initialize this project.")
+		fmt.Fprintln(b, "  Run `atlas help` for available commands.")
+	}
+	fmt.Fprintln(b)
 }
 
 func writeStatusRuntime(b *strings.Builder, result inspect.Inspection) {

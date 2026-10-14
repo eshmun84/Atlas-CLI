@@ -16,6 +16,9 @@ import (
 func TestApplyConfig_SkillReconcileThenLaterFailure_RestoresProjectionsAndOwnership_AbsentBaseline(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("ATLAS_HOME", homeDir)
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
@@ -74,6 +77,9 @@ func TestApplyConfig_SkillReconcileThenLaterFailure_RestoresProjectionsAndOwners
 func TestPersistConfigure_SkillReconcileThenLaterFailure_RestoresProjectionsAndOwnership_ExistingBaseline(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("ATLAS_HOME", homeDir)
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 
 	baseDraft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{

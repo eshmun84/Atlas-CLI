@@ -24,6 +24,11 @@ func TestBuildRuntimeRepairPlan_HealthyNoop(t *testing.T) {
 }
 
 func TestBuildRuntimeRepairPlan_BlockedWhenNotInitialized(t *testing.T) {
+	// Healthy Home + non-project cwd → blocked (no project to repair).
+	t.Setenv(home.EnvAtlasHome, t.TempDir())
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	result := mustDiscover(t, root)
 	plan := runtime.BuildRuntimeRepairPlan(root, result.Runtime)

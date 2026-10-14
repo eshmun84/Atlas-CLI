@@ -89,6 +89,11 @@ func LoadAgentsAssetDefaultForTest(rel string) (string, error) {
 	return loadAgentsAssetDefault(rel)
 }
 
+// MergeAtlasGitignoreBlockForTest exposes managed .gitignore consolidation.
+func MergeAtlasGitignoreBlockForTest(existing string) (string, error) {
+	return mergeAtlasGitignoreBlock(existing)
+}
+
 // SetRenderAtlasAgentReadersForTest installs test-only agent content readers.
 func SetRenderAtlasAgentReadersForTest(
 	canonical func(path string) ([]byte, error),

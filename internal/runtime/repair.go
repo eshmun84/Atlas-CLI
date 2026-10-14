@@ -8,6 +8,7 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/adapters"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 )
@@ -105,7 +106,13 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 		Backups:     []string{},
 	}
 
+	addHomeRepairTargets(&plan, health)
+
 	if !health.ConfigExists {
+		// Home-only repair remains available when Atlas Home itself is unhealthy.
+		if len(plan.Targets) > 0 {
+			return plan
+		}
 		plan.Blocked = true
 		plan.Blockers = append(plan.Blockers, "project is not initialized")
 		return plan
@@ -330,27 +337,6 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 		}
 	}
 
-	if health.Initialized || health.RuntimeMaterialized {
-		switch {
-		case !health.Home.Exists:
-			addRepairTarget(&plan, RuntimeRepairTarget{
-				Path:   RepairHomePath,
-				Action: RepairActionCreate,
-				Kind:   RepairKindHome,
-				Reason: "Atlas Home missing",
-			})
-			plan.Drift = append(plan.Drift, "Atlas Home missing: "+health.Home.Path)
-		case !health.Home.LayoutComplete || len(health.Home.MissingAssets) > 0 || len(health.Home.DriftedAssets) > 0:
-			addRepairTarget(&plan, RuntimeRepairTarget{
-				Path:   RepairHomePath,
-				Action: RepairActionReplace,
-				Kind:   RepairKindHome,
-				Reason: "Atlas Home assets missing or drifted",
-			})
-			plan.Drift = append(plan.Drift, "Atlas Home needs refresh: "+health.Home.Path)
-		}
-	}
-
 	// When an adapter is unselected, quarantine only Atlas-owned artifacts under
 	// that surface. Never remove the whole tree (MCP configs / user settings stay).
 	if !selected["cursor"] {
@@ -412,6 +398,9 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 
 // ShowRuntimeRepair reports whether the Runtime Repair sidebar entry should appear.
 func ShowRuntimeRepair(root string, atlas project.AtlasStatus, health Health) bool {
+	if home.NeedsRepair(health.Home) {
+		return true
+	}
 	if atlas.Initialized() || health.RuntimeMaterialized {
 		return true
 	}
@@ -420,6 +409,29 @@ func ShowRuntimeRepair(root string, atlas project.AtlasStatus, health Health) bo
 	}
 	plan := BuildRuntimeRepairPlan(root, health)
 	return plan.NeedsApply() || plan.Blocked
+}
+
+func addHomeRepairTargets(plan *RuntimeRepairPlan, health Health) {
+	switch {
+	case !health.Home.Exists:
+		addRepairTarget(plan, RuntimeRepairTarget{
+			Path:   RepairHomePath,
+			Action: RepairActionCreate,
+			Kind:   RepairKindHome,
+			Reason: "Atlas Home missing",
+		})
+		plan.Drift = append(plan.Drift, "Atlas Home missing: "+health.Home.Path)
+	case !health.Home.LayoutComplete || len(health.Home.MissingAssets) > 0 ||
+		len(health.Home.DriftedAssets) > 0 || len(health.Home.AssetErrors) > 0 ||
+		!health.Home.StateLoads:
+		addRepairTarget(plan, RuntimeRepairTarget{
+			Path:   RepairHomePath,
+			Action: RepairActionReplace,
+			Kind:   RepairKindHome,
+			Reason: "Atlas Home assets missing, drifted, or corrupt",
+		})
+		plan.Drift = append(plan.Drift, "Atlas Home needs refresh: "+health.Home.Path)
+	}
 }
 
 func expectedAdapterContent(adapter, projectName string) (string, error) {

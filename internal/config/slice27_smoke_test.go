@@ -22,6 +22,9 @@ import (
 func TestSlice27ConfigureContextMCPDocsSmoke(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("ATLAS_HOME", homeDir)
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("proj\n"), 0o644); err != nil {
 		t.Fatal(err)

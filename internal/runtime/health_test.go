@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
@@ -156,6 +157,9 @@ func materializeProject(t *testing.T, adapters []string, contextGraph bool) stri
 	t.Helper()
 	// Unique Atlas Home per test; callers must not use t.Parallel with Setenv.
 	t.Setenv("ATLAS_HOME", t.TempDir())
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatalf("materialize Atlas Home: %v", err)
+	}
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName:   "demo",

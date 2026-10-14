@@ -9,11 +9,15 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/adapters"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/skills"
 )
 
 func TestApplyConfig_ProjectsSkillsForSelectedAdapters(t *testing.T) {
 	t.Setenv("ATLAS_HOME", t.TempDir())
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName:      "skills-demo",

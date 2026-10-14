@@ -10,12 +10,16 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 )
 
 func TestDeliveryAutodetect_GitRepoFromDiscovery(t *testing.T) {
 	t.Setenv("ATLAS_HOME", t.TempDir())
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 
 	root := t.TempDir()
 	runGit(t, root, "init")

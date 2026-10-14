@@ -10,6 +10,7 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
+	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/mcp"
 	"github.com/eshmun84/Atlas-CLI/internal/mcp/cursor"
@@ -93,6 +94,9 @@ func TestEvaluateHealth_UnownedEqualPayload_NotMaterialized(t *testing.T) {
 func TestDoctor_OwnershipConflictFailsWithoutMaterializedPass(t *testing.T) {
 	homePath := t.TempDir()
 	t.Setenv("ATLAS_HOME", homePath)
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{

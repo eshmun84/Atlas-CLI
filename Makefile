@@ -13,10 +13,10 @@ build:
 
 # Local install for Alpha validation. Defaults to ~/.local/bin when that tree exists
 # in the environment; smoke uses a temporary PREFIX and never publishes.
+# Stages the binary, materializes Atlas Home (ATLAS_HOME or ~/.atlas), then
+# renames into place so a Home failure cannot publish a new definitive binary.
 install: build
-	mkdir -p "$(PREFIX)/bin"
-	cp "$(BINARY)" "$(PREFIX)/bin/atlas"
-	@echo "installed $(PREFIX)/bin/atlas"
+	go run ./scripts/installlocal -binary="$(BINARY)" -prefix="$(PREFIX)"
 
 test:
 	go test ./...

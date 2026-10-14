@@ -31,6 +31,7 @@ type initMutationSnapshot struct {
 	homeFootprint   fsafety.TransactionFootprint
 	skillsMutation  skills.MutationState
 	hooksMutation   hookproj.MutationState
+	gitBootstrapped bool
 }
 
 // Atlas workspace directory candidates that Init may create. Tracked for
@@ -49,6 +50,8 @@ var initDirCandidates = []string{
 	".opencode",
 	"docs/atlas",
 	"docs",
+	"openspec/changes",
+	"openspec",
 }
 
 func captureInitMutationSnapshot(root, homePath, projectID string, targets []string, atlasRels []string) (initMutationSnapshot, error) {
@@ -124,6 +127,8 @@ func captureInitMutationSnapshot(root, homePath, projectID string, targets []str
 		".opencode/plugins/atlas-hooks/index.ts",
 		"opencode.json",
 		FileProjectDocsREADME,
+		FileREADME,
+		FileGitignore,
 	} {
 		if err := add(rel); err != nil {
 			return snap, err
@@ -134,6 +139,12 @@ func captureInitMutationSnapshot(root, homePath, projectID string, targets []str
 
 func restoreInitFiles(root string, snap initMutationSnapshot) error {
 	var errs []string
+
+	if snap.gitBootstrapped {
+		if err := RemoveBootstrappedGit(root); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
 
 	// Hooks then skills (reverse of late Apply order).
 	if err := snap.hooksMutation.Rollback(); err != nil {

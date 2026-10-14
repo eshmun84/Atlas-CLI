@@ -39,6 +39,12 @@ func Doctor(report doctor.Report, result inspect.Inspection) string {
 	fmt.Fprintln(&b, docHead.Render("Atlas Doctor"))
 	fmt.Fprintln(&b, docMute.Render("Deep diagnostics · read-only"))
 	fmt.Fprintln(&b)
+	if !result.Atlas.Initialized() {
+		fmt.Fprintln(&b, docWarn.Render("Not an Atlas project"))
+		fmt.Fprintln(&b, "  Run `atlas init` to initialize this project.")
+		fmt.Fprintln(&b, "  Run `atlas help` for available commands.")
+		fmt.Fprintln(&b)
+	}
 
 	passed, warnings, failed := report.Counts()
 	fmt.Fprintln(&b, docHead.Render("Overall Health"))

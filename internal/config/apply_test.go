@@ -16,6 +16,9 @@ import (
 func withTempAtlasHome(t *testing.T) {
 	t.Helper()
 	t.Setenv("ATLAS_HOME", t.TempDir())
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatalf("materialize Atlas Home: %v", err)
+	}
 }
 
 func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
@@ -25,11 +28,9 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("keep me"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	head := []byte("ref: refs/heads/main\n")
-	if err := os.WriteFile(filepath.Join(root, ".git", "HEAD"), head, 0o644); err != nil {
+	runGit(t, root, "init", "-b", "main")
+	head, err := os.ReadFile(filepath.Join(root, ".git", "HEAD"))
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("bin/\n"), 0o644); err != nil {
@@ -65,8 +66,17 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	if len(result.Files) != 8 {
+	if len(result.Files) < 8 {
 		t.Fatalf("files = %#v", result.Files)
+	}
+	foundIgnore := false
+	for _, f := range result.Files {
+		if f == config.FileGitignore {
+			foundIgnore = true
+		}
+	}
+	if !foundIgnore {
+		t.Fatalf("expected .gitignore in apply files: %#v", result.Files)
 	}
 	wantRuntime := 1 + 2 + len(config.AtlasAgentRuntimePaths([]string{"cursor", "opencode"}))
 	if len(result.RuntimeFiles) != wantRuntime {
@@ -233,8 +243,14 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 		t.Fatalf("README mutated: %s err=%v", readme, err)
 	}
 	ignore, err := os.ReadFile(filepath.Join(root, ".gitignore"))
-	if err != nil || string(ignore) != "bin/\n" {
-		t.Fatalf("gitignore mutated: %s err=%v", ignore, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(ignore), "bin/\n") {
+		t.Fatalf("gitignore lost project rules: %s", ignore)
+	}
+	if !strings.Contains(string(ignore), config.AtlasLocalGovernanceGitignoreBlock()) {
+		t.Fatalf("gitignore missing Atlas block: %s", ignore)
 	}
 	gotHead, err := os.ReadFile(filepath.Join(root, ".git", "HEAD"))
 	if err != nil || string(gotHead) != string(head) {

@@ -15,6 +15,9 @@ import (
 func TestBackupPermissions_InitAndRepair(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv(home.EnvAtlasHome, homeDir)
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 
 	if err := os.MkdirAll(filepath.Join(root, ".cursor", "rules"), 0o755); err != nil {

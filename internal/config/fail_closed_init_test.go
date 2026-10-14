@@ -18,16 +18,19 @@ func TestApplyConfig_InspectProjectDataFailure_ZeroMutation(t *testing.T) {
 	// home production test setters.
 	homeDir := t.TempDir()
 	t.Setenv(home.EnvAtlasHome, homeDir)
+	if _, err := home.EnsureAndMirror(time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	pid, err := home.ProjectID(root, "gate-fail")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(homeDir, "projects"), 0o700); err != nil {
-		t.Fatal(err)
-	}
 	outside := t.TempDir()
-	if err := os.Symlink(outside, home.ProjectRoot(homeDir, pid)); err != nil {
+	// Replace healthy project slot with a symlink to force inspect fail-closed.
+	proj := home.ProjectRoot(homeDir, pid)
+	_ = os.RemoveAll(proj)
+	if err := os.Symlink(outside, proj); err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,9 +60,9 @@ func TestApplyConfig_InspectProjectDataFailure_ZeroMutation(t *testing.T) {
 	}
 }
 
-func TestApplyConfig_MirrorSnapshotFailure_BeforeEnsureAndMirror(t *testing.T) {
-	// Pre-existing Home with layout name "assets" as a file forces CaptureMirrorSnapshot
-	// to fail closed before EnsureAndMirror.
+func TestApplyConfig_UnhealthyHome_BeforeSnapshot(t *testing.T) {
+	// Pre-existing Home with layout name "assets" as a file is not healthy.
+	// Init must fail closed with the repair hint and must not mutate Home.
 	homeDir := t.TempDir()
 	t.Setenv(home.EnvAtlasHome, homeDir)
 	if err := os.WriteFile(filepath.Join(homeDir, "assets"), []byte("not-a-dir\n"), 0o644); err != nil {
@@ -83,14 +86,13 @@ func TestApplyConfig_MirrorSnapshotFailure_BeforeEnsureAndMirror(t *testing.T) {
 		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(),
 		Now: func() time.Time { return time.Date(2026, 10, 8, 23, 55, 0, 0, time.UTC) },
 	})
-	if err == nil || !strings.Contains(err.Error(), "snapshot") {
-		t.Fatalf("expected snapshot abort, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), home.RepairHomeHint) {
+		t.Fatalf("expected unhealthy Home abort, got %v", err)
 	}
 	afterHome := listNamesInit(t, homeDir)
 	if strings.Join(afterHome, ",") != strings.Join(beforeHome, ",") {
-		t.Fatalf("EnsureAndMirror must not run: before=%v after=%v", beforeHome, afterHome)
+		t.Fatalf("Init must not mutate Home: before=%v after=%v", beforeHome, afterHome)
 	}
-	// assets file must remain untouched.
 	data, err := os.ReadFile(filepath.Join(homeDir, "assets"))
 	if err != nil || string(data) != "not-a-dir\n" {
 		t.Fatalf("assets fixture mutated: %q %v", data, err)

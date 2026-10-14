@@ -131,8 +131,8 @@ func RenderReview(view ReviewView) string {
 	fmt.Fprintln(&b, "  "+initMuted.Render("Authentication/connection/verification may still depend on the provider or agent. Secrets are not stored."))
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, initSection.Render("No Git operations"))
-	fmt.Fprintln(&b, "  "+initOK.Render(plan.GitSafetyStatement))
+	fmt.Fprintln(&b, initSection.Render("Git operations"))
+	writeGitSafetyLines(&b, plan.GitSafetyStatement)
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, initSection.Render("Runtime conflicts"))
@@ -188,11 +188,10 @@ func RenderReview(view ReviewView) string {
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, initSection.Render("Git / delivery policy"))
-	fmt.Fprintln(&b, "  "+initOK.Render("Init performs no Git operations."))
 	for _, line := range plan.DeliveryPolicy {
 		fmt.Fprintf(&b, "  - %s\n", line)
 	}
-	fmt.Fprintln(&b, "  "+initOK.Render(plan.GitSafetyStatement))
+	writeGitSafetyLines(&b, plan.GitSafetyStatement)
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, initSection.Render("Warnings / blockers"))
@@ -212,4 +211,24 @@ func RenderReview(view ReviewView) string {
 	}
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// writeGitSafetyLines renders plan.GitSafetyStatement under the Git operations
+// heading. Bootstrap plans are split into two lines for consent clarity.
+func writeGitSafetyLines(b *strings.Builder, statement string) {
+	const bootstrapLead = "Initialize local Git repository with initial branch main."
+	statement = strings.TrimSpace(statement)
+	if statement == "" {
+		return
+	}
+	if strings.HasPrefix(statement, bootstrapLead) {
+		fmt.Fprintln(b, "  "+initOK.Render(bootstrapLead))
+		rest := strings.TrimSpace(strings.TrimPrefix(statement, bootstrapLead))
+		rest = strings.TrimPrefix(rest, " ")
+		if rest != "" {
+			fmt.Fprintln(b, "  "+initOK.Render(rest))
+		}
+		return
+	}
+	fmt.Fprintln(b, "  "+initOK.Render(statement))
 }

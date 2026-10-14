@@ -127,6 +127,25 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		return result, nil
 	}
 
+	// Home-only repair: restore canonical Atlas Home without requiring a project.
+	if !health.ConfigExists && planIsHomeOnly(plan) {
+		homeResult, err := home.EnsureAndMirror(now)
+		if err != nil {
+			return result, fmt.Errorf("runtime repair: %w", err)
+		}
+		action := RepairActionReplace
+		if homeResult.Created {
+			action = RepairActionCreate
+			result.Created = append(result.Created, RepairHomePath)
+		} else {
+			result.Replaced = append(result.Replaced, RepairHomePath)
+		}
+		result.Actions = append(result.Actions, action+" "+RepairHomePath)
+		result.MessageTitle = RepairSuccessTitle
+		result.MessageBody = "Atlas Home was restored. Project runtime was left untouched."
+		return result, nil
+	}
+
 	// Preflight: render Atlas-owned write payloads from locked observations.
 	doc := health.Document
 	type pendingWrite struct {
@@ -494,6 +513,18 @@ func configValidateWrite(rel string) error {
 		}
 		return fmt.Errorf("runtime repair: refused write path %q", rel)
 	}
+}
+
+func planIsHomeOnly(plan RuntimeRepairPlan) bool {
+	if len(plan.Targets) == 0 {
+		return false
+	}
+	for _, target := range plan.Targets {
+		if target.Kind != RepairKindHome || target.Path != RepairHomePath {
+			return false
+		}
+	}
+	return true
 }
 
 func fileSnapshotByRel(files []fsafety.FileSnapshot, rel string) fsafety.FileSnapshot {

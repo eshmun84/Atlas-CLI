@@ -2,6 +2,7 @@ package screens_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -168,8 +169,8 @@ func TestRenderReview(t *testing.T) {
 		"Platform:",
 		"Governance files:",
 		"Assisted operations:",
-		"Init performs no Git operations.",
-		"No repository, branch, commit, push, pull request, merge or remote operation",
+		"Git operations",
+		"No repository init, commit, remote, push, pull request, merge, or tag",
 		"Runtime conflicts block Init and require manual cleanup",
 		"Context Economy v0 is a separate explicit flow. CodeGraph is an optional externally installed Code Intelligence provider",
 		"Atlas Context Graph is NOT IMPLEMENTED.",
@@ -184,6 +185,89 @@ func TestRenderReview(t *testing.T) {
 		"Context Economy:",
 		"Development & Delivery",
 		"planned for later",
+		"No Git operations",
+		"Init performs no Git operations.",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
+	}
+}
+
+func TestRenderReview_GitSafetyNoBootstrap(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: "NoGit", ProjectMode: "new", ToolCursorAvailable: true,
+	})
+	_ = draft.ToggleMulti("adapters.selected", "cursor")
+	// source_control.mode remains none → no Git bootstrap.
+	plan := initplan.BuildReview(initplan.ReviewInput{
+		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(),
+	})
+	view := screens.RenderReview(screens.ReviewView{Plan: plan})
+	for _, want := range []string{
+		"Git operations",
+		"No repository init, commit, remote, push, pull request, merge, or tag will be performed.",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	for _, banned := range []string{
+		"No Git operations",
+		"Init performs no Git operations.",
+		"Initialize local Git repository",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("unexpected %q:\n%s", banned, view)
+		}
+	}
+}
+
+func TestRenderReview_GitBootstrapConsent(t *testing.T) {
+	config.SetLookPathGitForTest(exec.LookPath)
+	t.Cleanup(func() { config.SetLookPathGitForTest(nil) })
+
+	root := t.TempDir()
+	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: "GitBoot", ProjectMode: "new", ToolCursorAvailable: true,
+	})
+	_ = draft.ToggleMulti("adapters.selected", "cursor")
+	if !draft.SelectOption("source_control.mode", "git_local") {
+		t.Fatal("git_local")
+	}
+	plan := initplan.BuildReview(initplan.ReviewInput{
+		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(),
+	})
+	if !strings.Contains(plan.GitSafetyStatement, "Initialize local Git repository") {
+		t.Fatalf("plan safety = %q", plan.GitSafetyStatement)
+	}
+	foundGitCreate := false
+	for _, c := range plan.Creates {
+		if c.Path == ".git/" && strings.Contains(c.Status, "main") {
+			foundGitCreate = true
+		}
+	}
+	if !foundGitCreate {
+		t.Fatalf("expected .git create with main in plan.Creates: %#v", plan.Creates)
+	}
+	view := screens.RenderReview(screens.ReviewView{Plan: plan})
+	for _, want := range []string{
+		"Git operations",
+		"Initialize local Git repository with initial branch main.",
+		"No commit, remote, push, pull request, merge, or tag will be performed.",
+		".git/",
+		"Initial branch: main",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	for _, banned := range []string{
+		"No Git operations",
+		"Init performs no Git operations.",
 	} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("unexpected %q:\n%s", banned, view)
