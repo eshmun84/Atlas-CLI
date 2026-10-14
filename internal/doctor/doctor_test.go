@@ -68,12 +68,14 @@ func TestEvaluate_WarnsForMissingAtlasMarkers(t *testing.T) {
 func TestEvaluate_GitAndBranchWarnings(t *testing.T) {
 	t.Parallel()
 
+	// Without loaded Atlas config, missing Git remains advisory WARN.
 	report := doctor.Evaluate(inspect.Inspection{
 		RootPath: "/tmp/demo",
 		Git: project.GitInfo{
 			IsRepo: false,
 		},
-		Runtime: healthyRuntime(),
+		Runtime: runtime.Health{},
+		Tools:   []project.ToolInfo{{Name: "git", Available: true}},
 	})
 
 	assertHas(t, report, doctor.SeverityWarn, "git", "repository not detected")
@@ -81,6 +83,46 @@ func TestEvaluate_GitAndBranchWarnings(t *testing.T) {
 	if hasCheck(report, "remotes") {
 		t.Fatal("remotes check should be skipped when not a git repo")
 	}
+}
+
+func TestEvaluate_SourceControlNoneDoesNotWarnMissingGit(t *testing.T) {
+	t.Parallel()
+	rt := healthyRuntime()
+	rt.Document.SourceControl.Mode = config.SourceControlNone
+	rt.DependsOnSDDContract = false
+	report := doctor.Evaluate(inspect.Inspection{
+		RootPath: t.TempDir(),
+		Git:      project.GitInfo{IsRepo: false},
+		Runtime:  rt,
+		Tools:    []project.ToolInfo{{Name: "git", Available: true}},
+	})
+	assertHas(t, report, doctor.SeverityPass, "git", "repository not required")
+	if hasCheckNamed(report, "git", doctor.SeverityWarn) {
+		t.Fatal("mode=none must not WARN for missing Git repo")
+	}
+}
+
+func TestEvaluate_GitRequiredMissingRepoFails(t *testing.T) {
+	t.Parallel()
+	rt := healthyRuntime()
+	rt.Document.SourceControl.Mode = config.SourceControlGitLocal
+	rt.DependsOnSDDContract = false
+	report := doctor.Evaluate(inspect.Inspection{
+		RootPath: t.TempDir(),
+		Git:      project.GitInfo{IsRepo: false},
+		Runtime:  rt,
+		Tools:    []project.ToolInfo{{Name: "git", Available: true}},
+	})
+	assertHas(t, report, doctor.SeverityFail, "git", "repository not detected but source_control requires Git")
+}
+
+func hasCheckNamed(report doctor.Report, name string, sev doctor.Severity) bool {
+	for _, c := range report.Checks {
+		if c.Name == name && c.Severity == sev {
+			return true
+		}
+	}
+	return false
 }
 
 func TestEvaluate_WarnsWhenRepoHasNoRemotes(t *testing.T) {
@@ -535,9 +577,14 @@ func healthyRuntime() runtime.Health {
 		})
 	}
 	return runtime.Health{
-		Initialized:         true,
-		ConfigExists:        true,
-		ConfigLoads:         true,
+		Initialized:  true,
+		ConfigExists: true,
+		ConfigLoads:  true,
+		Document: config.ProjectDocument{
+			Project:       config.ProjectPersist{Name: "demo", Mode: "new"},
+			Governance:    config.GovernancePersist{Workflow: config.WorkflowSDD, SpecEngine: config.SpecProviderOpenSpec},
+			SourceControl: config.SourceControlPersist{Mode: config.SourceControlNone, GovernanceFiles: config.GovernanceFilesVersioned},
+		},
 		StateExists:         true,
 		StateLoads:          true,
 		State:               config.StateDocument{RuntimeMaterialized: true, Initialized: true},
@@ -575,9 +622,9 @@ func healthyRuntime() runtime.Health {
 		RuntimeManifestMatches: true,
 		AssetsLockPresent:      true,
 		AssetsLockMatches:      true,
-		DependsOnSDDContract:   true,
-		SDDContractPresent:     true,
-		SDDContractMatches:     true,
+		DependsOnSDDContract:   false,
+		SDDContractPresent:     false,
+		SDDContractMatches:     false,
 		Home: home.Status{
 			Path:           "/tmp/atlas-home-test",
 			Exists:         true,

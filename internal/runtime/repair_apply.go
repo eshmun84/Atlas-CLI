@@ -16,6 +16,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 	"github.com/eshmun84/Atlas-CLI/internal/project/mutatelock"
 	"github.com/eshmun84/Atlas-CLI/internal/skills"
+	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 	"gopkg.in/yaml.v3"
 )
@@ -155,6 +156,8 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 	var writes []pendingWrite
 	needSkillReconcile := false
 	needHooksReconcile := false
+	needOpenSpecBootstrap := false
+	needGitignoreReconcile := false
 	for _, target := range plan.Targets {
 		switch target.Action {
 		case RepairActionCreate, RepairActionReplace:
@@ -168,6 +171,14 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 			}
 			if target.Kind == RepairKindHook {
 				needHooksReconcile = true
+				continue
+			}
+			if target.Kind == RepairKindOpenSpec {
+				needOpenSpecBootstrap = true
+				continue
+			}
+			if target.Kind == RepairKindGitignore {
+				needGitignoreReconcile = true
 				continue
 			}
 			if err := configValidateWrite(target.Path); err != nil {
@@ -369,6 +380,39 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		}
 	}
 
+	if needOpenSpecBootstrap {
+		boot, bootErr := openspec.EnsureBootstrap(root)
+		snap.footprint.MergeFootprint(boot.Footprint)
+		if bootErr != nil {
+			return rollback(fmt.Errorf("openspec bootstrap: %w", bootErr))
+		}
+		if boot.Created {
+			result.Created = append(result.Created, RepairOpenSpecPath)
+			result.Actions = append(result.Actions, RepairActionCreate+" "+RepairOpenSpecPath)
+		}
+	}
+
+	if needGitignoreReconcile {
+		giRes, workspaceFP, homeFP, giErr := config.ReconcileLocalOnlyGitignore(root, homePath, projectID, doc, now)
+		snap.footprint.MergeFootprint(workspaceFP)
+		snap.projectHome.Footprint.MergeFootprint(homeFP)
+		if giErr != nil {
+			return rollback(fmt.Errorf("gitignore repair: %w", giErr))
+		}
+		if giRes.BackupDir != "" && result.BackupDir == "" {
+			result.BackupDir = giRes.BackupDir
+		}
+		if giRes.Changed {
+			if giRes.Created {
+				result.Created = append(result.Created, config.FileGitignore)
+				result.Actions = append(result.Actions, RepairActionCreate+" "+config.FileGitignore)
+			} else {
+				result.Replaced = append(result.Replaced, config.FileGitignore)
+				result.Actions = append(result.Actions, RepairActionReplace+" "+config.FileGitignore)
+			}
+		}
+	}
+
 	if backupDir != "" {
 		if err := config.WriteBackupManifest(homeResult.HomePath, backupDir, manifest); err != nil {
 			return rollback(err)
@@ -394,7 +438,7 @@ func captureRepairMutationSnapshot(root, homePath, projectID string, plan Runtim
 	seen := map[string]struct{}{}
 	add := func(rel string) error {
 		rel = filepath.ToSlash(filepath.Clean(rel))
-		if rel == "" || rel == "." || rel == RepairHomePath {
+		if rel == "" || rel == "." || rel == RepairHomePath || rel == strings.TrimSuffix(RepairOpenSpecPath, "/") || rel == RepairOpenSpecPath {
 			return nil
 		}
 		if _, ok := seen[rel]; ok {
@@ -409,7 +453,7 @@ func captureRepairMutationSnapshot(root, homePath, projectID string, plan Runtim
 		return nil
 	}
 	for _, target := range plan.Targets {
-		if target.Kind == RepairKindHome {
+		if target.Kind == RepairKindHome || target.Kind == RepairKindOpenSpec {
 			continue
 		}
 		if err := add(target.Path); err != nil {

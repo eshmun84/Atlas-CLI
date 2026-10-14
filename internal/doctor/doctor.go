@@ -32,44 +32,10 @@ func Evaluate(result inspect.Inspection) Report {
 		Message:  "discovery completed",
 	})
 
-	if result.Git.IsRepo {
-		checks = append(checks, Check{
-			Severity: SeverityPass,
-			Name:     "git",
-			Message:  "repository detected",
-		})
-	} else {
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     "git",
-			Message:  "repository not detected",
-		})
-	}
-
-	branch := strings.TrimSpace(result.Git.CurrentBranch)
-	if branch != "" {
-		checks = append(checks, Check{
-			Severity: SeverityPass,
-			Name:     "branch",
-			Message:  branch,
-		})
-	} else {
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     "branch",
-			Message:  "not detected",
-		})
-	}
-
-	if result.Git.IsRepo && len(result.Git.Remotes) == 0 {
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     "remotes",
-			Message:  "none detected",
-		})
-	}
-
-	checks = append(checks, evaluateRemoteDefaultBranch(result.Git)...)
+	checks = append(checks, evaluateGit(result)...)
+	checks = append(checks, evaluateSigning(result)...)
+	checks = append(checks, evaluateGitignore(result)...)
+	checks = append(checks, evaluateRequiredOpenSpec(result)...)
 
 	checks = append(checks, evaluateRuntime(result.Runtime)...)
 	checks = append(checks, evaluateSDD(result.SDD)...)
@@ -95,11 +61,7 @@ func Evaluate(result inspect.Inspection) Report {
 			})
 			continue
 		}
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     "tool " + tool.Name,
-			Message:  "unavailable",
-		})
+		checks = append(checks, warn("tool "+tool.Name, "unavailable"))
 	}
 
 	checks = append(checks, evaluateMCP(result)...)
@@ -118,11 +80,8 @@ func evaluateMCP(result inspect.Inspection) []Check {
 	}
 	health, err := config.InspectMCPHealth(result.RootPath, result.Runtime.Document)
 	if err != nil {
-		return []Check{{
-			Severity: SeverityFail,
-			Name:     "mcp",
-			Message:  err.Error(),
-		}}
+		return []Check{fail("mcp", err.Error(), RepairManual,
+			"Fix MCP configuration manually; Runtime Repair does not rewrite MCP definitions")}
 	}
 	var checks []Check
 	checks = append(checks, Check{
@@ -131,15 +90,13 @@ func evaluateMCP(result inspect.Inspection) []Check {
 		Message:  fmt.Sprintf("%d selected", health.SelectedCount),
 	})
 	for _, msg := range health.DefinitionErr {
-		sev := SeverityWarn
 		if strings.Contains(msg, "invalid") {
-			sev = SeverityFail
+			checks = append(checks, fail("mcp definition", msg, RepairManual,
+				"Fix invalid MCP definitions in project config"))
+			continue
 		}
-		checks = append(checks, Check{
-			Severity: sev,
-			Name:     "mcp definition",
-			Message:  msg,
-		})
+		checks = append(checks, warnAction("mcp definition", msg,
+			"Review MCP selections in Configure"))
 	}
 	for _, adapter := range health.Adapters {
 		name := "mcp " + string(adapter.Adapter)
@@ -154,11 +111,8 @@ func evaluateMCP(result inspect.Inspection) []Check {
 				})
 			}
 		case "blocked":
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     name,
-				Message:  "projection blocked",
-			})
+			checks = append(checks, fail(name, "projection blocked", RepairManual,
+				"Resolve MCP projection blockers, then re-run Configure Apply"))
 		case "empty":
 			checks = append(checks, Check{
 				Severity: SeverityInfo,
@@ -166,49 +120,26 @@ func evaluateMCP(result inspect.Inspection) []Check {
 				Message:  "no materializable MCP selected",
 			})
 		case "malformed":
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     name,
-				Message:  "native MCP config malformed: " + adapter.MalformError,
-			})
+			checks = append(checks, fail(name, "native MCP config malformed: "+adapter.MalformError, RepairManual,
+				"Fix malformed native MCP config manually; Atlas will not overwrite ambiguous MCP files"))
 		case "drifted":
-			checks = append(checks, Check{
-				Severity: SeverityWarn,
-				Name:     name,
-				Message:  "projection drifted",
-			})
+			checks = append(checks, warnAction(name, "projection drifted",
+				"Run Configure Apply to reconcile Atlas-owned MCP projections"))
 		case "missing":
-			checks = append(checks, Check{
-				Severity: SeverityWarn,
-				Name:     name,
-				Message:  "projection missing",
-			})
+			checks = append(checks, warnAction(name, "projection missing",
+				"Run Configure Apply to materialize selected MCP projections"))
 		case "unsupported":
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     name,
-				Message:  "adapter does not support MCP",
-			})
+			checks = append(checks, fail(name, "adapter does not support MCP", RepairManual,
+				"Deselect MCP on unsupported adapters or choose an MCP-capable adapter"))
 		default:
-			checks = append(checks, Check{
-				Severity: SeverityWarn,
-				Name:     name,
-				Message:  string(adapter.Status),
-			})
+			checks = append(checks, warn(name, string(adapter.Status)))
 		}
 		for _, w := range adapter.Warnings {
-			checks = append(checks, Check{
-				Severity: SeverityWarn,
-				Name:     name + " prerequisite",
-				Message:  w,
-			})
+			checks = append(checks, warn(name+" prerequisite", w))
 		}
 		for _, key := range adapter.OwnershipConflict {
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     name + " ownership",
-				Message:  "ownership conflict on " + key,
-			})
+			checks = append(checks, fail(name+" ownership", "ownership conflict on "+key, RepairManual,
+				"Resolve project-owned MCP conflicts manually"))
 		}
 	}
 	return checks
@@ -231,25 +162,17 @@ func evaluateRemoteDefaultBranch(git project.GitInfo) []Check {
 			Message:  branch,
 		}}
 	}
-	return []Check{{
-		Severity: SeverityWarn,
-		Name:     "remote default branch",
-		Message: fmt.Sprintf(
-			"unknown locally (refs/remotes/%s/HEAD missing); run: git remote set-head %s -a",
-			remote, remote,
-		),
-	}}
+	return []Check{warnAction("remote default branch", fmt.Sprintf(
+		"unknown locally (refs/remotes/%s/HEAD missing); run: git remote set-head %s -a",
+		remote, remote,
+	), "Run git remote set-head locally; Atlas will not mutate remotes")}
 }
 
 func evaluateRuntime(h runtime.Health) []Check {
 	var checks []Check
 
 	if !h.ConfigExists {
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     "atlas config",
-			Message:  ".atlas/config.yaml not found",
-		})
+		checks = append(checks, warn("atlas config", ".atlas/config.yaml not found"))
 	} else {
 		checks = append(checks, Check{
 			Severity: SeverityPass,
@@ -267,11 +190,8 @@ func evaluateRuntime(h runtime.Health) []Check {
 			if h.ConfigError != "" {
 				msg = msg + ": " + h.ConfigError
 			}
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "atlas config loads",
-				Message:  msg,
-			})
+			checks = append(checks, fail("atlas config loads", msg, RepairManual,
+				"Fix .atlas/config.yaml manually; Runtime Repair does not rewrite project config"))
 		}
 	}
 
@@ -279,20 +199,15 @@ func evaluateRuntime(h runtime.Health) []Check {
 	case !h.Initialized && !h.ConfigExists:
 		// Non-Atlas project: missing state is neutral.
 	case !h.StateExists:
-		sev := SeverityWarn
 		msg := ".atlas/state.yaml not found"
 		if h.Initialized {
-			sev = SeverityFail
-			msg = ".atlas/state.yaml missing for initialized project"
+			checks = append(checks, fail("atlas state", ".atlas/state.yaml missing for initialized project", RepairAtlas,
+				"Run Runtime Repair to restore Atlas project state"))
 		} else if h.ConfigExists {
-			sev = SeverityWarn
-			msg = ".atlas/state.yaml not found"
+			checks = append(checks, warn("atlas state", msg))
+		} else {
+			checks = append(checks, warn("atlas state", msg))
 		}
-		checks = append(checks, Check{
-			Severity: sev,
-			Name:     "atlas state",
-			Message:  msg,
-		})
 	default:
 		checks = append(checks, Check{
 			Severity: SeverityPass,
@@ -310,20 +225,14 @@ func evaluateRuntime(h runtime.Health) []Check {
 			if h.StateError != "" {
 				msg = msg + ": " + h.StateError
 			}
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "atlas state loads",
-				Message:  msg,
-			})
+			checks = append(checks, fail("atlas state loads", msg, RepairManual,
+				"Fix .atlas/state.yaml manually"))
 		}
 	}
 
 	if h.RuntimeMaterialized && !h.AgentsExists {
-		checks = append(checks, Check{
-			Severity: SeverityFail,
-			Name:     "runtime materialization",
-			Message:  "runtime_materialized=true but AGENTS.md is missing",
-		})
+		checks = append(checks, fail("runtime materialization", "runtime_materialized=true but AGENTS.md is missing", RepairAtlas,
+			"Run Runtime Repair to restore AGENTS.md"))
 	} else {
 		checks = append(checks, Check{
 			Severity: SeverityPass,
@@ -334,17 +243,10 @@ func evaluateRuntime(h runtime.Health) []Check {
 
 	switch {
 	case h.RuntimeMaterialized && !h.AgentsExists:
-		checks = append(checks, Check{
-			Severity: SeverityFail,
-			Name:     "agents file",
-			Message:  "AGENTS.md required when runtime_materialized=true",
-		})
+		checks = append(checks, fail("agents file", "AGENTS.md required when runtime_materialized=true", RepairAtlas,
+			"Run Runtime Repair to restore AGENTS.md"))
 	case !h.AgentsExists:
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     "agents file",
-			Message:  "AGENTS.md not found",
-		})
+		checks = append(checks, warn("agents file", "AGENTS.md not found"))
 	default:
 		checks = append(checks, Check{
 			Severity: SeverityPass,
@@ -355,22 +257,18 @@ func evaluateRuntime(h runtime.Health) []Check {
 
 	switch {
 	case h.RuntimeMaterialized && h.AgentsExists && !h.AgentsMarkers.Complete():
-		checks = append(checks, Check{
-			Severity: SeverityFail,
-			Name:     "agents markers",
-			Message:  "AGENTS.md markers incomplete",
-		})
+		checks = append(checks, fail("agents markers", "AGENTS.md markers incomplete", RepairAtlas,
+			"Run Runtime Repair to restore the Atlas AGENTS.md contract"))
 	case h.AgentsExists && h.AgentsMarkers.Complete() && !h.AgentsMarkers.ContractSatisfied(h.SelectedAdapters):
-		checks = append(checks, Check{
-			Severity: SeverityFail,
-			Name:     "agents markers",
-			Message:  "AGENTS.md missing selected adapter block",
-		})
+		checks = append(checks, fail("agents markers", "AGENTS.md missing selected adapter block", RepairAtlas,
+			"Run Runtime Repair to restore missing adapter blocks"))
 	case h.AgentsExists && h.AgentsMarkers.Complete() && len(h.AgentsMarkers.UnselectedAdapters(h.SelectedAdapters)) > 0:
 		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     "agents markers",
-			Message:  "AGENTS.md contains unselected adapter block",
+			Severity:          SeverityWarn,
+			Name:              "agents markers",
+			Message:           "AGENTS.md contains unselected adapter block",
+			Repairability:     RepairAtlas,
+			RecommendedAction: "Run Runtime Repair to restore AGENTS.md adapter blocks",
 		})
 	case h.AgentsExists && h.AgentsMarkers.Complete():
 		checks = append(checks, Check{
@@ -379,11 +277,7 @@ func evaluateRuntime(h runtime.Health) []Check {
 			Message:  "Atlas contract markers present",
 		})
 	case h.AgentsExists && !h.AgentsMarkers.Complete() && !h.RuntimeMaterialized:
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     "agents markers",
-			Message:  "AGENTS.md markers incomplete",
-		})
+		checks = append(checks, warn("agents markers", "AGENTS.md markers incomplete"))
 	}
 
 	if h.ConfigLoads {
@@ -396,11 +290,8 @@ func evaluateRuntime(h runtime.Health) []Check {
 				})
 				continue
 			}
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "adapter projection " + proj.Adapter,
-				Message:  proj.Path + " missing",
-			})
+			checks = append(checks, fail("adapter projection "+proj.Adapter, proj.Path+" missing", RepairAtlas,
+				"Run Runtime Repair to restore Atlas-owned adapter entrypoints"))
 		}
 		missingAgents := 0
 		driftedAgents := 0
@@ -417,23 +308,13 @@ func evaluateRuntime(h runtime.Health) []Check {
 		}
 		switch {
 		case missingAgents > 0:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "atlas agents",
-				Message:  fmt.Sprintf("%d Atlas agent file(s) missing", missingAgents),
-			})
+			checks = append(checks, fail("atlas agents", fmt.Sprintf("%d Atlas agent file(s) missing", missingAgents), RepairAtlas,
+				"Run Runtime Repair to rematerialize Atlas agents"))
 		case renderFailAgents > 0:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "atlas agents",
-				Message:  fmt.Sprintf("%d Atlas agent canonical render failure(s)", renderFailAgents),
-			})
+			checks = append(checks, fail("atlas agents", fmt.Sprintf("%d Atlas agent canonical render failure(s)", renderFailAgents), RepairManual, ""))
 		case driftedAgents > 0:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "atlas agents",
-				Message:  fmt.Sprintf("%d Atlas agent file(s) drifted", driftedAgents),
-			})
+			checks = append(checks, fail("atlas agents", fmt.Sprintf("%d Atlas agent file(s) drifted", driftedAgents), RepairAtlas,
+				"Run Runtime Repair to restore drifted Atlas agents"))
 		case len(h.ExpectedAgents) > 0:
 			checks = append(checks, Check{
 				Severity: SeverityPass,
@@ -443,23 +324,13 @@ func evaluateRuntime(h runtime.Health) []Check {
 		}
 		switch {
 		case h.AgentRegistryRenderError != "":
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "agent registry",
-				Message:  "canonical render failed",
-			})
+			checks = append(checks, fail("agent registry", "canonical render failed", RepairManual, ""))
 		case !h.AgentRegistryPresent:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "agent registry",
-				Message:  config.FileAgentRegistry + " missing",
-			})
+			checks = append(checks, fail("agent registry", config.FileAgentRegistry+" missing", RepairAtlas,
+				"Run Runtime Repair to rematerialize the agent registry"))
 		case !h.AgentRegistryMatches:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "agent registry",
-				Message:  "content drifted",
-			})
+			checks = append(checks, fail("agent registry", "content drifted", RepairAtlas,
+				"Run Runtime Repair to restore the agent registry"))
 		default:
 			checks = append(checks, Check{
 				Severity: SeverityPass,
@@ -469,23 +340,13 @@ func evaluateRuntime(h runtime.Health) []Check {
 		}
 		switch {
 		case h.SkillRegistryRenderError != "":
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "skill registry",
-				Message:  "canonical render failed",
-			})
+			checks = append(checks, fail("skill registry", "canonical render failed", RepairManual, ""))
 		case !h.SkillRegistryPresent:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "skill registry",
-				Message:  config.FileSkillRegistry + " missing",
-			})
+			checks = append(checks, fail("skill registry", config.FileSkillRegistry+" missing", RepairAtlas,
+				"Run Runtime Repair to rematerialize the skill registry"))
 		case !h.SkillRegistryMatches:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "skill registry",
-				Message:  "content drifted",
-			})
+			checks = append(checks, fail("skill registry", "content drifted", RepairAtlas,
+				"Run Runtime Repair to restore the skill registry"))
 		default:
 			checks = append(checks, Check{
 				Severity: SeverityPass,
@@ -498,11 +359,8 @@ func evaluateRuntime(h runtime.Health) []Check {
 			if h.Skills.CatalogError != "" {
 				msg = h.Skills.CatalogError
 			}
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "skills catalog",
-				Message:  msg,
-			})
+			checks = append(checks, fail("skills catalog", msg, RepairManual,
+				"Fix Atlas Home skills catalog readability, then re-run Doctor"))
 		} else {
 			checks = append(checks, Check{
 				Severity: SeverityPass,
@@ -513,18 +371,12 @@ func evaluateRuntime(h runtime.Health) []Check {
 		counts := h.Skills.SummaryCounts()
 		switch {
 		case counts["conflict"] > 0:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "skills projections",
-				Message:  fmt.Sprintf("%d conflict(s) preserved", counts["conflict"]),
-			})
+			checks = append(checks, fail("skills projections", fmt.Sprintf("%d conflict(s) preserved", counts["conflict"]), RepairManual,
+				"Resolve skill projection conflicts manually; Atlas preserves project-owned conflicts"))
 		case counts["missing"]+counts["stale"]+counts["drifted"]+counts["invalid"]+counts["unsupported"] > 0:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "skills projections",
-				Message: fmt.Sprintf("not ready (missing=%d stale=%d drifted=%d invalid=%d unsupported=%d)",
-					counts["missing"], counts["stale"], counts["drifted"], counts["invalid"], counts["unsupported"]),
-			})
+			checks = append(checks, fail("skills projections", fmt.Sprintf("not ready (missing=%d stale=%d drifted=%d invalid=%d unsupported=%d)",
+				counts["missing"], counts["stale"], counts["drifted"], counts["invalid"], counts["unsupported"]), RepairAtlas,
+				"Run Runtime Repair to reconcile Atlas-owned skill projections"))
 		case len(h.Skills.Projections) > 0:
 			checks = append(checks, Check{
 				Severity: SeverityPass,
@@ -534,23 +386,13 @@ func evaluateRuntime(h runtime.Health) []Check {
 		}
 		switch {
 		case h.RuntimeManifestRenderError != "":
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "runtime manifest",
-				Message:  "canonical render failed",
-			})
+			checks = append(checks, fail("runtime manifest", "canonical render failed", RepairManual, ""))
 		case !h.RuntimeManifestPresent:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "runtime manifest",
-				Message:  config.FileRuntimeManifest + " missing",
-			})
+			checks = append(checks, fail("runtime manifest", config.FileRuntimeManifest+" missing", RepairAtlas,
+				"Run Runtime Repair to rematerialize the runtime manifest"))
 		case !h.RuntimeManifestMatches:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "runtime manifest",
-				Message:  "content drifted",
-			})
+			checks = append(checks, fail("runtime manifest", "content drifted", RepairAtlas,
+				"Run Runtime Repair to restore the runtime manifest"))
 		default:
 			checks = append(checks, Check{
 				Severity: SeverityPass,
@@ -560,23 +402,13 @@ func evaluateRuntime(h runtime.Health) []Check {
 		}
 		switch {
 		case h.AssetsLockRenderError != "":
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "assets lock",
-				Message:  "canonical render failed",
-			})
+			checks = append(checks, fail("assets lock", "canonical render failed", RepairManual, ""))
 		case !h.AssetsLockPresent:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "assets lock",
-				Message:  config.FileAssetsLock + " missing",
-			})
+			checks = append(checks, fail("assets lock", config.FileAssetsLock+" missing", RepairAtlas,
+				"Run Runtime Repair to rematerialize assets.lock.yaml"))
 		case !h.AssetsLockMatches:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "assets lock",
-				Message:  "content drifted",
-			})
+			checks = append(checks, fail("assets lock", "content drifted", RepairAtlas,
+				"Run Runtime Repair to restore assets.lock.yaml"))
 		default:
 			if h.ConfigLoads {
 				checks = append(checks, Check{
@@ -586,34 +418,7 @@ func evaluateRuntime(h runtime.Health) []Check {
 				})
 			}
 		}
-		if h.DependsOnSDDContract {
-			switch {
-			case h.SDDContractRenderError != "":
-				checks = append(checks, Check{
-					Severity: SeverityFail,
-					Name:     "sdd openspec contract",
-					Message:  "canonical render failed",
-				})
-			case !h.SDDContractPresent:
-				checks = append(checks, Check{
-					Severity: SeverityFail,
-					Name:     "sdd openspec contract",
-					Message:  config.FileSDDOpenSpecContract + " missing",
-				})
-			case !h.SDDContractMatches:
-				checks = append(checks, Check{
-					Severity: SeverityFail,
-					Name:     "sdd openspec contract",
-					Message:  "content drifted",
-				})
-			default:
-				checks = append(checks, Check{
-					Severity: SeverityPass,
-					Name:     "sdd openspec contract",
-					Message:  config.FileSDDOpenSpecContract + " present",
-				})
-			}
-		}
+		// SDD/OpenSpec contract + layout readiness are reported by evaluateRequiredOpenSpec.
 		if len(h.SelectedAdapters) == 0 {
 			checks = append(checks, Check{
 				Severity: SeverityPass,
@@ -680,11 +485,7 @@ func evaluateRuntime(h runtime.Health) []Check {
 	for _, art := range h.ForbiddenArtifacts {
 		if art.Present {
 			presentForbidden = true
-			checks = append(checks, Check{
-				Severity: SeverityWarn,
-				Name:     "forbidden artifact " + art.Path,
-				Message:  "present but not required or expected",
-			})
+			checks = append(checks, warn("forbidden artifact "+art.Path, "present but not required or expected"))
 		}
 	}
 	if !presentForbidden {
@@ -713,11 +514,8 @@ func evaluateSDD(ov sdd.Overview) []Check {
 				break
 			}
 		}
-		checks = append(checks, Check{
-			Severity: SeverityFail,
-			Name:     "sdd engine",
-			Message:  msg,
-		})
+		checks = append(checks, fail("sdd engine", msg, RepairManual,
+			"Resolve Spec Engine selection manually; Atlas will not guess among conflicting engines"))
 	case ov.HasEngine():
 		label := strings.TrimSpace(ov.Presence.Label)
 		if label == "" {
@@ -764,19 +562,12 @@ func evaluateSDD(ov sdd.Overview) []Check {
 
 	for _, ref := range ov.Active {
 		if ref.Ambiguous {
-			checks = append(checks, Check{
-				Severity: SeverityWarn,
-				Name:     "sdd ambiguous change",
-				Message:  ref.ChangeID + ": ambiguous state",
-			})
+			checks = append(checks, warn("sdd ambiguous change", ref.ChangeID+": ambiguous state"))
 		}
 		for _, note := range ref.Issues {
 			if strings.Contains(note, "symlink") {
-				checks = append(checks, Check{
-					Severity: SeverityFail,
-					Name:     "sdd unsafe path",
-					Message:  ref.ChangeID + ": " + note,
-				})
+				checks = append(checks, fail("sdd unsafe path", ref.ChangeID+": "+note, RepairManual,
+					"Remove unsafe symlinks from the Spec Engine tree manually"))
 			}
 		}
 	}
@@ -813,7 +604,17 @@ func sddIssueChecks(issues []sdd.Issue) []Check {
 		if issue.Change != "" {
 			msg = issue.Change + ": " + msg
 		}
-		checks = append(checks, Check{Severity: sev, Name: name, Message: msg})
+		switch sev {
+		case SeverityFail:
+			checks = append(checks, fail(name, msg, RepairManual,
+				"Fix Spec Engine layout issues manually; Atlas will not overwrite ambiguous change data"))
+		case SeverityWarn:
+			checks = append(checks, warn(name, msg))
+		case SeverityInfo:
+			checks = append(checks, info(name, msg))
+		default:
+			checks = append(checks, pass(name, msg))
+		}
 	}
 	return checks
 }
@@ -838,19 +639,19 @@ func evaluateCodeIntelligence(h runtime.Health) []Check {
 		if snap.Message != "" {
 			msg = snap.Message
 		}
-		return []Check{{Severity: SeverityWarn, Name: provider, Message: msg}}
+		return []Check{warnAction(provider, msg, "Install or reconfigure Code Intelligence outside Doctor; Atlas will not auto-install tools")}
 	case "incompatible":
 		msg := "incompatible"
 		if snap.Message != "" {
 			msg += " · " + snap.Message
 		}
-		return []Check{{Severity: SeverityWarn, Name: provider, Message: msg}}
+		return []Check{warnAction(provider, msg, "Upgrade/replace the Code Intelligence provider manually")}
 	case "error":
 		msg := "error"
 		if snap.Message != "" {
 			msg += " · " + snap.Message
 		}
-		return []Check{{Severity: SeverityWarn, Name: provider, Message: msg}}
+		return []Check{warnAction(provider, msg, "Inspect Code Intelligence provider logs; Doctor will not rebuild graphs")}
 	}
 
 	msg := "available"
@@ -894,17 +695,11 @@ func evaluateCodeIntelligence(h runtime.Health) []Check {
 			Message:  "metadata.json valid",
 		})
 	case snap.MetadataPresent && !snap.MetadataValid:
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     provider + " metadata",
-			Message:  "metadata.json invalid",
-		})
+		checks = append(checks, warnAction(provider+" metadata", "metadata.json invalid",
+			"Refresh Code Intelligence via its explicit update path"))
 	case snap.GraphPresent:
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     provider + " metadata",
-			Message:  "metadata.json missing",
-		})
+		checks = append(checks, warnAction(provider+" metadata", "metadata.json missing",
+			"Refresh Code Intelligence via its explicit update path"))
 	}
 	switch snap.Freshness {
 	case "ready":
@@ -918,23 +713,13 @@ func evaluateCodeIntelligence(h runtime.Health) []Check {
 		if reason == "" {
 			reason = "source fingerprint changed"
 		}
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     provider + " freshness",
-			Message:  "stale · " + reason,
-		})
+		checks = append(checks, warnAction(provider+" freshness", "stale · "+reason,
+			"Refresh Code Intelligence via its explicit update path; Doctor will not rebuild"))
 	case "missing":
-		checks = append(checks, Check{
-			Severity: SeverityInfo,
-			Name:     provider + " freshness",
-			Message:  "graph missing",
-		})
+		checks = append(checks, info(provider+" freshness", "graph missing"))
 	case "error":
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     provider + " freshness",
-			Message:  snap.FreshnessReason,
-		})
+		checks = append(checks, warnAction(provider+" freshness", snap.FreshnessReason,
+			"Inspect Code Intelligence freshness errors; Doctor will not rebuild"))
 	}
 	if snap.RefreshedAt != "" {
 		checks = append(checks, Check{
@@ -956,23 +741,14 @@ func evaluateContextEconomy(h runtime.Health) []Check {
 			Message:  "not configured (project uninitialized)",
 		}}
 	case ce.State == atlascontext.StatusMissing:
-		return []Check{{
-			Severity: SeverityWarn,
-			Name:     "context economy",
-			Message:  "missing under Atlas Home",
-		}}
+		return []Check{warnAction("context economy", "missing under Atlas Home",
+			"Run Context Economy Update explicitly")}
 	case ce.State == atlascontext.StatusStale:
-		return []Check{{
-			Severity: SeverityWarn,
-			Name:     "context economy",
-			Message:  "stale",
-		}}
+		return []Check{warnAction("context economy", "stale",
+			"Run Context Economy Update explicitly")}
 	case ce.State == atlascontext.StatusUnreadable:
-		return []Check{{
-			Severity: SeverityWarn,
-			Name:     "context economy",
-			Message:  "unreadable",
-		}}
+		return []Check{warnAction("context economy", "unreadable",
+			"Inspect Context Economy files under Atlas Home; Doctor will not rewrite them")}
 	case ce.State == atlascontext.StatusPresent:
 		return []Check{{
 			Severity: SeverityPass,
@@ -1001,19 +777,30 @@ func evaluateMemory(h runtime.Health) []Check {
 	}
 
 	checks := make([]Check, 0, len(d.Checks)+1)
-	checks = append(checks, Check{
-		Severity: memoryStatusSeverity(d.Status),
-		Name:     "memory",
-		Message:  memoryStatusMessage(d),
-	})
+	checks = append(checks, memoryMappedCheck("memory", memoryStatusSeverity(d.Status), memoryStatusMessage(d)))
 	for _, c := range d.Checks {
-		checks = append(checks, Check{
-			Severity: memoryCheckSeverity(c.Severity),
-			Name:     "memory " + shortMemoryCheckName(c.ID),
-			Message:  memoryCheckMessage(c),
-		})
+		checks = append(checks, memoryMappedCheck(
+			"memory "+shortMemoryCheckName(c.ID),
+			memoryCheckSeverity(c.Severity),
+			memoryCheckMessage(c),
+		))
 	}
 	return checks
+}
+
+func memoryMappedCheck(name string, sev Severity, message string) Check {
+	switch sev {
+	case SeverityFail:
+		return fail(name, message, RepairManual,
+			"Memory is diagnostic-only from Doctor; repair schema/storage outside Runtime Repair")
+	case SeverityWarn:
+		return warnAction(name, message,
+			"Review Memory diagnostics; Doctor/Repair will not migrate or rewrite Memory")
+	case SeverityPass:
+		return pass(name, message)
+	default:
+		return info(name, message)
+	}
 }
 
 func memoryStatusSeverity(st memoryhealth.Status) Severity {
@@ -1094,11 +881,7 @@ func evaluateHome(h runtime.Health) []Check {
 	var checks []Check
 	homePath := strings.TrimSpace(h.Home.Path)
 	if homePath == "" {
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     "atlas home path",
-			Message:  "unresolved",
-		})
+		checks = append(checks, warn("atlas home path", "unresolved"))
 		return checks
 	}
 	checks = append(checks, Check{
@@ -1110,17 +893,11 @@ func evaluateHome(h runtime.Health) []Check {
 	depends := h.Initialized || h.RuntimeMaterialized
 	switch {
 	case !h.Home.Exists && depends:
-		checks = append(checks, Check{
-			Severity: SeverityFail,
-			Name:     "atlas home",
-			Message:  "missing",
-		})
+		checks = append(checks, fail("atlas home", "missing", RepairAtlas,
+			"Run Runtime Repair (Home-only) or materialize Atlas Home explicitly"))
 	case !h.Home.Exists:
-		checks = append(checks, Check{
-			Severity: SeverityWarn,
-			Name:     "atlas home",
-			Message:  "not created yet",
-		})
+		checks = append(checks, warnAction("atlas home", "not created yet",
+			"Materialize Atlas Home via install or Runtime Repair Home-only Apply"))
 	default:
 		checks = append(checks, Check{
 			Severity: SeverityPass,
@@ -1133,28 +910,18 @@ func evaluateHome(h runtime.Health) []Check {
 	case !h.Home.Exists:
 		// writability of a missing home is advisory via ancestor bits
 		if !h.Home.Writable && depends {
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "atlas home writable",
-				Message:  "parent path not writable",
-			})
+			checks = append(checks, fail("atlas home writable", "parent path not writable", RepairManual,
+				"Fix Atlas Home parent directory permissions manually"))
 		} else if h.Home.Writable {
-			checks = append(checks, Check{
-				Severity: SeverityPass,
-				Name:     "atlas home writable",
-				Message:  "parent path writable",
-			})
+			checks = append(checks, pass("atlas home writable", "parent path writable"))
 		}
 	case !h.Home.Writable:
-		sev := SeverityWarn
 		if depends {
-			sev = SeverityFail
+			checks = append(checks, fail("atlas home writable", "not writable", RepairManual,
+				"Fix Atlas Home directory permissions manually"))
+		} else {
+			checks = append(checks, warn("atlas home writable", "not writable"))
 		}
-		checks = append(checks, Check{
-			Severity: sev,
-			Name:     "atlas home writable",
-			Message:  "not writable",
-		})
 	default:
 		checks = append(checks, Check{
 			Severity: SeverityPass,
@@ -1170,39 +937,26 @@ func evaluateHome(h runtime.Health) []Check {
 				Name:     "atlas home layout",
 				Message:  "complete",
 			})
+		} else if depends {
+			checks = append(checks, fail("atlas home layout", "incomplete", RepairAtlas,
+				"Run Runtime Repair to restore Atlas Home layout"))
 		} else {
-			sev := SeverityWarn
-			if depends {
-				sev = SeverityFail
-			}
-			checks = append(checks, Check{
-				Severity: sev,
-				Name:     "atlas home layout",
-				Message:  "incomplete",
-			})
+			checks = append(checks, warnAction("atlas home layout", "incomplete",
+				"Run Runtime Repair (Home-only) to complete Atlas Home layout"))
 		}
 	}
 
 	if depends && h.Home.Exists {
 		switch {
 		case len(h.Home.AssetErrors) > 0:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "atlas home assets",
-				Message:  fmt.Sprintf("%d embedded integrity error(s)", len(h.Home.AssetErrors)),
-			})
+			checks = append(checks, fail("atlas home assets", fmt.Sprintf("%d embedded integrity error(s)", len(h.Home.AssetErrors)), RepairManual,
+				"Investigate Atlas Home asset integrity errors manually"))
 		case len(h.Home.MissingAssets) > 0:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "atlas home assets",
-				Message:  fmt.Sprintf("%d missing", len(h.Home.MissingAssets)),
-			})
+			checks = append(checks, fail("atlas home assets", fmt.Sprintf("%d missing", len(h.Home.MissingAssets)), RepairAtlas,
+				"Run Runtime Repair to remirror Atlas Home assets"))
 		case len(h.Home.DriftedAssets) > 0:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "atlas home assets",
-				Message:  fmt.Sprintf("%d drifted", len(h.Home.DriftedAssets)),
-			})
+			checks = append(checks, fail("atlas home assets", fmt.Sprintf("%d drifted", len(h.Home.DriftedAssets)), RepairAtlas,
+				"Run Runtime Repair to remirror Atlas Home assets"))
 		default:
 			checks = append(checks, Check{
 				Severity: SeverityPass,
@@ -1215,23 +969,13 @@ func evaluateHome(h runtime.Health) []Check {
 	if depends {
 		switch {
 		case h.HomeProject.ProjectID == "":
-			checks = append(checks, Check{
-				Severity: SeverityWarn,
-				Name:     "atlas home project",
-				Message:  "project id unresolved",
-			})
+			checks = append(checks, warn("atlas home project", "project id unresolved"))
 		case !h.Home.Exists:
-			checks = append(checks, Check{
-				Severity: SeverityWarn,
-				Name:     "atlas home project",
-				Message:  "Home not created yet",
-			})
+			checks = append(checks, warnAction("atlas home project", "Home not created yet",
+				"Materialize Atlas Home before project-local Home operations"))
 		case len(h.HomeProject.IntegrityErrors) > 0:
-			checks = append(checks, Check{
-				Severity: SeverityFail,
-				Name:     "atlas home project",
-				Message:  "integrity: " + strings.Join(h.HomeProject.IntegrityErrors, "; "),
-			})
+			checks = append(checks, fail("atlas home project", "integrity: "+strings.Join(h.HomeProject.IntegrityErrors, "; "), RepairManual,
+				"Resolve Atlas Home project integrity errors manually"))
 		case h.HomeProject.Present:
 			detail := "present"
 			if h.HomeProject.ContextPresent {
@@ -1277,11 +1021,8 @@ func EvaluateWorkingDirectoryError(err error) Report {
 		msg = msg + ": " + err.Error()
 	}
 	return Report{
-		Checks: []Check{{
-			Severity: SeverityFail,
-			Name:     "workspace",
-			Message:  msg,
-		}},
+		Checks: []Check{fail("workspace", msg, RepairManual,
+			"Fix the working directory / permissions, then re-run Doctor")},
 	}
 }
 
@@ -1292,11 +1033,8 @@ func EvaluateDiscoveryError(err error) Report {
 		msg = msg + ": " + err.Error()
 	}
 	return Report{
-		Checks: []Check{{
-			Severity: SeverityFail,
-			Name:     "workspace",
-			Message:  msg,
-		}},
+		Checks: []Check{fail("workspace", msg, RepairManual,
+			"Resolve discovery failures (permissions/path), then re-run Doctor")},
 	}
 }
 

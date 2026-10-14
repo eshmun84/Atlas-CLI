@@ -1153,10 +1153,17 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 	docView := doc.View()
 	for _, want := range []string{
 		"PASS", "WARNING", "Overall Health", "atlas config", "agents markers",
-		"adapter projection cursor", "atlas home", "Atlas Home",
+		"adapter projection cursor",
 	} {
 		if !strings.Contains(docView, want) {
 			t.Fatalf("doctor missing %q:\n%s", want, docView)
+		}
+	}
+	// Full Doctor inventory (may exceed TUI viewport): assert via rendered screen body.
+	fullDoc := screens.Doctor(doctor.Evaluate(discovered), discovered)
+	for _, want := range []string{"atlas home", "Atlas Home", "gitignore", "openspec layout", "signing policy"} {
+		if !strings.Contains(fullDoc, want) {
+			t.Fatalf("full doctor missing %q:\n%s", want, fullDoc)
 		}
 	}
 	if strings.Contains(docView, "FAIL") {

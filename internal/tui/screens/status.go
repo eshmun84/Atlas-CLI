@@ -15,6 +15,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/sdd"
+	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 )
 
 var (
@@ -106,24 +107,42 @@ func writeStatusMemory(b *strings.Builder, result inspect.Inspection) {
 
 func writeStatusSourceControl(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintln(b, statusHead.Render("Source Control / Delivery Tools"))
-	fmt.Fprintf(b, "  Repository: %s\n", yesNo(result.Git.IsRepo))
-	fmt.Fprintf(b, "  Current branch: %s\n", displayOrNone(result.Git.CurrentBranch))
-	fmt.Fprintf(b, "  Default remote: %s\n", displayOrNone(result.Git.DefaultRemote))
-	fmt.Fprintf(b, "  Remote URL: %s\n", displayOrNone(result.Git.DefaultRemoteURL))
-	fmt.Fprintf(b, "  Remote default branch: %s\n", remoteDefaultBranchLabel(result.Git))
-	fmt.Fprintf(b, "  Remotes: %s\n", remotesSummary(result.Git))
+	mode := "n/a"
+	if result.Runtime.ConfigLoads {
+		mode = strings.TrimSpace(result.Runtime.Document.SourceControl.Mode)
+		if mode == "" {
+			mode = config.SourceControlNone
+		}
+	}
+	fmt.Fprintf(b, "  Source control: %s\n", mode)
+	explicitNone := result.Runtime.ConfigLoads && mode == config.SourceControlNone
+	switch {
+	case explicitNone && !result.Git.IsRepo:
+		fmt.Fprintf(b, "  Repository: %s\n", statusInfo.Render("not required"))
+	case result.Git.IsRepo:
+		fmt.Fprintf(b, "  Repository: %s\n", yesNo(true))
+		fmt.Fprintf(b, "  Current branch: %s\n", displayOrNone(result.Git.CurrentBranch))
+		fmt.Fprintf(b, "  Default remote: %s\n", displayOrNone(result.Git.DefaultRemote))
+		fmt.Fprintf(b, "  Remote URL: %s\n", displayOrNone(result.Git.DefaultRemoteURL))
+		fmt.Fprintf(b, "  Remote default branch: %s\n", remoteDefaultBranchLabel(result.Git))
+		fmt.Fprintf(b, "  Remotes: %s\n", remotesSummary(result.Git))
+	case mode == config.SourceControlGitLocal || mode == config.SourceControlGitGitHub:
+		fmt.Fprintf(b, "  Repository: %s\n", statusFail.Render("required but missing"))
+	default:
+		fmt.Fprintf(b, "  Repository: %s\n", yesNo(false))
+	}
 	fmt.Fprintf(b, "  gh: %s\n", toolAvailability(result.Tools, "gh"))
 	if result.Runtime.ConfigLoads {
+		if result.Runtime.Document.SourceControl.SigningRequired {
+			fmt.Fprintf(b, "  Signing required: %s\n", statusYes.Render("yes"))
+		} else {
+			fmt.Fprintf(b, "  Signing required: %s\n", statusNo.Render("no"))
+		}
 		if result.Runtime.Document.SourceControl.DeliveryAssist {
 			fmt.Fprintf(b, "  Delivery assist: %s\n", statusInfo.Render("configured (NOT IMPLEMENTED)"))
 		} else {
 			fmt.Fprintf(b, "  Delivery assist: %s\n", statusNo.Render("not selected"))
 		}
-		mode := strings.TrimSpace(result.Runtime.Document.SourceControl.Mode)
-		if mode == "" {
-			mode = "none"
-		}
-		fmt.Fprintf(b, "  Source-control mode: %s\n", mode)
 	} else {
 		fmt.Fprintf(b, "  Delivery assist: %s\n", statusNo.Render("n/a"))
 	}
@@ -209,6 +228,14 @@ func writeStatusSDD(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintln(b, statusHead.Render("SDD"))
 	for _, line := range sdd.StatusLines(result.SDD) {
 		fmt.Fprintf(b, "  %s\n", line)
+	}
+	if result.Runtime.ConfigLoads && result.Runtime.DependsOnSDDContract {
+		if result.Runtime.SDDContractPresent && result.Runtime.SDDContractMatches {
+			fmt.Fprintf(b, "  Contract: %s\n", statusYes.Render("present"))
+		} else {
+			fmt.Fprintf(b, "  Contract: %s\n", statusFail.Render("missing or drifted"))
+		}
+		fmt.Fprintf(b, "  OpenSpec layout: %s\n", openSpecLayoutStatus(result.RootPath))
 	}
 	fmt.Fprintln(b)
 }
@@ -552,6 +579,25 @@ func sddContractStatus(rt runtime.Health) string {
 		return statusFail.Render("ERROR (drifted)")
 	default:
 		return statusYes.Render("verified")
+	}
+}
+
+func openSpecLayoutStatus(root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" || root == "." {
+		return statusNo.Render("n/a")
+	}
+	assess, err := openspec.AssessLayout(root)
+	if err != nil {
+		return statusFail.Render("ERROR")
+	}
+	switch {
+	case assess.Valid:
+		return statusYes.Render("ready")
+	case assess.Absent:
+		return statusFail.Render("absent")
+	default:
+		return statusFail.Render("incomplete")
 	}
 }
 

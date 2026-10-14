@@ -74,6 +74,12 @@ func Doctor(report doctor.Report, result inspect.Inspection) string {
 		}
 		for _, check := range checks {
 			fmt.Fprintf(&b, "  %s %s: %s\n", doctorBadge(check.Severity), check.Name, check.Message)
+			if check.Repairability != "" && check.Severity != doctor.SeverityPass && check.Severity != doctor.SeverityInfo {
+				fmt.Fprintf(&b, "    repairability: %s\n", check.Repairability)
+			}
+			if check.RecommendedAction != "" {
+				fmt.Fprintf(&b, "    next: %s\n", check.RecommendedAction)
+			}
 		}
 		fmt.Fprintln(&b)
 	}
@@ -96,9 +102,11 @@ func doctorSectionFor(name string) string {
 	case name == "workspace":
 		return "Workspace"
 	case name == "git" || name == "branch" || name == "remotes" || name == "remote default branch" ||
-		name == "tool git" || name == "tool gh":
+		name == "tool git" || name == "tool gh" || name == "git executable" || name == "source control mode" ||
+		name == "signing policy" || name == "git commit.gpgsign" || name == "gitignore":
 		return "Git"
-	case strings.HasPrefix(name, "atlas config") || strings.HasPrefix(name, "atlas state") || name == "tool openspec":
+	case strings.HasPrefix(name, "atlas config") || strings.HasPrefix(name, "atlas state") || name == "tool openspec" ||
+		name == "openspec cli" || name == "openspec layout":
 		return "Atlas Configuration"
 	case strings.HasPrefix(name, "atlas home"):
 		return "Atlas Home"

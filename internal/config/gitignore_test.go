@@ -171,3 +171,47 @@ func TestReconcileLocalOnlyGitignore_TwoBlocksBackup(t *testing.T) {
 		t.Fatalf("backup = %q err=%v", bak, err)
 	}
 }
+
+func TestAnalyzeLocalOnlyGitignore_States(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	doc := localOnlyDoc()
+
+	a, err := config.AnalyzeLocalOnlyGitignore(root, doc)
+	if err != nil || a.State != config.GitignoreMissingFile || !a.Reconcilable {
+		t.Fatalf("missing file: %#v %v", a, err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("bin/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err = config.AnalyzeLocalOnlyGitignore(root, doc)
+	if err != nil || a.State != config.GitignoreMissingBlock || !a.Reconcilable {
+		t.Fatalf("missing block: %#v %v", a, err)
+	}
+
+	healthy := "bin/\n\n" + config.AtlasLocalGovernanceGitignoreBlock()
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(healthy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err = config.AnalyzeLocalOnlyGitignore(root, doc)
+	if err != nil || a.State != config.GitignoreHealthy {
+		t.Fatalf("healthy: %#v %v", a, err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("# >>> Atlas local governance >>>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err = config.AnalyzeLocalOnlyGitignore(root, doc)
+	if err != nil || a.State != config.GitignoreMalformed || a.Reconcilable {
+		t.Fatalf("malformed: %#v %v", a, err)
+	}
+
+	versioned := config.ProjectDocument{
+		SourceControl: config.SourceControlPersist{GovernanceFiles: config.GovernanceFilesVersioned},
+	}
+	a, err = config.AnalyzeLocalOnlyGitignore(root, versioned)
+	if err != nil || a.State != config.GitignoreNotApplicable {
+		t.Fatalf("not applicable: %#v %v", a, err)
+	}
+}

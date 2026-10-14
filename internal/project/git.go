@@ -15,6 +15,9 @@ type GitInfo struct {
 	DefaultRemoteURL string
 	DefaultBranch    string
 	Remotes          []GitRemote
+	// CommitGPGSign is the local commit.gpgsign value when a repo exists:
+	// "true", "false", or "" when unset/unreadable.
+	CommitGPGSign string
 }
 
 // GitRemote is a Git remote name/URL pair.
@@ -50,6 +53,10 @@ func discoverGit(root string) (GitInfo, []string, error) {
 		warnings = append(warnings, fmt.Sprintf("unable to determine current branch: %v", err))
 	} else {
 		info.CurrentBranch = strings.TrimSpace(branch)
+	}
+
+	if signOut, signErr := runGit(gitPath, root, "config", "--get", "commit.gpgsign"); signErr == nil {
+		info.CommitGPGSign = strings.ToLower(strings.TrimSpace(signOut))
 	}
 
 	remoteOut, err := runGit(gitPath, root, "remote", "-v")

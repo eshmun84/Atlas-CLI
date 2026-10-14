@@ -75,6 +75,84 @@ Checklist (library-equivalent via `scripts/manualalpha`):
 
 Interactive TUI click-through remains optional human confirmation.
 
+## Slice 3 diagnostic invariants
+
+- Shared inspection stack only: `inspect.Inspect` → `project.Inspect` → `runtime.EvaluateHealth` → `sdd.Evaluate`
+- `atlas status` / `atlas doctor` are strictly read-only (no Home create, no project writes, no Git mutation, no Memory migrate, no CodeGraph rebuild, no rematerialize)
+- Doctor severity remains PASS / INFO / WARN / FAIL
+- Doctor checks may carry repairability: `atlas-repair` | `confirm-repair` | `diagnostic-only` | `manual` (+ optional recommended action)
+- `source_control.mode=none`: missing Git repo is expected (Status omits Git WARN noise; Doctor PASS/INFO)
+- `git_local` / `git_github` without repo → FAIL; missing git executable when Git is required → FAIL
+- Signing: Doctor shows Atlas `signing_required` and read-only `commit.gpgsign`; policy required + gpgsign false → WARN (not FAIL); Repair never rewrites signing
+- Required OpenSpec (`workflow=sdd` + `spec_engine=openspec`): contract/layout FAIL when unhealthy; CLI missing → INFO only
+- Local-only `.gitignore`: same analyzer for Init / Doctor / Repair; malformed markers → FAIL manual, no mutation
+
+## Runtime Repair authority boundary (Slice 3)
+
+**May repair (explicit Review → Apply):** Atlas Home mirror, Atlas-owned runtime assets (AGENTS/agents/registries/manifest/lock/contracts/skills/hooks), completely absent OpenSpec bootstrap (`openspec/` + `openspec/changes/`), reconcilable local-only `.gitignore` Atlas block (with project-scoped backup when writing).
+
+**Must not repair:** Git init/branch/remote/push/commit, signing policy, `.atlas/config.yaml` rewrite, Memory migrate/init, CodeGraph rebuild, partial/malformed OpenSpec trees, malformed `.gitignore` delimiters, README.
+
+Transactional Apply + plan signature + rollback preserved; gitignore/OpenSpec actions participate in the same transaction. Repair is idempotent for healthy surfaces.
+
+## Slice 3 regression matrix (A–N)
+
+Authoritative automated coverage: `TestSlice3_Matrix_*` in `internal/runtime/slice3_matrix_test.go`, plus `internal/doctor/slice3_diagnostics_test.go`, `internal/runtime/slice3_repair_test.go`, and Slice 1/2 materialization/contract tests.
+
+| ID | Scenario | Primary test(s) |
+| --- | --- | --- |
+| A | Outside project / no Home create | `TestSlice3_Matrix_A_OutsideProject` |
+| B | Fresh install idempotent | `TestSlice3_Matrix_B_FreshInstall` |
+| C | Greenfield Git + SDD/OpenSpec | `TestSlice3_Matrix_C_GreenfieldGitSDD`, Slice1 greenfield |
+| D | Greenfield `source_control=none` | `TestSlice3_Matrix_D_GreenfieldSourceControlNone` |
+| E | Brownfield README + gitignore | `TestSlice3_Matrix_E_BrownfieldReadmeGitignore` |
+| F | Brownfield existing Git | `TestSlice3_Matrix_F_BrownfieldExistingGit` |
+| G | Missing Home fail-closed | `TestSlice3_Matrix_G_MissingHome` |
+| H | OpenSpec absent/partial | `TestSlice3_Matrix_H_OpenSpecAbsentAndPartial`, repair tests |
+| I | Malformed `.gitignore` | `TestSlice3_Matrix_I_MalformedGitignore` |
+| J | Stale Atlas runtime assets | `TestSlice3_Matrix_J_StaleRuntimeAssets` |
+| K | Signing required | `TestSlice3_Matrix_K_SigningRequired`, Slice2 signing |
+| L | Provider/origin/adapter | `TestSlice3_Matrix_L_ProviderSemantics`, Dogfood010 |
+| M | Memory read-only | `TestSlice3_Matrix_M_MemoryReadOnly` |
+| N | CodeGraph read-only | `TestSlice3_Matrix_N_CodeGraphReadOnly` |
+
+## DOGFOOD-001..015 mapping (Slice 3)
+
+| ID | Classification |
+| --- | --- |
+| 001 | fixed S1 / regression S3 |
+| 002 | fixed S1 / regression S3 |
+| 003 | fixed S1 / diagnostics S3 |
+| 004 | fixed S1 / diagnostics+repair S3 |
+| 005 | fixed S1 / regression S3 |
+| 006 | fixed S1 / diagnostics+repair S3 |
+| 007 | fixed S1 / regression S3 |
+| 008 | fixed S1/S2 / regression S3 |
+| 009 | fixed S2 / regression S3 |
+| 010 | fixed S2 / regression S3 |
+| 011 | fixed S2 / regression S3 |
+| 012 | semantics fixed S2; full delivery deferred |
+| 013 | fixed S2 / regression S3 |
+| 014 | fixed S1 / repair regression S3 |
+| 015 | deferred by design |
+
+## Physical dogfooding readiness gate
+
+Resume physical dogfooding only when all are green:
+
+```bash
+go test ./...
+go test -race ./...
+go vet ./...
+make check
+make smoke-mvp
+# plus Slice 3 A–N matrix (covered by go test ./internal/runtime/ -run Slice3)
+```
+
+Evidence required: clean install; greenfield + brownfield init; Status/Doctor read-only; Repair idempotent; `.gitignore` + absent-OpenSpec repair safe; malformed shared state fail-closed; DOGFOOD-001..014 no blocker inside remediated scope; DOGFOOD-015 explicitly deferred.
+
+Gate label when passing: **ready for resumed physical dogfooding** (not a production-ready claim).
+
 ## Guarantees (must hold)
 
 - Status / Doctor / discovery / startup do not mutate

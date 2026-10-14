@@ -11,6 +11,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
+	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 )
 
 // Runtime repair action kinds.
@@ -22,15 +23,20 @@ const (
 
 // Runtime repair target kinds.
 const (
-	RepairKindAgents   = "agents"
-	RepairKindAdapter  = "adapter"
-	RepairKindAgent    = "agent"
-	RepairKindAtlas    = "atlas"
-	RepairKindSkill    = "skill"
-	RepairKindHook     = "hook"
-	RepairKindHome     = "home"
-	RepairKindConflict = "conflict"
+	RepairKindAgents    = "agents"
+	RepairKindAdapter   = "adapter"
+	RepairKindAgent     = "agent"
+	RepairKindAtlas     = "atlas"
+	RepairKindSkill     = "skill"
+	RepairKindHook      = "hook"
+	RepairKindHome      = "home"
+	RepairKindConflict  = "conflict"
+	RepairKindGitignore = "gitignore"
+	RepairKindOpenSpec  = "openspec"
 )
+
+// RepairOpenSpecPath is the plan path marker for OpenSpec bootstrap.
+const RepairOpenSpecPath = "openspec/"
 
 // RepairHomePath is the plan path marker for Atlas Home refresh actions.
 const RepairHomePath = "ATLAS_HOME"
@@ -276,7 +282,9 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 	addAtlasSurfaceRepair(&plan, health.AssetsLockPresent, health.AssetsLockMatches, config.FileAssetsLock, "assets lock")
 	if health.DependsOnSDDContract {
 		addAtlasSurfaceRepair(&plan, health.SDDContractPresent, health.SDDContractMatches, config.FileSDDOpenSpecContract, "SDD/OpenSpec contract")
+		addOpenSpecRepairTargets(&plan, root, health)
 	}
+	addGitignoreRepairTargets(&plan, root, health)
 
 	for _, proj := range health.Skills.Projections {
 		switch proj.State {
@@ -511,5 +519,68 @@ func addAtlasSurfaceRepair(plan *RuntimeRepairPlan, present, matches bool, path,
 			Backup: true,
 		})
 		plan.Drift = append(plan.Drift, "drifted "+label+": "+path)
+	}
+}
+
+func addOpenSpecRepairTargets(plan *RuntimeRepairPlan, root string, health Health) {
+	assess, err := openspec.AssessLayout(root)
+	if err != nil {
+		plan.Warnings = append(plan.Warnings, "OpenSpec layout inspection failed: "+err.Error())
+		return
+	}
+	switch {
+	case assess.Valid:
+		return
+	case assess.Absent:
+		addRepairTarget(plan, RuntimeRepairTarget{
+			Path:   RepairOpenSpecPath,
+			Action: RepairActionCreate,
+			Kind:   RepairKindOpenSpec,
+			Reason: "required OpenSpec bootstrap absent (openspec/ + openspec/changes/)",
+		})
+		plan.Drift = append(plan.Drift, "OpenSpec layout absent")
+	default:
+		reason := assess.Reason
+		if reason == "" {
+			reason = "incomplete or incompatible OpenSpec tree"
+		}
+		plan.Warnings = append(plan.Warnings, "OpenSpec layout not auto-repairable: "+reason)
+	}
+}
+
+func addGitignoreRepairTargets(plan *RuntimeRepairPlan, root string, health Health) {
+	analysis, err := config.AnalyzeLocalOnlyGitignore(root, health.Document)
+	if err != nil {
+		plan.Warnings = append(plan.Warnings, "gitignore inspection failed: "+err.Error())
+		return
+	}
+	if !analysis.Applicable {
+		return
+	}
+	switch analysis.State {
+	case config.GitignoreHealthy:
+		return
+	case config.GitignoreMalformed:
+		plan.Warnings = append(plan.Warnings, "gitignore Atlas markers malformed; refusing automatic repair: "+analysis.Reason)
+		return
+	case config.GitignoreMissingFile, config.GitignoreMissingBlock, config.GitignoreStale, config.GitignoreMultiple:
+		if !analysis.Reconcilable {
+			plan.Warnings = append(plan.Warnings, "gitignore not reconcilable: "+analysis.Reason)
+			return
+		}
+		action := RepairActionReplace
+		if analysis.State == config.GitignoreMissingFile {
+			action = RepairActionCreate
+		}
+		// Backup is owned by ReconcileLocalOnlyGitignore (Slice 1
+		// backupSingleProjectFile), not BackupConflicts allowlist.
+		addRepairTarget(plan, RuntimeRepairTarget{
+			Path:   config.FileGitignore,
+			Action: action,
+			Kind:   RepairKindGitignore,
+			Reason: analysis.Reason,
+			Backup: false,
+		})
+		plan.Drift = append(plan.Drift, "gitignore: "+analysis.Reason)
 	}
 }
