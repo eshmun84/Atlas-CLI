@@ -14,7 +14,6 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
-	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
 )
 
@@ -298,29 +297,25 @@ func TestSlice3_Matrix_H_OpenSpecAbsentAndPartial(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
 	_ = os.RemoveAll(filepath.Join(root, "openspec"))
 	report := doctor.Evaluate(mustDiscover(t, root))
-	assertDoctorHas(t, report, doctor.SeverityFail, "openspec layout", doctor.RepairConfirm)
+	assertDoctorHas(t, report, doctor.SeverityFail, "openspec provider", doctor.RepairConfirm)
 	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
-	res := applyRepair(t, root, plan.Signature(), fixedClock(2026, 10, 14, 22, 0, 0))
-	if res.Noop {
-		t.Fatal("expected openspec bootstrap")
-	}
-	assess, _ := openspec.AssessLayout(root)
-	if !assess.Valid {
-		t.Fatalf("layout after repair: %#v", assess)
-	}
-	plan2 := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
-	for _, target := range plan2.Targets {
+	for _, target := range plan.Targets {
 		if target.Kind == runtime.RepairKindOpenSpec {
-			t.Fatal("second openspec repair must be no-op")
+			t.Fatal("Runtime Repair must not mkdir/bootstrap OpenSpec; Init owns openspec init")
 		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "openspec")); !os.IsNotExist(err) {
+		t.Fatalf("openspec/ must remain absent: %v", err)
 	}
 
 	// Partial/malformed: refuse.
-	_ = os.RemoveAll(filepath.Join(root, "openspec", "changes"))
+	if err := os.MkdirAll(filepath.Join(root, "openspec"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	marker := []byte("project-owned\n")
 	_ = os.WriteFile(filepath.Join(root, "openspec", "note.txt"), marker, 0o644)
 	report2 := doctor.Evaluate(mustDiscover(t, root))
-	assertDoctorHas(t, report2, doctor.SeverityFail, "openspec layout", doctor.RepairManual)
+	assertDoctorHas(t, report2, doctor.SeverityFail, "openspec provider", doctor.RepairManual)
 	plan3 := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	for _, target := range plan3.Targets {
 		if target.Kind == runtime.RepairKindOpenSpec {

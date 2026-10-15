@@ -124,13 +124,12 @@ func TestSDDOpenSpecContract_TextQuality(t *testing.T) {
 	}
 	assertTextQuality(t, "sdd-openspec", got)
 	assertContains(t, got,
-		"openspec/changes/<change-id>/",
-		"proposal.md",
-		"tasks.md",
-		"specs/<domain>/spec.md",
+		"openspec init",
+		"governance.openspec_version",
+		"opsx-propose",
 		"AGENTS.md",
-		"No silent Git",
 		"Fail-closed",
+		"BLOCKED",
 	)
 }
 
@@ -171,7 +170,6 @@ func TestAgentRegistry_TextQuality(t *testing.T) {
 	assertContains(t, got,
 		"# Atlas Agent Registry",
 		config.FileSDDOpenSpecContract,
-		"OpenSpec-compatible change artifacts",
 		"AGENTS.md",
 	)
 }

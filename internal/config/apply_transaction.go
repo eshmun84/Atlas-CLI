@@ -157,10 +157,27 @@ func restoreInitFiles(root string, snap initMutationSnapshot) error {
 	// A. Files first (stable Rel order).
 	files := append([]fsafety.FileSnapshot(nil), snap.files...)
 	sort.Slice(files, func(i, j int) bool { return files[i].Rel < files[j].Rel })
+	baselineRels := make(map[string]struct{}, len(files))
 	for _, fs := range files {
+		baselineRels[fs.Rel] = struct{}{}
 		wrote := snap.footprint.FileByRel(fs.Rel)
 		if err := fsafety.RestoreFileSnapshot(root, fs, wrote, snap.footprint.DeletedByRel(fs.Rel)); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", fs.Rel, err))
+		}
+	}
+
+	// A2. Remove provider/Atlas files recorded as Created in the footprint but absent
+	// from the pre-mutation baseline snapshot (e.g. openspec init/update outputs).
+	for _, w := range snap.footprint.SortedFiles() {
+		if !w.Created {
+			continue
+		}
+		if _, ok := baselineRels[w.Rel]; ok {
+			continue
+		}
+		ww := w
+		if err := fsafety.RestoreFileSnapshot(root, fsafety.FileSnapshot{Rel: w.Rel, Exists: false}, &ww, nil); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", w.Rel, err))
 		}
 	}
 

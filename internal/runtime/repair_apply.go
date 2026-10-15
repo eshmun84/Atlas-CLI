@@ -16,7 +16,6 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 	"github.com/eshmun84/Atlas-CLI/internal/project/mutatelock"
 	"github.com/eshmun84/Atlas-CLI/internal/skills"
-	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 	"gopkg.in/yaml.v3"
 )
@@ -381,15 +380,8 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 	}
 
 	if needOpenSpecBootstrap {
-		boot, bootErr := openspec.EnsureBootstrap(root)
-		snap.footprint.MergeFootprint(boot.Footprint)
-		if bootErr != nil {
-			return rollback(fmt.Errorf("openspec bootstrap: %w", bootErr))
-		}
-		if boot.Created {
-			result.Created = append(result.Created, RepairOpenSpecPath)
-			result.Actions = append(result.Actions, RepairActionCreate+" "+RepairOpenSpecPath)
-		}
+		// Fake mkdir bootstrap removed. OpenSpec init is Atlas Init's job.
+		return rollback(fmt.Errorf("openspec: Runtime Repair refuses provider bootstrap; use Atlas Init for openspec init"))
 	}
 
 	if needGitignoreReconcile {

@@ -106,6 +106,7 @@ func doctorSectionFor(name string) string {
 		name == "signing policy" || name == "git commit.gpgsign" || name == "gitignore":
 		return "Git"
 	case strings.HasPrefix(name, "atlas config") || strings.HasPrefix(name, "atlas state") || name == "tool openspec" ||
+		name == "openspec provider" || name == "sdd openspec contract" ||
 		name == "openspec cli" || name == "openspec layout":
 		return "Atlas Configuration"
 	case strings.HasPrefix(name, "atlas home"):

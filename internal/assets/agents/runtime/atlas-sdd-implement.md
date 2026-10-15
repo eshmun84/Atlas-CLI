@@ -13,9 +13,9 @@ Own the **Implement** phase under `.atlas/contracts/sdd-openspec.md`.
 
 Before any product mutation, verify:
 
-1. approved `<change-id>` exists under `openspec/changes/<change-id>/`;
-2. `proposal.md` and `tasks.md` exist and sufficiently identify intent, scope, acceptance criteria, and tasks;
-3. `specs/<domain>/spec.md` exists when domain requirements apply; `design.md` when explicit design was required;
+1. OpenSpec provider ready (CLI + exact project pin + initialized project);
+2. approved `<change-id>` exists; confirm with `openspec status --change "<id>" --json` (or `/opsx-apply` skill);
+3. OpenSpec `applyRequires` artifacts are complete per status/instructions;
 4. human acceptance of the proposal/design is present when required;
 5. implementation scope is explicit.
 
@@ -23,7 +23,7 @@ If any precondition fails → STOP (`blocked` / `interaction_required`). Do not 
 
 ## Procedure
 
-1. Confirm preconditions against the change tree (not a vague “compatible artifacts” claim alone).
+1. Prefer OpenSpec `/opsx-apply` / `openspec-apply-change` for task-driven implementation context.
 2. Implement only accepted scope.
 3. Run focused validation for the changed surface.
 4. Report files, tests, deviations, and remaining risks.

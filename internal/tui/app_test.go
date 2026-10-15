@@ -1131,15 +1131,19 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 		"Health",
 		"Atlas Home:",
 		"Governance Tools",
-		"OpenSpec CLI automation:",
+		"Spec Engine: OpenSpec",
+		"Required version:",
+		"Installed version:",
+		"Provider:",
+		"Project initialization:",
 		"MCP",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("status missing %q:\n%s", want, content)
 		}
 	}
-	if strings.Contains(content, "OpenSpec execution:") {
-		t.Fatal("status must not use ambiguous OpenSpec execution label")
+	if strings.Contains(content, "OpenSpec execution:") || strings.Contains(content, "OpenSpec CLI automation:") {
+		t.Fatal("status must not use obsolete OpenSpec automation/execution labels")
 	}
 	// Runtime file inventories belong in Doctor / Repair, not Status.
 	if strings.Contains(content, "Runtime Artifacts") || strings.Contains(content, "AGENTS markers") {
@@ -1161,7 +1165,7 @@ func TestStatusDoctorRuntimeHealthNoMutation(t *testing.T) {
 	}
 	// Full Doctor inventory (may exceed TUI viewport): assert via rendered screen body.
 	fullDoc := screens.Doctor(doctor.Evaluate(discovered), discovered)
-	for _, want := range []string{"atlas home", "Atlas Home", "gitignore", "openspec layout", "signing policy"} {
+	for _, want := range []string{"atlas home", "Atlas Home", "gitignore", "openspec provider", "signing policy"} {
 		if !strings.Contains(fullDoc, want) {
 			t.Fatalf("full doctor missing %q:\n%s", want, fullDoc)
 		}

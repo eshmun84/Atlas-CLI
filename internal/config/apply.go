@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -132,15 +133,29 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 			fmt.Errorf("apply config: %w", err)
 	}
 
-	if NeedsOpenSpecBootstrap(doc) {
-		assess, assessErr := openspec.AssessLayout(root)
-		if assessErr != nil {
+	osHealth, osErr := PreflightOpenSpecForInit(context.Background(), root, doc)
+	if osErr != nil {
+		return ApplyResult{HomePath: homePath, ProjectID: projectID}, osErr
+	}
+	needOpenSpecInit := false
+	needOpenSpecToolSync := false // existing project; init --tools to add/refresh adapter projections
+	if OpenSpecRequired(doc) {
+		switch osHealth.Project {
+		case openspec.ProjectAbsent, openspec.ProjectLegacyMkdir:
+			needOpenSpecInit = true
+		case openspec.ProjectReady:
+			needOpenSpecInit = false
+			// `openspec update` refreshes existing tools only; adding adapters requires init --tools.
+			needOpenSpecToolSync = openspec.NeedsToolUpdate(root, doc.Adapters.Selected)
+		default:
 			return ApplyResult{HomePath: homePath, ProjectID: projectID},
-				fmt.Errorf("apply config: openspec: %w", assessErr)
+				fmt.Errorf("apply config: OpenSpec project not initializable: %s", osHealth.ProjectReason)
 		}
-		if assess.Incompatible {
-			return ApplyResult{HomePath: homePath, ProjectID: projectID},
-				fmt.Errorf("apply config: openspec: incompatible existing layout: %s", assess.Reason)
+		if strings.TrimSpace(doc.Governance.OpenSpecVersion) == "" {
+			if adoptErr := AdoptOpenSpecPin(&doc, osHealth.Installed); adoptErr != nil {
+				return ApplyResult{HomePath: homePath, ProjectID: projectID},
+					fmt.Errorf("apply config: %w", adoptErr)
+			}
 		}
 	}
 	if _, err := PlanLocalOnlyGitignore(root, doc); err != nil {
@@ -291,6 +306,41 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	}
 	result.BackupDir = backupDir
 
+	// Provider init/tool-sync before Atlas-owned materialization (OpenSpec owns openspec/ + tool projections).
+	// Absorb new provider paths into the Init footprint so failed Apply can remove them on rollback.
+	if needOpenSpecInit || needOpenSpecToolSync {
+		beforeOS, invErr := openspec.InventoryProviderPaths(root)
+		if invErr != nil {
+			return rollback(fmt.Errorf("openspec provider inventory: %w", invErr))
+		}
+		tools := OpenSpecToolsFlag(doc)
+		initRes, initErr := openspec.RunInit(context.Background(), nil, osHealth.Executable, root, tools)
+		if initErr != nil {
+			_ = openspec.AbsorbNewProviderPaths(&baseline.footprint, root, beforeOS)
+			return rollback(fmt.Errorf("openspec init --tools %s failed: %w (stdout=%q stderr=%q)",
+				tools, initErr, truncateApplyMsg(initRes.Stdout), truncateApplyMsg(initRes.Stderr)))
+		}
+		if needOpenSpecInit {
+			result.Directories = append(result.Directories, "openspec/")
+		}
+		verify := openspec.Probe(context.Background(), openspec.ProbeInput{
+			Root:       root,
+			ProjectPin: doc.Governance.OpenSpecVersion,
+		})
+		if verify.Project != openspec.ProjectReady {
+			_ = openspec.AbsorbNewProviderPaths(&baseline.footprint, root, beforeOS)
+			return rollback(fmt.Errorf("openspec init verification failed: %s", verify.Message))
+		}
+		if missing := openspec.MissingToolProjections(root, doc.Adapters.Selected); len(missing) > 0 {
+			_ = openspec.AbsorbNewProviderPaths(&baseline.footprint, root, beforeOS)
+			return rollback(fmt.Errorf("openspec tool projection verification failed: missing %s",
+				strings.Join(missing, ",")))
+		}
+		if absErr := openspec.AbsorbNewProviderPaths(&baseline.footprint, root, beforeOS); absErr != nil {
+			return rollback(fmt.Errorf("openspec provider footprint: %w", absErr))
+		}
+	}
+
 	for _, file := range atlasFiles {
 		if err := recordTrackedWrite(&baseline.footprint, root, file.rel, file.data, 0o644); err != nil {
 			return rollback(fmt.Errorf("write %s: %w", file.rel, err))
@@ -350,17 +400,6 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		return rollback(docsErr)
 	} else {
 		result.Files = append(result.Files, created...)
-	}
-
-	if NeedsOpenSpecBootstrap(doc) {
-		osResult, osErr := openspec.EnsureBootstrap(root)
-		baseline.footprint.MergeFootprint(osResult.Footprint)
-		if osErr != nil {
-			return rollback(fmt.Errorf("openspec: %w", osErr))
-		}
-		if osResult.Created {
-			result.Directories = append(result.Directories, osResult.Paths...)
-		}
 	}
 
 	giResult, giWorkspaceFP, giHomeFP, giErr := ReconcileLocalOnlyGitignore(root, homePath, projectID, doc, now)
@@ -488,6 +527,41 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 	needMCP := mcpChanged || adaptersChanged || mcpPreferencePresent(doc) || mcpPreferencePresent(previous)
 	needSkills := adaptersChanged || skillsChanged
 	needHooks := adaptersChanged
+	// Drafts do not carry openspec_version; never silently wipe an existing project pin.
+	if strings.TrimSpace(doc.Governance.OpenSpecVersion) == "" {
+		doc.Governance.OpenSpecVersion = strings.TrimSpace(previous.Governance.OpenSpecVersion)
+		data, err = marshalYAML(doc)
+		if err != nil {
+			return PersistConfigureResult{}, fmt.Errorf("persist configure: remarshal %s: %w", FileConfig, err)
+		}
+	}
+
+	needOpenSpecToolSync := false
+	needOpenSpecUpdate := false
+	var osExe string
+	if OpenSpecRequired(doc) {
+		h := ProbeOpenSpecHealth(context.Background(), root, doc)
+		prevPin := strings.TrimSpace(previous.Governance.OpenSpecVersion)
+		nextPin := strings.TrimSpace(doc.Governance.OpenSpecVersion)
+		explicitPinUpgrade := prevPin != "" && nextPin != "" && prevPin != nextPin
+		missingTools := h.Project == openspec.ProjectReady && openspec.NeedsToolUpdate(root, doc.Adapters.Selected)
+		if missingTools || explicitPinUpgrade {
+			switch h.State {
+			case openspec.StateReady, openspec.StateAvailable:
+				if explicitPinUpgrade && !h.PinAligned {
+					return PersistConfigureResult{}, fmt.Errorf("persist configure: OpenSpec pin upgrade blocked: %s", h.Message)
+				}
+				osExe = h.Executable
+				if missingTools {
+					needOpenSpecToolSync = true
+				} else {
+					needOpenSpecUpdate = true
+				}
+			default:
+				return PersistConfigureResult{}, fmt.Errorf("persist configure: OpenSpec tool sync required but provider not usable: %s", h.Message)
+			}
+		}
+	}
 
 	// ---------- Phase B: mutation transaction ----------
 	rollback := func(cause error) (PersistConfigureResult, error) {
@@ -495,6 +569,26 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 			return PersistConfigureResult{}, fmt.Errorf("persist configure: %v (rollback failed: %v)", cause, restoreErr)
 		}
 		return PersistConfigureResult{}, fmt.Errorf("persist configure: %w (rolled back to baseline)", cause)
+	}
+
+	// Provider tool sync / update before Atlas config commit.
+	// Adding adapters requires `openspec init --tools` (update only refreshes existing tools).
+	if needOpenSpecToolSync {
+		tools := OpenSpecToolsFlag(doc)
+		initRes, initErr := openspec.RunInit(context.Background(), nil, osExe, root, tools)
+		if initErr != nil {
+			return PersistConfigureResult{}, fmt.Errorf("persist configure: openspec init --tools %s failed: %w (stdout=%q stderr=%q)",
+				tools, initErr, truncateApplyMsg(initRes.Stdout), truncateApplyMsg(initRes.Stderr))
+		}
+		if missing := openspec.MissingToolProjections(root, doc.Adapters.Selected); len(missing) > 0 {
+			return PersistConfigureResult{}, fmt.Errorf("persist configure: openspec tool sync incomplete for %s", strings.Join(missing, ","))
+		}
+	} else if needOpenSpecUpdate {
+		updRes, updErr := openspec.RunUpdate(context.Background(), nil, osExe, root)
+		if updErr != nil {
+			return PersistConfigureResult{}, fmt.Errorf("persist configure: openspec update failed: %w (stdout=%q stderr=%q)",
+				updErr, truncateApplyMsg(updRes.Stdout), truncateApplyMsg(updRes.Stderr))
+		}
 	}
 
 	if err := recordTrackedWrite(&baseline.footprint, root, FileConfig, data, 0o644); err != nil {
@@ -683,4 +777,12 @@ func safeJoinRoot(root, rel string) (string, error) {
 		return "", fmt.Errorf("apply config: %w", err)
 	}
 	return full, nil
+}
+
+func truncateApplyMsg(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 400 {
+		return s[:400] + "…"
+	}
+	return s
 }

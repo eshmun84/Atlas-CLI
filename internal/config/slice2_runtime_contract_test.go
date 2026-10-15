@@ -125,24 +125,23 @@ func TestSlice2_Dogfood013_LoginFormMaterialTask(t *testing.T) {
 		t.Fatal("cursor entrypoint must bind orchestrator classify routing")
 	}
 	for _, want := range []string{
-		"openspec/changes/<change-id>/",
-		"proposal.md",
-		"tasks.md",
-		"specs/<domain>/spec.md",
+		"openspec init",
+		"governance.openspec_version",
+		"opsx-propose",
 		"Fail-closed",
+		"BLOCKED",
 	} {
 		if !strings.Contains(contract, want) {
-			t.Fatalf("contract missing executable layout/fail-closed %q", want)
+			t.Fatalf("contract missing real OpenSpec provider guidance %q", want)
 		}
 	}
 	impl := mustRead(t, filepath.Join(root, ".cursor", "agents", "atlas-sdd-implement.md"))
 	for _, want := range []string{
-		"openspec/changes/<change-id>/",
-		"proposal.md",
-		"tasks.md",
+		"openspec",
+		"OpenSpec",
 	} {
 		if !strings.Contains(impl, want) {
-			t.Fatalf("implement agent must require concrete artifacts, missing %q", want)
+			t.Fatalf("implement agent must delegate to OpenSpec, missing %q", want)
 		}
 	}
 }

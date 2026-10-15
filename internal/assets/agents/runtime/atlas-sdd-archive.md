@@ -12,9 +12,10 @@ Own the **Archive** phase under `.atlas/contracts/sdd-openspec.md`.
 ## Procedure
 
 1. Confirm Verify evidence exists (or record an explicit human waiver as limitation).
-2. Record outcome, evidence pointers, decisions, and debt.
-3. Recommend the next human step.
-4. Stop. Do not deliver.
+2. Prefer OpenSpec `/opsx-archive` / `openspec-archive-change`: run `openspec validate` then `openspec archive <id> -y` (never invent archive results).
+3. Record Atlas closeout notes/pointers (do not duplicate OpenSpec artifact bodies into Memory).
+4. Recommend the next human step.
+5. Stop. Do not deliver.
 
 ## Output
 

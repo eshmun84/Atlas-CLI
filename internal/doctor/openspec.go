@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"context"
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
@@ -8,49 +9,64 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 )
 
-// evaluateRequiredOpenSpec reports OpenSpec readiness when SDD+openspec is required.
-//
-// Current/temporary: CLI absence is INFO only (PATH probe; Atlas does not execute
-// OpenSpec CLI today). Block B will require a compatible OpenSpec CLI/provider
-// for governed SDD (missing/incompatible → FAIL/BLOCKED). Do not treat today's
-// optional-CLI stance as the target architecture.
+// evaluateRequiredOpenSpec reports OpenSpec provider health when SDD+openspec is required.
+// Status/Doctor remain read-only: only Probe (version/list/help) is used.
 func evaluateRequiredOpenSpec(result inspect.Inspection) []Check {
 	if !result.Runtime.ConfigLoads || !result.Runtime.DependsOnSDDContract {
 		return nil
 	}
 
-	var checks []Check
-	cli := toolAvailable(result.Tools, "openspec")
-	if cli {
-		checks = append(checks, info("openspec cli", "available (CLI execution unused today; provider hardening pending Block B)"))
-	} else {
-		checks = append(checks, info("openspec cli", "not on PATH (currently optional; Block B will require OpenSpec CLI for governed SDD)"))
-	}
-
+	doc := result.Runtime.Document
+	pin := strings.TrimSpace(doc.Governance.OpenSpecVersion)
 	root := strings.TrimSpace(result.RootPath)
-	if root != "" && root != "." {
-		assess, err := openspec.AssessLayout(root)
-		if err != nil {
-			checks = append(checks, fail("openspec layout", "inspection failed: "+err.Error(), RepairManual,
-				"Resolve filesystem access for openspec/ then re-run Doctor"))
-			return checks
+	h := openspec.Probe(context.Background(), openspec.ProbeInput{
+		Root:       root,
+		ProjectPin: pin,
+	})
+
+	var checks []Check
+
+	switch h.State {
+	case openspec.StateMissing:
+		checks = append(checks, fail("openspec provider", h.Message, RepairManual, h.InstallHint))
+	case openspec.StateIncompatible:
+		msg := h.Message
+		switch h.IncompatKind {
+		case openspec.IncompatProjectMismatch:
+			msg = "OpenSpec project version mismatch: " + h.Message
+		case openspec.IncompatUnsupported:
+			msg = "OpenSpec unsupported version: " + h.Message
+		case openspec.IncompatCapability:
+			msg = "OpenSpec missing capability: " + h.Message
 		}
-		switch {
-		case assess.Valid:
-			checks = append(checks, pass("openspec layout", "openspec/ and openspec/changes/ present"))
-		case assess.Absent:
-			checks = append(checks, fail("openspec layout", "required OpenSpec tree absent", RepairConfirm,
-				"Run Runtime Repair to create openspec/ + openspec/changes/"))
+		checks = append(checks, fail("openspec provider", msg, RepairManual, h.InstallHint))
+	case openspec.StateError:
+		checks = append(checks, fail("openspec provider", h.Message, RepairManual,
+			"Resolve OpenSpec CLI/project state manually; Atlas will not heuristically repair provider trees"))
+	case openspec.StateAvailable:
+		switch h.Project {
+		case openspec.ProjectAbsent:
+			checks = append(checks, fail("openspec provider", "OpenSpec CLI available but project not initialized", RepairConfirm,
+				"Run Atlas Init Apply (reviewed openspec init) or openspec init --tools <adapters>"))
+		case openspec.ProjectLegacyMkdir:
+			checks = append(checks, fail("openspec provider", h.Message, RepairConfirm,
+				"Run Atlas Init Apply to replace legacy mkdir bootstrap with real openspec init"))
 		default:
-			reason := strings.TrimSpace(assess.Reason)
-			if reason == "" {
-				reason = "incomplete or incompatible OpenSpec tree"
+			if pin == "" {
+				checks = append(checks, fail("openspec provider", "OpenSpec project present but governance.openspec_version pin is unset", RepairManual,
+					"Run Atlas Init/Configure to adopt the installed OpenSpec version as the project pin"))
+			} else {
+				checks = append(checks, fail("openspec provider", h.Message, RepairManual, h.InstallHint))
 			}
-			checks = append(checks, fail("openspec layout", reason, RepairManual,
-				"Do not auto-repair; restore or recreate the OpenSpec tree manually"))
 		}
+	case openspec.StateReady:
+		checks = append(checks, pass("openspec provider",
+			"ready (installed "+h.Installed+", project pin "+h.RequiredPin+")"))
+	default:
+		checks = append(checks, fail("openspec provider", "unknown provider state", RepairManual, ""))
 	}
 
+	// Contract remains Atlas-owned.
 	switch {
 	case result.Runtime.SDDContractRenderError != "":
 		checks = append(checks, fail("sdd openspec contract", "canonical render failed", RepairManual, ""))

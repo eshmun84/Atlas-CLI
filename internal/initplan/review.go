@@ -1,6 +1,7 @@
 package initplan
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -221,22 +222,50 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 	preserveReadme := false
 	var gitignoreBackup *PlannedBackup
 	if plan.ProjectRoot != "" && config.NeedsOpenSpecBootstrap(doc) {
-		assess, assessErr := openspec.AssessLayout(plan.ProjectRoot)
-		switch {
-		case assessErr != nil:
-			plan.Blockers = append(plan.Blockers, PlanBlocker{Message: "OpenSpec layout inspection failed: " + assessErr.Error()})
-		case assess.Incompatible:
-			plan.Blockers = append(plan.Blockers, PlanBlocker{
-				Message: "OpenSpec layout is partial or incompatible (" + assess.Reason + "). Fix or remove it before Apply.",
-			})
-		case assess.Absent:
-			plan.Creates = append(plan.Creates, PlannedFile{
-				Path:   "openspec/",
-				Kind:   "openspec",
-				Status: "create minimum OpenSpec layout (openspec/ + openspec/changes/) on Apply",
-			})
-		case assess.Valid:
-			preserveOpenSpec = true
+		h := config.ProbeOpenSpecHealth(context.Background(), plan.ProjectRoot, doc)
+		tools := config.OpenSpecToolsFlag(doc)
+		switch h.State {
+		case openspec.StateMissing, openspec.StateIncompatible, openspec.StateError:
+			msg := h.Message
+			if h.InstallHint != "" {
+				msg = msg + " " + h.InstallHint
+			}
+			plan.Blockers = append(plan.Blockers, PlanBlocker{Message: "OpenSpec provider: " + msg})
+		default:
+			switch h.Project {
+			case openspec.ProjectMalformed:
+				plan.Blockers = append(plan.Blockers, PlanBlocker{
+					Message: "OpenSpec project malformed (" + h.ProjectReason + "). Fix or remove it before Apply.",
+				})
+			case openspec.ProjectAbsent, openspec.ProjectLegacyMkdir:
+				pinNote := h.Installed
+				if pinNote == "" {
+					pinNote = "unknown"
+				}
+				status := "Apply will run real `openspec init --tools " + tools + " --no-animation` and pin OpenSpec " + pinNote
+				if h.Project == openspec.ProjectLegacyMkdir {
+					status = "legacy mkdir-only openspec/ — " + status
+				}
+				plan.Creates = append(plan.Creates, PlannedFile{
+					Path:   "openspec/ (via openspec init)",
+					Kind:   "openspec",
+					Status: status,
+				})
+			case openspec.ProjectReady:
+				preserveOpenSpec = true
+				if strings.TrimSpace(doc.Governance.OpenSpecVersion) == "" && h.Installed != "" {
+					plan.Warnings = append(plan.Warnings, PlanWarning{
+						Message: "Existing OpenSpec project detected. Apply will adopt installed OpenSpec " + h.Installed + " as governance.openspec_version (no re-init).",
+					})
+				}
+				if openspec.NeedsToolUpdate(plan.ProjectRoot, doc.Adapters.Selected) {
+					plan.Creates = append(plan.Creates, PlannedFile{
+						Path:   "OpenSpec tool projections (via openspec init --tools)",
+						Kind:   "openspec",
+						Status: "Apply will run reviewed `openspec init --tools " + tools + "` to add missing opsx/openspec-* projections",
+					})
+				}
+			}
 		}
 	}
 

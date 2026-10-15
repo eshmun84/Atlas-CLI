@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -219,9 +220,63 @@ func writeStatusGovernance(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintf(b, "  Testing required: %s\n", yesNo(gov.TestingRequired))
 	fmt.Fprintf(b, "  Review required: %s\n", yesNo(gov.ReviewRequired))
 	fmt.Fprintf(b, "  Evidence required: %s\n", yesNo(gov.EvidenceRequired))
-	fmt.Fprintf(b, "  OpenSpec CLI: %s\n", toolAvailability(result.Tools, "openspec"))
-	fmt.Fprintf(b, "  OpenSpec CLI automation: %s\n", statusInfo.Render("NOT IMPLEMENTED (Block B)"))
+	if rt.DependsOnSDDContract {
+		writeStatusOpenSpecProvider(b, result)
+	}
 	fmt.Fprintln(b)
+}
+
+func writeStatusOpenSpecProvider(b *strings.Builder, result inspect.Inspection) {
+	pin := strings.TrimSpace(result.Runtime.Document.Governance.OpenSpecVersion)
+	h := openspec.Probe(context.Background(), openspec.ProbeInput{
+		Root:       result.RootPath,
+		ProjectPin: pin,
+	})
+	fmt.Fprintf(b, "  Spec Engine: OpenSpec\n")
+	req := pin
+	if req == "" {
+		req = "unset"
+	}
+	installed := h.Installed
+	if installed == "" {
+		installed = "missing"
+	}
+	fmt.Fprintf(b, "  Required version: %s\n", req)
+	fmt.Fprintf(b, "  Installed version: %s\n", installed)
+	fmt.Fprintf(b, "  Provider: %s\n", openSpecProviderLabel(h))
+	fmt.Fprintf(b, "  Project initialization: %s\n", openSpecProjectLabel(h))
+}
+
+func openSpecProviderLabel(h openspec.Health) string {
+	switch h.State {
+	case openspec.StateReady:
+		return statusYes.Render("ready")
+	case openspec.StateAvailable:
+		return statusInfo.Render("available")
+	case openspec.StateMissing:
+		return statusFail.Render("missing")
+	case openspec.StateIncompatible:
+		return statusFail.Render("incompatible")
+	case openspec.StateError:
+		return statusFail.Render("error")
+	default:
+		return statusFail.Render(string(h.State))
+	}
+}
+
+func openSpecProjectLabel(h openspec.Health) string {
+	switch h.Project {
+	case openspec.ProjectReady:
+		return statusYes.Render("ready")
+	case openspec.ProjectAbsent:
+		return statusFail.Render("not initialized")
+	case openspec.ProjectLegacyMkdir:
+		return statusFail.Render("legacy mkdir (not ready)")
+	case openspec.ProjectMalformed:
+		return statusFail.Render("malformed")
+	default:
+		return statusFail.Render(string(h.Project))
+	}
 }
 
 func writeStatusSDD(b *strings.Builder, result inspect.Inspection) {
@@ -235,7 +290,6 @@ func writeStatusSDD(b *strings.Builder, result inspect.Inspection) {
 		} else {
 			fmt.Fprintf(b, "  Contract: %s\n", statusFail.Render("missing or drifted"))
 		}
-		fmt.Fprintf(b, "  OpenSpec layout: %s\n", openSpecLayoutStatus(result.RootPath))
 	}
 	fmt.Fprintln(b)
 }

@@ -12,6 +12,8 @@ const (
 	engineLabel = "OpenSpec"
 
 	rootDir      = "openspec"
+	configFile   = "openspec/config.yaml"
+	specsDir     = "openspec/specs"
 	changesDir   = "openspec/changes"
 	archiveDir   = "openspec/changes/archive"
 	archiveName  = "archive"

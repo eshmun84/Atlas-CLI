@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/adapters"
@@ -124,6 +125,12 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 
 		if isSelected {
 			for _, meta := range enabled {
+				if strings.HasPrefix(meta.ID, "openspec-") {
+					result.Blocked = true
+					result.Errors = append(result.Errors,
+						fmt.Sprintf("skill id %q is OpenSpec-owned; Atlas must not project it", meta.ID))
+					continue
+				}
 				rootRel := proj.PackageRootRel(meta.ID)
 				conflict, err := inspectProjectionConflict(in.Root, rootRel, ownedByID[meta.ID], in.ReclaimUnowned)
 				if err != nil {

@@ -60,6 +60,7 @@ type OrchestrationConfig struct {
 type SpecEngineConfig struct {
 	Enabled       bool   `yaml:"enabled"`
 	Provider      string `yaml:"provider"`
+	Version       string `yaml:"version,omitempty"` // exact OpenSpec pin when provider=openspec
 	Required      bool   `yaml:"required"`
 	StorageMode   string `yaml:"storage_mode"`
 	InstallPolicy string `yaml:"install_policy"`

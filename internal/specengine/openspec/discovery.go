@@ -89,10 +89,15 @@ func discoverChanges(root, projectID string) (active, archived []sdd.ChangeRef, 
 		return active, archived, issues, nil
 	}
 	for _, e := range archEnts {
+		name := e.Name()
+		// OpenSpec init places .gitkeep under archive/; ignore placeholder files.
 		if !e.IsDir() {
+			if name == ".gitkeep" || name == ".gitkeep.md" {
+				continue
+			}
 			issues = append(issues, sdd.Issue{
 				Kind:    sdd.IssueMalformed,
-				Message: fmt.Sprintf("non-directory entry in archive: %s", e.Name()),
+				Message: fmt.Sprintf("non-directory entry in archive: %s", name),
 			})
 			continue
 		}

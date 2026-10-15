@@ -140,7 +140,7 @@ func RenderAgentRegistry(projectName string, selected []string, homePath string)
 		}
 		fmt.Fprintf(&b, "- Atlas Home: `$ATLAS_HOME/%s`\n", home.RelHomePath(homePath, home.AssetHomePath(homePath, homeAsset)))
 	}
-	fmt.Fprintf(&b, "- SDD phase agents must follow this contract. Prefer live OpenSpec-compatible change artifacts before Implement. Do not invent OpenSpec CLI results; CLI is optional when available and appropriate.\n\n")
+	fmt.Fprintf(&b, "- SDD phase agents must follow this contract. Real OpenSpec CLI is required (exact project pin). Delegate artifact lifecycle to OpenSpec instructions/opsx workflows. Do not invent CLI results or emulate openspec/ trees.\n\n")
 
 	if len(adapters) == 0 {
 		fmt.Fprintf(&b, "## Status\n\n")

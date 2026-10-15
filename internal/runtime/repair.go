@@ -523,29 +523,27 @@ func addAtlasSurfaceRepair(plan *RuntimeRepairPlan, present, matches bool, path,
 }
 
 func addOpenSpecRepairTargets(plan *RuntimeRepairPlan, root string, health Health) {
-	assess, err := openspec.AssessLayout(root)
-	if err != nil {
-		plan.Warnings = append(plan.Warnings, "OpenSpec layout inspection failed: "+err.Error())
+	// Runtime Repair does not mkdir fake OpenSpec trees and does not silently
+	// run openspec init. First-time provider init belongs to Atlas Init.
+	st, reason := openspec.ClassifyProject(root)
+	switch st {
+	case openspec.ProjectReady:
 		return
-	}
-	switch {
-	case assess.Valid:
-		return
-	case assess.Absent:
-		addRepairTarget(plan, RuntimeRepairTarget{
-			Path:   RepairOpenSpecPath,
-			Action: RepairActionCreate,
-			Kind:   RepairKindOpenSpec,
-			Reason: "required OpenSpec bootstrap absent (openspec/ + openspec/changes/)",
-		})
-		plan.Drift = append(plan.Drift, "OpenSpec layout absent")
+	case openspec.ProjectAbsent:
+		plan.Warnings = append(plan.Warnings,
+			"OpenSpec project not initialized — run Atlas Init Apply (reviewed openspec init), not Runtime Repair mkdir")
+		plan.Drift = append(plan.Drift, "OpenSpec project absent")
+	case openspec.ProjectLegacyMkdir:
+		plan.Warnings = append(plan.Warnings,
+			"Legacy Atlas mkdir-only openspec/ tree — run Atlas Init Apply for real openspec init; Repair will not invent provider state")
+		plan.Drift = append(plan.Drift, "OpenSpec legacy mkdir")
 	default:
-		reason := assess.Reason
 		if reason == "" {
 			reason = "incomplete or incompatible OpenSpec tree"
 		}
 		plan.Warnings = append(plan.Warnings, "OpenSpec layout not auto-repairable: "+reason)
 	}
+	_ = health
 }
 
 func addGitignoreRepairTargets(plan *RuntimeRepairPlan, root string, health Health) {

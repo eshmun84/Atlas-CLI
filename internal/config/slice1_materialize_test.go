@@ -214,8 +214,9 @@ func TestApplyConfig_OpenSpecPartial_FailClosed(t *testing.T) {
 		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(),
 		Now: func() time.Time { return time.Date(2026, 10, 14, 17, 0, 0, 0, time.UTC) },
 	})
-	if err == nil || !strings.Contains(err.Error(), "openspec") {
-		t.Fatalf("expected openspec fail-closed, got %v", err)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "openspec") ||
+		!strings.Contains(strings.ToLower(err.Error()), "malformed") {
+		t.Fatalf("expected openspec malformed fail-closed, got %v", err)
 	}
 	data, _ := os.ReadFile(filepath.Join(root, "openspec", "x.txt"))
 	if string(data) != string(marker) {

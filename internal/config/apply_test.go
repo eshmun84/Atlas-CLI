@@ -169,7 +169,8 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(contractText), "Operational Contract") ||
-		!strings.Contains(string(contractText), "## 4. Phase contracts") {
+		!strings.Contains(string(contractText), "## 0. Real OpenSpec provider") ||
+		!strings.Contains(string(contractText), "## 4. Cross-cutting rules") {
 		t.Fatalf("contract content unexpected:\n%s", contractText)
 	}
 	orch, err := os.ReadFile(filepath.Join(root, ".cursor", "agents", "atlas-orchestrator.md"))

@@ -6,6 +6,7 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/mcp"
 	"github.com/eshmun84/Atlas-CLI/internal/skills"
+	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 )
 
@@ -57,6 +58,7 @@ type ProjectPersist struct {
 type GovernancePersist struct {
 	Workflow         string `yaml:"workflow"`
 	SpecEngine       string `yaml:"spec_engine"`
+	OpenSpecVersion  string `yaml:"openspec_version,omitempty"` // exact project OpenSpec CLI pin (e.g. 1.14.2)
 	TestingRequired  bool   `yaml:"testing_required"`
 	ReviewRequired   bool   `yaml:"review_required"`
 	EvidenceRequired bool   `yaml:"evidence_required"`
@@ -385,6 +387,11 @@ func ValidateProjectDocument(doc ProjectDocument) error {
 	if doc.Governance.Workflow == WorkflowSDD && engine != SpecProviderOpenSpec {
 		errs = append(errs, "governance.spec_engine must be openspec when governance.workflow is sdd (Atlas V1)")
 	}
+	if pin := strings.TrimSpace(doc.Governance.OpenSpecVersion); pin != "" {
+		if _, err := openspec.ParseVersion(pin); err != nil {
+			errs = append(errs, fmt.Sprintf("governance.openspec_version %q is invalid", doc.Governance.OpenSpecVersion))
+		}
+	}
 	if !oneOf(doc.SourceControl.Mode, SourceControlNone, SourceControlGitLocal, SourceControlGitGitHub) {
 		errs = append(errs, fmt.Sprintf("source_control.mode %q is invalid", doc.SourceControl.Mode))
 	}
@@ -579,6 +586,8 @@ func (d ProjectDocument) ToConfig() Config {
 	cfg.Orchestration.DefaultWorkflow = d.Governance.Workflow
 	cfg.SpecEngine.Provider = d.Governance.SpecEngine
 	cfg.SpecEngine.Enabled = d.Governance.SpecEngine != SpecProviderNone && d.Governance.SpecEngine != ""
+	cfg.SpecEngine.Version = strings.TrimSpace(d.Governance.OpenSpecVersion)
+	cfg.SpecEngine.Required = d.Governance.Workflow == WorkflowSDD && d.Governance.SpecEngine == SpecProviderOpenSpec
 	cfg.Adapters.Cursor = containsString(d.Adapters.Selected, "cursor")
 	cfg.Adapters.OpenCode = containsString(d.Adapters.Selected, "opencode")
 	cfg.SourceControl.Mode = d.SourceControl.Mode

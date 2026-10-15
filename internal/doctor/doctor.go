@@ -53,6 +53,10 @@ func Evaluate(result inspect.Inspection) Report {
 		if tool.Name == "go" && !hasGo {
 			continue
 		}
+		// OpenSpec tool health is owned by evaluateRequiredOpenSpec when SDD requires it.
+		if tool.Name == "openspec" && result.Runtime.ConfigLoads && result.Runtime.DependsOnSDDContract {
+			continue
+		}
 		if tool.Available {
 			checks = append(checks, Check{
 				Severity: SeverityPass,

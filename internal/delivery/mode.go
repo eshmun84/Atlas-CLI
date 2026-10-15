@@ -14,7 +14,7 @@ type Mode = string
 const (
 	ModeNone           Mode = "none"
 	ModeGitLocal       Mode = "git_local"
-	ModeGitGitHub      Mode = "git_github"        // hosting preference; not a Core remote-ops engine
+	ModeGitGitHub      Mode = "git_github"       // hosting preference; not a Core remote-ops engine
 	ModeGitGitLab      Mode = "git_gitlab"       // reserved; not selectable in current UI
 	ModeGitBitbucket   Mode = "git_bitbucket"    // reserved; not selectable in current UI
 	ModeGitAzureDevOps Mode = "git_azure_devops" // reserved; not selectable in current UI

@@ -8,10 +8,9 @@ import (
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
-	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 )
 
-func TestRepair_OpenSpecAbsentBootstrapIdempotent(t *testing.T) {
+func TestRepair_OpenSpecAbsentDoesNotBootstrap(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
 	_ = os.RemoveAll(filepath.Join(root, "openspec"))
 
@@ -20,29 +19,23 @@ func TestRepair_OpenSpecAbsentBootstrapIdempotent(t *testing.T) {
 		t.Fatal("expected DependsOnSDDContract")
 	}
 	plan := runtime.BuildRuntimeRepairPlan(root, health)
-	found := false
 	for _, target := range plan.Targets {
 		if target.Kind == runtime.RepairKindOpenSpec {
-			found = true
+			t.Fatalf("Runtime Repair must not plan openspec bootstrap: %#v", target)
 		}
 	}
-	if !found {
-		t.Fatalf("expected openspec repair target, plan=%#v", plan)
-	}
-	res := applyRepair(t, root, plan.Signature(), fixedClock(2026, 10, 14, 20, 0, 0))
-	if res.Noop || res.Blocked {
-		t.Fatalf("unexpected result: %#v", res)
-	}
-	assess, err := openspec.AssessLayout(root)
-	if err != nil || !assess.Valid {
-		t.Fatalf("layout after repair: %#v err=%v", assess, err)
-	}
-
-	plan2 := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
-	for _, target := range plan2.Targets {
-		if target.Kind == runtime.RepairKindOpenSpec {
-			t.Fatal("second plan must not include openspec bootstrap")
+	foundWarn := false
+	for _, w := range plan.Warnings {
+		if strings.Contains(strings.ToLower(w), "openspec") {
+			foundWarn = true
+			break
 		}
+	}
+	if !foundWarn {
+		t.Fatalf("expected OpenSpec guidance warning, plan=%#v", plan)
+	}
+	if _, err := os.Stat(filepath.Join(root, "openspec")); !os.IsNotExist(err) {
+		t.Fatalf("openspec/ must remain absent after plan: %v", err)
 	}
 }
 

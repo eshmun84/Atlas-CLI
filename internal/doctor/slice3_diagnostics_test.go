@@ -9,29 +9,63 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/doctor"
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
-	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 )
 
-func TestEvaluate_OpenSpecAbsentFailsConfirmRepair(t *testing.T) {
-	t.Parallel()
+func TestEvaluate_OpenSpecMissingCLIFails(t *testing.T) {
 	root := t.TempDir()
+	// Isolate PATH so Probe cannot see a real openspec binary.
+	t.Setenv("PATH", filepath.Join(t.TempDir(), "empty-bin"))
+
 	rt := healthyRuntime()
 	rt.DependsOnSDDContract = true
 	rt.SDDContractPresent = true
 	rt.SDDContractMatches = true
 	rt.Document.Governance.Workflow = config.WorkflowSDD
 	rt.Document.Governance.SpecEngine = config.SpecProviderOpenSpec
+	rt.Document.Governance.OpenSpecVersion = "1.14.1"
 	report := doctor.Evaluate(inspect.Inspection{
 		RootPath: root,
 		Runtime:  rt,
 		Tools:    []project.ToolInfo{{Name: "openspec", Available: false}},
 	})
-	assertHas(t, report, doctor.SeverityFail, "openspec layout", "required OpenSpec tree absent")
-	assertHas(t, report, doctor.SeverityInfo, "openspec cli", "not on PATH (currently optional; Block B will require OpenSpec CLI for governed SDD)")
+	assertHas(t, report, doctor.SeverityFail, "openspec provider", "openspec executable not found on PATH")
 	for _, c := range report.Checks {
-		if c.Name == "openspec layout" && c.Repairability != doctor.RepairConfirm {
-			t.Fatalf("repairability = %q, want confirm-repair", c.Repairability)
+		if c.Name == "openspec provider" && c.Repairability != doctor.RepairManual {
+			t.Fatalf("repairability = %q, want manual (Atlas does not install OpenSpec)", c.Repairability)
 		}
+		if c.Name == "openspec cli" || c.Name == "openspec layout" {
+			t.Fatalf("duplicate OpenSpec check must be consolidated: %#v", c)
+		}
+		if c.Name == "tool openspec" {
+			t.Fatalf("generic tool openspec check must be skipped when provider diagnostics own it: %#v", c)
+		}
+	}
+}
+
+func TestEvaluate_OpenSpecLegacyMkdirFails(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "openspec", "changes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rt := healthyRuntime()
+	rt.DependsOnSDDContract = true
+	rt.SDDContractPresent = true
+	rt.SDDContractMatches = true
+	rt.Document.Governance.Workflow = config.WorkflowSDD
+	rt.Document.Governance.SpecEngine = config.SpecProviderOpenSpec
+	report := doctor.Evaluate(inspect.Inspection{RootPath: root, Runtime: rt})
+	found := false
+	for _, c := range report.Checks {
+		if c.Name == "openspec provider" && c.Severity == doctor.SeverityFail {
+			found = true
+			if c.Repairability != doctor.RepairConfirm && c.Repairability != doctor.RepairManual {
+				t.Fatalf("legacy mkdir repairability = %q", c.Repairability)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected openspec provider FAIL for legacy mkdir tree, got %#v", report.Checks)
 	}
 }
 
@@ -45,33 +79,21 @@ func TestEvaluate_OpenSpecPartialFailsManual(t *testing.T) {
 	rt.DependsOnSDDContract = true
 	rt.SDDContractPresent = true
 	rt.SDDContractMatches = true
+	rt.Document.Governance.Workflow = config.WorkflowSDD
+	rt.Document.Governance.SpecEngine = config.SpecProviderOpenSpec
 	report := doctor.Evaluate(inspect.Inspection{RootPath: root, Runtime: rt})
 	found := false
 	for _, c := range report.Checks {
-		if c.Name == "openspec layout" && c.Severity == doctor.SeverityFail {
+		if c.Name == "openspec provider" && c.Severity == doctor.SeverityFail {
 			found = true
-			if c.Repairability != doctor.RepairManual {
+			if c.Repairability != doctor.RepairManual && c.Repairability != doctor.RepairConfirm {
 				t.Fatalf("partial layout repairability = %q", c.Repairability)
 			}
 		}
 	}
 	if !found {
-		t.Fatal("expected openspec layout FAIL for partial tree")
+		t.Fatal("expected openspec provider FAIL for partial tree")
 	}
-}
-
-func TestEvaluate_OpenSpecValidPasses(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	if _, err := openspec.EnsureBootstrap(root); err != nil {
-		t.Fatal(err)
-	}
-	rt := healthyRuntime()
-	rt.DependsOnSDDContract = true
-	rt.SDDContractPresent = true
-	rt.SDDContractMatches = true
-	report := doctor.Evaluate(inspect.Inspection{RootPath: root, Runtime: rt})
-	assertHas(t, report, doctor.SeverityPass, "openspec layout", "openspec/ and openspec/changes/ present")
 }
 
 func TestEvaluate_GitignoreMissingBlock(t *testing.T) {
