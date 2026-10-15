@@ -8,6 +8,12 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 )
 
+// evaluateRequiredOpenSpec reports OpenSpec readiness when SDD+openspec is required.
+//
+// Current/temporary: CLI absence is INFO only (PATH probe; Atlas does not execute
+// OpenSpec CLI today). Block B will require a compatible OpenSpec CLI/provider
+// for governed SDD (missing/incompatible → FAIL/BLOCKED). Do not treat today's
+// optional-CLI stance as the target architecture.
 func evaluateRequiredOpenSpec(result inspect.Inspection) []Check {
 	if !result.Runtime.ConfigLoads || !result.Runtime.DependsOnSDDContract {
 		return nil
@@ -16,9 +22,9 @@ func evaluateRequiredOpenSpec(result inspect.Inspection) []Check {
 	var checks []Check
 	cli := toolAvailable(result.Tools, "openspec")
 	if cli {
-		checks = append(checks, info("openspec cli", "available (CLI automation still deferred)"))
+		checks = append(checks, info("openspec cli", "available (CLI execution unused today; provider hardening pending Block B)"))
 	} else {
-		checks = append(checks, info("openspec cli", "not on PATH (not required for Atlas artifact governance)"))
+		checks = append(checks, info("openspec cli", "not on PATH (currently optional; Block B will require OpenSpec CLI for governed SDD)"))
 	}
 
 	root := strings.TrimSpace(result.RootPath)

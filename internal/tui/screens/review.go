@@ -63,7 +63,7 @@ func RenderReview(view ReviewView) string {
 	fmt.Fprintln(&b, initLabel.Render("Delivery:"))
 	fmt.Fprintf(&b, "  - Platform: %s\n", plan.DeliveryPlatform)
 	fmt.Fprintf(&b, "  - Governance files: %s\n", plan.GovernanceStorage)
-	fmt.Fprintf(&b, "  - Assisted operations: %s\n", plan.DeliveryAssistance)
+	fmt.Fprintf(&b, "  - Assisted operations (preference stub): %s\n", plan.DeliveryAssistance)
 	fmt.Fprintf(&b, "  - MCP desired state: %d selected\n", plan.MCPCount)
 	fmt.Fprintln(&b)
 

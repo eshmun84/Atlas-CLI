@@ -93,14 +93,16 @@ type ContextPersist struct {
 	Graph ContextGraphPersist `yaml:"graph"`
 }
 
-// ContextGraphPersist is the Context Graph preference.
+// ContextGraphPersist is a compatibility preference for Atlas Context Graph.
+// The Context Graph engine is NOT IMPLEMENTED. This field is retained for YAML
+// compatibility only — it is not an Init/Configure user toggle.
 // Enabled is a pointer so missing YAML defaults to true.
 type ContextGraphPersist struct {
 	Enabled *bool `yaml:"enabled"`
 }
 
-// ContextGraphEnabled reports whether Context Graph is enabled.
-// Missing config defaults to true.
+// ContextGraphEnabled reports the persisted Context Graph preference value.
+// Missing config defaults to true. Preference does not imply an implemented engine.
 func (d ProjectDocument) ContextGraphEnabled() bool {
 	if d.Context.Graph.Enabled == nil {
 		return true

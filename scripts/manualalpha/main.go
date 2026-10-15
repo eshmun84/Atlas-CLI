@@ -1,4 +1,4 @@
-// Command manualalpha runs the Alpha 2 release-candidate manual smoke against a
+// Command manualalpha runs the dogfooding baseline manual smoke against a
 // project root and ATLAS_HOME provided via environment variables. It never
 // writes into the Atlas repository root.
 //

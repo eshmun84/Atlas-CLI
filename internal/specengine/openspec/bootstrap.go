@@ -80,6 +80,11 @@ func AssessLayout(root string) (LayoutAssessment, error) {
 // EnsureBootstrap creates the minimum OpenSpec layout when absent.
 // If a valid layout already exists, it is a no-op.
 // If a partial or incompatible layout exists, it fails closed without mutation.
+//
+// Current/temporary: Atlas still creates empty openspec/ + openspec/changes/
+// for governed SDD readiness. Block B will move openspec/ lifecycle ownership
+// toward the real OpenSpec provider and stop treating Atlas mkdir as the
+// long-term architecture. Do not expand bootstrap semantics here.
 func EnsureBootstrap(root string) (BootstrapResult, error) {
 	assess, err := AssessLayout(root)
 	if err != nil {

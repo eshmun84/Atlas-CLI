@@ -4,39 +4,58 @@ Atlas is a governed AI-assisted software engineering framework.
 
 Atlas is **not** a coding agent. The CLI launches a full-screen interactive TUI. Product work happens in that shell, not as console report dumps.
 
-## Alpha 2 status (`0.1.0` — release candidate)
+## Current development / dogfooding baseline
 
-Practical **Alpha 2** release candidate: installable locally, validated by `make check` + `make smoke-mvp`, usable with Cursor and OpenCode.
+Source version string remains `0.1.0` (see `internal/version`). Version selection and release tagging belong to a later hardening block — do not treat `0.1.0` as a frozen product identity.
 
-Alpha 2 is **not** final V1. Do not tag, create a GitHub release, or publish without explicit human approval.
+This repository is the post–Slice 3 dogfooding baseline: installable locally, validated by `make check` + `make smoke-mvp` and the Slice 3 A–N regression matrix, usable with Cursor and OpenCode. It is **not** production-ready and **not** final V1.
+
+Do not tag, create a GitHub release, or publish without explicit human approval.
 
 ### What Atlas does today
 
-- TUI-first shell: Status (default landing), Init, Configure, Doctor, Runtime Repair, Context Economy, Help
-- Init / Configure with persistence under `.atlas/`
-- Atlas Home (`ATLAS_HOME` or `~/.atlas`) with mirrored bundled assets and project-scoped `projects/<id>/` storage
-- Runtime materialization: composed `AGENTS.md`, **Cursor and OpenCode** projections, **14 Atlas agents per selected runtime**, registry/manifest/lock, SDD/OpenSpec operational contract
-- Status + Doctor runtime awareness (**read-only**)
-- Explicit **Runtime Repair** (Review → Apply) — restores Atlas-owned runtime artifacts only; preserves developer MCP configs, non-Atlas settings/rules, and developer agents
-- Explicit **Context Economy v0** update (index / capsule / pack under Atlas Home project storage; file-based)
-- Configure Apply saves `.atlas/config.yaml` and reconciles Atlas-owned MCP projections (secrets never stored; env/header refs + auth modes only)
-- Optional **Code Intelligence** via externally installed CodeGraph (`internal/codeintel`) — Status/Doctor read-only; explicit refresh; no CodeGraph MCP
-- Init Home reset gate when project-scoped Home data already exists
+- TUI-first shell with **Status** as the default landing (`atlas` → Status). No separate Dashboard/Home screen.
+- Init / Configure, Doctor (read-only), Runtime Repair (Review → Apply), Context Economy, Code Intelligence refresh, Help
+- Atlas Home (`ATLAS_HOME` or `~/.atlas`) with mirrored bundled assets and project-scoped `projects/<id>/` isolation
+- Filesystem safety and mutation locking for Atlas-owned writes
+- Runtime materialization: composed `AGENTS.md`, Cursor and OpenCode projections, runtime agents (orchestrator, SDD, review, worker), registry/manifest/lock
+- SDD governance with current OpenSpec integration (operational contract, layout/bootstrap observation, change discovery; see Spec Engine notes below)
+- Skills v1: local Home catalog, exact pins, deterministic digests, metadata resolver, progressive loading, Cursor/OpenCode projections, ownership/conflict handling, Repair integration
+- Memory Core, governed retrieval, governed persistence, Memory diagnostics, Memory Skill, Context Composition integration
+- Context Economy v0 (explicit index / capsule / pack under Atlas Home)
+- Code Intelligence with optional externally installed CodeGraph provider (`internal/codeintel`)
+- MCP foundation with Atlas-owned Cursor/OpenCode projections (secrets never stored; env/header refs + auth modes only)
+- Neutral Hooks engine plus Cursor native hooks and OpenCode native hooks (production action registry has **no** automatic Memory injection or other side-effect actions yet)
+- Git local bootstrap when source control requires a repo; signing policy; local-only `.gitignore` Atlas block; brownfield backup into Atlas Home
+- Doctor repairability metadata (`atlas-repair` / `confirm-repair` / `diagnostic-only` / `manual`) and Slice 3 regression/readiness evidence
 - `atlas --version` as the only normal console output
 
 ### What Atlas does **not** do yet
 
-- Not final V1
-- No Atlas Context Graph implementation (preference flag only; separate from Code Intelligence)
-- No marketplace / community / remote asset registry
-- Skills v1 (local Home catalog + Cursor/OpenCode projections; no marketplace)
-- No OpenSpec CLI automation (governed agent create/update of OpenSpec-compatible change artifacts is supported)
+- Not production-ready / not final V1
+- No Atlas Context Graph (compatibility flag may exist in config; **no** Init/Configure enable/disable checkbox until an end-to-end Context Graph exists)
+- No embeddings; no daemon / background service
+- No native automatic Memory injection into agent context (explicit/proactive governed retrieval via Memory Skill / CLI / composition is supported)
+- No remote/community skills marketplace; no Framework Skill Acquisition; no Skill Creator
+- No Atlas Native Spec Engine; no additional Spec Engines beyond OpenSpec
+- No OpenSpec CLI execution or provider hardening yet (CLI is probed on PATH only today; Block B will require a real OpenSpec provider for governed SDD)
+- No generic provider plugin platform (domain-specific boundaries only: adapters, Spec Engines, Code Intelligence, MCP)
+- No Core automation for remote repository creation, push, PR, merge, tag, or repository-release publishing (policy/diagnostics/governance remain; future skills may assist developer/agent workflows)
+- No MCP secret storage, OAuth client, or live connection verification
 - No Claude / Codex activation
-- No MCP secret storage, OAuth client, or live connection verification (projections use references / agent-managed auth)
-- No Git delivery automation beyond the explicit Init repository bootstrap (commit/remote/push/PR/merge/tag)
-- No hooks, embeddings, daemon, or background service
 - No daily workflow commands (`atlas start`, `atlas change`, `atlas mcp`)
-- No git tag / GitHub release / publish without explicit human approval
+
+## Spec Engine (current vs next)
+
+**Authoritative direction for the next Atlas version:** supported Spec Engine = **OpenSpec only**. Atlas Native Spec Engine is deferred. Additional engines are future.
+
+| | Current implementation | Target (Block B — not implemented here) |
+| --- | --- | --- |
+| OpenSpec role | Real integration surface Atlas knows about | Required provider for governed SDD |
+| Filesystem | Atlas may bootstrap empty `openspec/` + `openspec/changes/`; inspects layout/changes | `openspec/` lifecycle/semantics belong to OpenSpec |
+| CLI | PATH probe only; currently optional for Atlas artifact governance | Compatible OpenSpec CLI/provider required; missing/incompatible blocks governed SDD |
+| Emulation | Atlas does not emulate OpenSpec CLI | No silent fallback to an internal engine |
+| Atlas ownership | SDD governance, agents, authority, fail-closed policy | Unchanged — Atlas does not own provider filesystem semantics |
 
 ## Install / local build
 
@@ -72,7 +91,7 @@ atlas --version       # console: version only
 
 Unsupported commands such as `atlas start`, `atlas change`, and `atlas mcp` open an Error dialog inside the TUI — they are not real commands and exit non-zero after the dialog closes.
 
-## Recommended Alpha 2 flow (Cursor + OpenCode)
+## Recommended dogfooding flow (Cursor + OpenCode)
 
 1. `export ATLAS_HOME=...` if you want an isolated Home (recommended for trials).
 2. From a project directory: `atlas init` → select **Cursor** and/or **OpenCode** → Review → **Apply config**.
@@ -97,30 +116,33 @@ Project-local (under the product repo):
 | `AGENTS.md` | Composed contract (`ATLAS:BASE` + adapters + preserved `ATLAS:USER`) |
 | `.cursor/rules/atlas.mdc` | Cursor entrypoint (when Cursor selected) |
 | `.opencode/atlas.md` | OpenCode entrypoint (when OpenCode selected) |
-| `.cursor/agents/atlas-*.md` | 14 Atlas agents (when Cursor selected) |
-| `.opencode/agents/atlas-*.md` | 14 Atlas agents (when OpenCode selected) |
-| `.cursor/mcp.json` / `opencode.json` | Atlas-owned MCP entries merged when selected (developer entries preserved). `opencode.jsonc` is **not** merged in Slice 32 — OpenCode MCP reconcile blocks if JSONC is present |
+| `.cursor/agents/atlas-*.md` | Atlas runtime agents (when Cursor selected) |
+| `.opencode/agents/atlas-*.md` | Atlas runtime agents (when OpenCode selected) |
+| Skill projections | Cursor/OpenCode skill surfaces for pinned Skills v1 packages |
+| Hooks projections | Cursor native hooks / OpenCode hooks plugin when selected |
+| `.cursor/mcp.json` / `opencode.json` | Atlas-owned MCP entries merged when selected (developer entries preserved). `opencode.jsonc` is **not** merged — OpenCode MCP reconcile blocks if JSONC is present |
 
 Atlas Home (under `$ATLAS_HOME` / `~/.atlas`):
 
-- Mirrored assets (`assets/…`), agents, adapters, contracts
+- Mirrored assets (`assets/…`), agents, adapters, contracts, skills
 - Project-scoped local data under `projects/<project-id>/` (identity from canonical root; same name + different root → different ID)
 - Context Economy payloads under `projects/<project-id>/context/` after an explicit Update
+- Memory storage under the project Home footprint
 - Runtime Repair backups under `projects/<project-id>/backups/<timestamp>/`
 - MCP ownership + backups under `projects/<project-id>/mcp/`
 - Optional CodeGraph data under `projects/<project-id>/codegraph/`
 
 ## What Status / Doctor validate
 
-Read-only checks for config/state, `AGENTS.md` markers, selected adapters/projections, Atlas agent health, registry/manifest/lock, SDD contract presence/match, Atlas Home visibility, Context Economy state, MCP projection health, optional Code Intelligence health, backups, and basic tool/git presence. They never repair, rematerialize, or create Atlas Home.
+Read-only checks for config/state, `AGENTS.md` markers, selected adapters/projections, Atlas agent health, Skills/hooks health where applicable, registry/manifest/lock, SDD contract presence/match, OpenSpec layout when required, Atlas Home visibility, Memory diagnostics, Context Economy state, MCP projection health, optional Code Intelligence health, backups, signing policy visibility, and basic tool/git presence. They never repair, rematerialize, or create Atlas Home.
 
 ## Runtime Repair
 
-Explicit Review → Apply. Recomputes the plan before Apply. Restores missing/broken **Atlas-owned** runtime files (with Home-backed backup before replace/quarantine of Atlas-owned paths). Never moves or deletes developer/external surfaces such as `CLAUDE.md`, `GEMINI.md`, `AGENT.md`, `.agents/`, or `.claude/` — Status/Doctor may report coexistence only. Preserves `.cursor/mcp.json`, `opencode.json`, non-Atlas rules/settings, `README.md`, `.gitignore`, and non-Atlas agents. Does **not** delete Context Economy payloads under Atlas Home. Does **not** reconcile MCP (use Configure Apply).
+Explicit Review → Apply. Recomputes the plan before Apply. Restores missing/broken **Atlas-owned** runtime files (with Home-backed backup before replace/quarantine of Atlas-owned paths). Never moves or deletes developer/external surfaces such as `CLAUDE.md`, `GEMINI.md`, `AGENT.md`, `.agents/`, or `.claude/` — Status/Doctor may report coexistence only. Preserves `.cursor/mcp.json`, `opencode.json`, non-Atlas rules/settings, `README.md`, and non-Atlas agents. May reconcile reconcilable local-only `.gitignore` Atlas blocks and completely absent OpenSpec bootstrap dirs. Does **not** delete Context Economy payloads under Atlas Home. Does **not** reconcile MCP (use Configure Apply).
 
 ## Configure
 
-Configure Apply saves `.atlas/config.yaml` (and may create optional `docs/atlas/README.md` once when selected on Init and still missing). Does **not** rematerialize general runtime assets (`AGENTS.md`, rules, agents). **Does** reconcile Atlas-owned MCP projections when MCP/adapters change. Custom remote MCP supports auth modes: none, environment header (`env` + optional prefix such as `Bearer `), external OAuth, provider managed — references only, never raw secrets.
+Configure Apply saves `.atlas/config.yaml` (and may create optional `docs/atlas/README.md` once when selected on Init and still missing). Does **not** rematerialize general runtime assets (`AGENTS.md`, rules, agents). **Does** reconcile Atlas-owned MCP projections when MCP/adapters change. Custom remote MCP supports auth modes: none, environment header (`env` + optional prefix such as `Bearer `), external OAuth, provider managed — references only, never raw secrets. No Skills marketplace UI and no Context Graph checkbox.
 
 ## Context Economy (v0)
 
@@ -128,27 +150,63 @@ Explicit Review → Apply Update. Writes `index.yaml`, `capsule.md`, and packs u
 
 ## Code Intelligence
 
-Optional. CodeGraph is an externally installed provider behind `internal/codeintel`. See [docs/code-intelligence/](docs/code-intelligence/README.md). No CodeGraph MCP. Atlas Context Graph remains deferred.
+Optional. CodeGraph is an externally installed provider behind `internal/codeintel`. See [docs/code-intelligence/](docs/code-intelligence/README.md). No CodeGraph MCP. Atlas Context Graph remains deferred and separate.
 
-## Known Alpha 2 limitations
+## Skills
 
-- Not final V1
-- OpenSpec contract + governed change artifacts; OpenSpec CLI automation deferred
+Skills v1 is implemented: bundled catalog in Atlas Home, exact ID/version pins, digests, metadata-based resolve, Cursor/OpenCode projections, ownership handling, and Repair integration. There is **no** Skills UI, marketplace screen, or per-project checkbox catalog.
+
+Future direction (not implemented):
+
+- **Task Capability Discovery** — task → evidence → context/capability needs → registry → lazy skill loading (resolves DOGFOOD-015 later)
+- **Framework Skill Acquisition** — inspect/validate/review/approve/install a skill into Atlas Home for availability across projects (does **not** auto-project into every project)
+- **Skill Creator** — help author Atlas-compatible `SKILL.md` packages for later acquisition
+
+## Memory
+
+Supported today: explicit/proactive governed retrieval, Memory Skill, CLI, governed persistence, diagnostics, and use inside Context Composition. Native automatic Memory injection via adapter/host hooks is **deferred**. The production hooks action registry remains empty for those automatic actions.
+
+## Source control boundary
+
+Atlas Core retains local Git bootstrap, source-control mode/policy, signing policy, diagnostics, and governance/authority rules.
+
+Atlas Core does **not** create remotes, push, open PRs, merge, tag, or publish repository releases. Those operations belong to developer ↔ AI agent workflows; future skills may assist them under governance. This boundary applies to version-control remote/repository operations only — not to Docker, Kubernetes, deployment, CI/CD, or infrastructure domains.
+
+## Deferred / planned / removed (documentation)
+
+| Topic | Status |
+| --- | --- |
+| Atlas Context Graph | Deferred |
+| Embeddings | Planned / deferred (until FTS/metadata/CodeGraph/CE limits justify it) |
+| Daemon / background service | Deferred architectural option (prefer hooks + on-demand execution) |
+| Config History | Deferred (current config/state/ownership/backups/tx/locks/rollback suffice) |
+| Generic provider plugin platform | Removed from current V1 plan |
+| Atlas Core repository-release publisher | Removed |
+| Native automatic Memory injection | Deferred |
+
+## Known limitations
+
+- Not production-ready / not final V1
+- OpenSpec: contract + governed change artifacts + layout/bootstrap observation; CLI execution/provider hardening is the next block
 - Cursor + OpenCode only; Claude/Codex not activated
 - No Atlas Context Graph implementation
-- No marketplace/remote skill install, MCP secret manager / live connection verification, Git delivery automation beyond Init bootstrap, hooks, embeddings, or daemon
+- No marketplace/remote skill install; no Framework Skill Acquisition / Skill Creator
+- MCP projections without secret manager / live connection verification
+- No Core Git remote/PR/merge/tag/release automation beyond Init local bootstrap
 - Configure Apply updates `.atlas/config.yaml` and MCP projections; use Runtime Repair to rematerialize non-MCP runtime files
-- OpenCode MCP: Atlas merges only `opencode.json`. If `opencode.jsonc` exists, OpenCode MCP reconciliation is blocked (no parallel `opencode.json` creation, no ownership mutation) until JSONC-safe merging exists
-- No git tag / GitHub release / publish in this RC unless a human explicitly approves later
+- OpenCode MCP: Atlas merges only `opencode.json`. If `opencode.jsonc` exists, OpenCode MCP reconciliation is blocked until JSONC-safe merging exists
+- No git tag / GitHub release / publish of Atlas itself unless a human explicitly approves later
 
 ## Validation
 
 ```bash
 make check          # fmt + vet + unit tests
-make smoke-mvp      # Alpha 2 release-readiness smoke
+make smoke-mvp      # dogfooding smoke
 ```
 
 `make smoke-mvp` runs `scripts/smoke-mvp.sh`: local build, temp `PREFIX` install, `atlas --version`, CLI routing, temp-workspace matrix under isolated `ATLAS_HOME`, focused package tests, and repo-root cleanliness.
+
+Slice 3 A–N regression evidence: `go test ./internal/runtime/ -run Slice3` (see [docs/release-readiness.md](docs/release-readiness.md)).
 
 See also:
 
@@ -156,26 +214,40 @@ See also:
 - [docs/release-notes.md](docs/release-notes.md)
 - [docs/release-readiness.md](docs/release-readiness.md)
 - [docs/code-intelligence/](docs/code-intelligence/README.md)
+- [docs/memory-delivery-capability.md](docs/memory-delivery-capability.md)
 
 ## Project layout
 
 ```
-cmd/atlas/           # process entrypoint
-internal/app/        # application wiring
-internal/cli/        # arg parse + TUI launcher
-internal/tui/        # sidebar shell (Bubble Tea + Lip Gloss)
-internal/config/     # schema, drafts, persistence, Init/Configure apply
-internal/mcp/        # Atlas-owned MCP desired state, projectors, ownership, reconcile
-internal/inspect/    # composed project inspection (canonical discovery)
-internal/project/    # filesystem/git/tools snapshot + fsafety
-internal/runtime/    # runtime health + Runtime Repair
-internal/codeintel/  # Code Intelligence provider boundary + CodeGraph adapter
-internal/home/       # Atlas Home resolve/inspect/mirror
-internal/context/    # Context Economy (index/capsule/pack)
-internal/doctor/     # diagnostics model
-internal/initplan/   # init dry-run planning
-internal/assets/     # embedded agents, adapters, contracts
-internal/version/    # version string (0.1.0 Alpha 2 RC)
-scripts/             # release smoke helpers
-docs/                # release notes, readiness, code intelligence
+cmd/atlas/              # process entrypoint
+internal/app/           # application wiring
+internal/cli/           # arg parse + TUI launcher
+internal/tui/           # sidebar shell (Bubble Tea + Lip Gloss)
+internal/config/        # schema, drafts, persistence, Init/Configure apply
+internal/adapters/      # Cursor / OpenCode adapter surfaces
+internal/mcp/           # Atlas-owned MCP desired state, projectors, ownership, reconcile
+internal/skills/        # Skills v1 catalog, pins, digest, resolve, reconcile
+internal/hooks/         # Neutral hooks types / ownership
+internal/hooksengine/   # Adapter-neutral hooks dispatch
+internal/hookproj/      # Hooks projection reconcile
+internal/memory/        # Memory Core
+internal/memoryretrieve/
+internal/memorypersist/
+internal/memoryhealth/
+internal/inspect/       # composed project inspection
+internal/project/       # filesystem/git/tools snapshot + fsafety + mutatelock
+internal/runtime/       # runtime health + Runtime Repair
+internal/sdd/           # Spec Engine boundary + SDD service
+internal/specengine/    # OpenSpec adapter (current implementation)
+internal/codeintel/     # Code Intelligence provider boundary + CodeGraph adapter
+internal/context/       # Context Economy (index/capsule/pack)
+internal/contextcompose/# Context Composition
+internal/delivery/      # source-control platform preference (not remote ops engine)
+internal/home/          # Atlas Home resolve/inspect/mirror
+internal/doctor/        # diagnostics model + repairability
+internal/initplan/      # init dry-run planning
+internal/assets/        # embedded agents, adapters, contracts, skills
+internal/version/       # version string (currently 0.1.0; bump later)
+scripts/                # smoke / e2e helpers
+docs/                   # readiness, notes, code intelligence, memory delivery
 ```

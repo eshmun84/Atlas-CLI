@@ -131,11 +131,11 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		ExistingArtifacts:  append([]string(nil), in.Artifacts...),
 		AcceptHomeReset:    in.AcceptHomeReset,
 		DeliveryPolicy: []string{
-			"Commit requires explicit request.",
-			"Push requires explicit request.",
-			"Pull request requires explicit request.",
-			"Merge requires explicit request.",
-			"Remote and tag creation require explicit request.",
+			"Atlas Core does not automate commit; developer/agent may commit only on explicit request.",
+			"Atlas Core does not push, open PRs, merge, tag, or create remotes.",
+			"Repository-release publishing is not an Atlas Core responsibility.",
+			"Future governed skills may assist version-control workflows; Core keeps policy/diagnostics only.",
+			"This boundary applies to version-control remote/repository ops — not Docker/K8s/CI/CD.",
 		},
 		PreviewOnly:     false,
 		ConfigApplyOnly: false,
@@ -383,7 +383,7 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 	if platform == config.SourceControlGitGitHub && storage == "versioned" {
 		plan.GovernanceNote = "Atlas governance files may be versioned according to explicit Atlas policy (GitHub selected)."
 	} else {
-		plan.GovernanceNote = "Atlas governance files stay Local only (.gitignore managed block). Versioning requires a supported delivery platform (GitHub)."
+		plan.GovernanceNote = "Atlas governance files stay Local only (.gitignore managed block). Versioning requires a supported hosting platform preference (GitHub)."
 	}
 
 	if boolFieldTrue(draft, "project.docs_scaffold") {
@@ -404,7 +404,7 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		PlanWarning{Message: "Runtime conflicts block Init and require manual cleanup in this slice."},
 		PlanWarning{Message: "MCP desired state is stored in Atlas config and materialized into selected agent MCP configs (Atlas-owned entries only)."},
 		PlanWarning{Message: "MCP authentication, connection, and verification may still depend on the provider or agent. Secrets are not stored."},
-		PlanWarning{Message: "Context Economy v0 is a separate explicit flow. CodeGraph is an optional externally installed Code Intelligence provider (not MCP; may be unavailable). Atlas Context Graph is NOT IMPLEMENTED."},
+		PlanWarning{Message: "Context Economy v0 is a separate explicit flow. CodeGraph is an optional externally installed Code Intelligence provider (not MCP; may be unavailable). Atlas Context Graph is NOT IMPLEMENTED. No Init/Configure checkbox; Memory/CE/Composition/CodeIntel are not a completed Context Graph."},
 		PlanWarning{Message: plan.GitSafetyStatement},
 		PlanWarning{Message: "Secrets and credentials are not stored."},
 		PlanWarning{Message: "Optional project docs scaffold is developer-owned; Runtime Repair never overwrites docs/atlas/."},

@@ -18,9 +18,11 @@ type ProjectSetupInput struct {
 	// DocsScaffold is set on Project Setup (Init Step 1); off by default.
 	DocsScaffold bool
 
-	// GitRepoDetected seeds Delivery platform from inspect/project Git evidence
-	// (result.Git.IsRepo). It must not run git; callers pass an existing fact.
-	// Explicit persisted source_control.mode always wins via ApplyProjectDocument.
+	// GitRepoDetected seeds source-control platform preference from
+	// inspect/project Git evidence (result.Git.IsRepo). It must not run git;
+	// callers pass an existing fact. Explicit persisted source_control.mode
+	// always wins via ApplyProjectDocument. Seeding does not imply Core
+	// remote/push/PR automation.
 	GitRepoDetected bool
 
 	// Tool availability (LookPath only; never executed).
@@ -36,7 +38,7 @@ type ProjectSetupInput struct {
 // DefaultSourceControlMode returns the Init/Configure draft seed for
 // source_control.mode before any persisted document is applied.
 //
-// Ownership of Delivery mode meaning lives in internal/delivery.
+// Ownership of source-control mode meaning lives in internal/delivery.
 // Precedence after seeding is handled by ApplyProjectDocument:
 //
 //	explicit Atlas config → detected Git repository → none
@@ -122,10 +124,10 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 			{
 				Key:         "governance",
 				Title:       "Governance",
-				Description: "Governance configuration for AI-assisted work. This records Atlas policy preferences — it does not execute OpenSpec CLI commands.",
+				Description: "Governance configuration for AI-assisted work. Records Atlas policy preferences. This screen does not execute OpenSpec CLI (CLI execution/provider hardening is pending Block B).",
 				Fields: []ConfigField{
 					field("governance.default_workflow", "Workflow", "SDD (Spec-Driven Development) workflow preference.", "sdd", "sdd", FieldTypeChoice, []string{"sdd"}, FieldEditable, FieldEditable, true, false),
-					field("governance.spec_engine", "Spec engine", "V1 requires OpenSpec with SDD. Atlas does not run OpenSpec CLI from this screen; agents may create openspec/changes/<id>/ artifacts.", "openspec", "openspec", FieldTypeChoice, []string{"openspec"}, FieldEditable, FieldEditable, true, false),
+					field("governance.spec_engine", "Spec engine", "Next Atlas version: OpenSpec only (Atlas Native deferred; other engines future). Today Atlas does not execute OpenSpec CLI from this screen; agents may create openspec/changes/<id>/ artifacts. Block B will require a compatible OpenSpec provider for governed SDD.", "openspec", "openspec", FieldTypeChoice, []string{"openspec"}, FieldEditable, FieldEditable, true, false),
 					field("governance.testing_required", "Testing required", "Quality gate: testing evidence is required when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
 					field("governance.review_required", "Review required", "Quality gate: review is required when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
 					field("governance.evidence_required", "Evidence required", "Quality gate: the agent must report verification evidence, commands, tests, smoke, results, and limitations when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
@@ -142,11 +144,11 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 			{
 				Key:         "source_control",
 				Title:       "Delivery",
-				Description: "",
+				Description: "Source-control preference and signing policy. Atlas Core may bootstrap a local Git repo; it does not create remotes, push, open PRs, merge, tag, or publish repository releases.",
 				Fields: []ConfigField{
-					field("source_control.mode", "Platform", "", deliveryPlatform, deliveryPlatform, FieldTypeChoice, []string{"none", "git_local", "git_github"}, FieldEditable, FieldEditable, true, false),
+					field("source_control.mode", "Platform", "Hosting/platform preference for governance policy. Not a Core remote-operations engine.", deliveryPlatform, deliveryPlatform, FieldTypeChoice, []string{"none", "git_local", "git_github"}, FieldEditable, FieldEditable, true, false),
 					field("source_control.governance_storage", "Governance files", "", "local_only", "local_only", FieldTypeChoice, []string{"local_only", "versioned"}, FieldEditable, FieldEditable, true, false),
-					field("source_control.delivery_assist", "Assisted operations", "", "false", "false", FieldTypeBool, nil, FieldEditable, FieldEditable, false, false),
+					field("source_control.delivery_assist", "Assisted operations", "Preference stub only — not an Atlas Core delivery engine. Future version-control assistance belongs to governed skills.", "false", "false", FieldTypeBool, nil, FieldEditable, FieldEditable, false, false),
 					field("source_control.signing_required", "Require signed commits", "When true, unsigned commits are not an allowed fallback.", "false", "false", FieldTypeBool, nil, FieldEditable, FieldEditable, false, false),
 				},
 			},
@@ -159,7 +161,8 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 			{
 				// Hidden from SelectorSections; retained so persist/load keep remote + branch_strategy + memory.
 				// Context Economy is a separate explicit flow. Code Intelligence/CodeGraph is a separate surface.
-				// Atlas Context Graph remains NOT IMPLEMENTED and is not a Configure choice.
+				// Atlas Context Graph remains NOT IMPLEMENTED: no Init/Configure checkbox; user enable/disable
+				// only when an end-to-end Context Graph exists. Compatibility key may remain in YAML.
 				Key:         "compat",
 				Title:       "Compatibility",
 				Description: "Internal compatibility fields — not shown in Init/Configure selectors.",
@@ -167,7 +170,7 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 					field("source_control.default_remote", "Default remote", "Not an Init setup decision.", remote, remote, FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 					field("source_control.branch_strategy", "Branch strategy", "Not an Init setup decision. Atlas does not configure GitFlow.", "manual", "manual", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 					field("memory.strategy", "Memory strategy", "Always-on local Atlas-managed memory; not an Init setup choice.", "sqlite_plus_context_capsule", "sqlite_plus_context_capsule", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, true, false),
-					field("context.graph.enabled", "Atlas Context Graph preference", "Compatibility only. Atlas Context Graph is NOT IMPLEMENTED. Context Economy v0 is the separate file-based flow. CodeGraph is an optional Code Intelligence provider managed outside Configure.", "true", "true", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
+					field("context.graph.enabled", "Atlas Context Graph preference", "Compatibility only — not a user-facing toggle. Atlas Context Graph is NOT IMPLEMENTED. Memory, Context Economy, Context Composition, Code Intelligence, and CodeGraph are separate and are not a completed Context Graph.", "true", "true", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 				},
 			},
 		},
@@ -176,8 +179,10 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 	return draft
 }
 
-// SyncDevelopmentDelivery enforces governance-file versioning rules from delivery platform.
-// Versioned is enabled only when a supported platform (GitHub) is selected.
+// SyncDevelopmentDelivery enforces governance-file versioning rules from the
+// source-control platform preference. Versioned is enabled only when a
+// supported hosting platform (GitHub) is selected. This does not authorize
+// Core remote create/push/PR/merge/tag automation.
 func SyncDevelopmentDelivery(draft *ConfigDraft) {
 	if draft == nil {
 		return

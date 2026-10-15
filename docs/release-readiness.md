@@ -1,8 +1,10 @@
-# Atlas Alpha 2 release-readiness checklist
+# Atlas release-readiness checklist (dogfooding)
 
-Version under test: **0.1.0** (Alpha 2 release candidate).
+Version under test: **0.1.0** (source string; version bump deferred to a later hardening block).
 Toolchain: **Go 1.27.1** (required by `go.mod`; local/CI builds must satisfy that directive).
-Alpha 2 is **not** final V1.
+
+This checklist marks readiness for **resumed physical dogfooding**. It does **not** claim production readiness or final V1.
+
 No git tag / GitHub release / publish unless a human explicitly approves later.
 
 ## Automated gate
@@ -42,20 +44,20 @@ No git tag / GitHub release / publish unless a human explicitly approves later.
 Library-equivalent (non-interactive) helper:
 
 ```bash
-export ATLAS_HOME=/tmp/atlas-home-alpha2-rc
+export ATLAS_HOME=/tmp/atlas-home-dogfood
 rm -rf "$ATLAS_HOME"
-PROJECT=/tmp/atlas-alpha2-project
+PROJECT=/tmp/atlas-dogfood-project
 rm -rf "$PROJECT" && mkdir -p "$PROJECT"
 make build
-make install PREFIX=/tmp/atlas-prefix-alpha2-rc
+make install PREFIX=/tmp/atlas-prefix-dogfood
 ATLAS_SMOKE_MANUAL_ROOT="$PROJECT" ATLAS_HOME="$ATLAS_HOME" go run ./scripts/manualalpha
 ```
 
 Interactive TUI (optional confirmation):
 
 ```bash
-export ATLAS_HOME=/tmp/atlas-home-alpha2-rc
-cd /tmp/atlas-alpha2-project
+export ATLAS_HOME=/tmp/atlas-home-dogfood
+cd /tmp/atlas-dogfood-project
 atlas   # or ./bin/atlas from the Atlas repo
 ```
 
@@ -63,7 +65,7 @@ Checklist (library-equivalent via `scripts/manualalpha`):
 
 - [x] Init with Cursor + OpenCode → Apply
 - [x] Verify `AGENTS.md`, `.cursor/rules/atlas.mdc`, `.opencode/atlas.md`
-- [x] Verify 14 agents under `.cursor/agents/` and `.opencode/agents/`
+- [x] Verify Atlas agents under `.cursor/agents/` and `.opencode/agents/`
 - [x] Verify `.atlas/agent-registry.md`, `runtime-manifest.yaml`, `assets.lock.yaml`
 - [x] Verify `.atlas/contracts/sdd-openspec.md`
 - [x] Context Economy → Update → `index.yaml`, `capsule.md`, pack under `$ATLAS_HOME/projects/<id>/context/…`
@@ -84,7 +86,7 @@ Interactive TUI click-through remains optional human confirmation.
 - `source_control.mode=none`: missing Git repo is expected (Status omits Git WARN noise; Doctor PASS/INFO)
 - `git_local` / `git_github` without repo → FAIL; missing git executable when Git is required → FAIL
 - Signing: Doctor shows Atlas `signing_required` and read-only `commit.gpgsign`; policy required + gpgsign false → WARN (not FAIL); Repair never rewrites signing
-- Required OpenSpec (`workflow=sdd` + `spec_engine=openspec`): contract/layout FAIL when unhealthy; CLI missing → INFO only
+- Required OpenSpec (`workflow=sdd` + `spec_engine=openspec`): contract/layout FAIL when unhealthy; CLI missing → INFO only **today** (Block B will harden provider/CLI requirements for governed SDD)
 - Local-only `.gitignore`: same analyzer for Init / Doctor / Repair; malformed markers → FAIL manual, no mutation
 
 ## Runtime Repair authority boundary (Slice 3)
@@ -131,10 +133,10 @@ Authoritative automated coverage: `TestSlice3_Matrix_*` in `internal/runtime/sli
 | 009 | fixed S2 / regression S3 |
 | 010 | fixed S2 / regression S3 |
 | 011 | fixed S2 / regression S3 |
-| 012 | semantics fixed S2; full delivery deferred |
+| 012 | semantics fixed S2; full delivery assist deferred (not a Core remote-ops engine) |
 | 013 | fixed S2 / regression S3 |
 | 014 | fixed S1 / repair regression S3 |
-| 015 | deferred by design |
+| 015 | deferred by design → future **Task Capability Discovery** |
 
 ## Physical dogfooding readiness gate
 
@@ -168,22 +170,26 @@ Gate label when passing: **ready for resumed physical dogfooding** (not a produc
 
 ## Honest capability boundaries
 
-| Area | Alpha 2 RC stance |
+| Area | Current dogfooding stance |
 | --- | --- |
 | Materialized runtimes | Cursor + OpenCode only |
 | Status / Doctor | Read-only |
-| Runtime Repair | Explicit mutation path |
+| Runtime Repair | Explicit mutation path; idempotent for healthy surfaces |
 | Context Economy v0 | File-based, explicit update |
 | CodeGraph | Optional Code Intelligence provider (externally installed; not MCP; may be unavailable) |
-| Atlas Context Graph | Preference only; NOT IMPLEMENTED |
+| Atlas Context Graph | Preference/compat only; NOT IMPLEMENTED; no Init/Configure checkbox |
 | MCP | Desired state + Atlas-owned projections; no auth/connection/verification; secrets not stored |
-| OpenSpec | Operational contract + governed change artifacts; OpenSpec CLI automation deferred |
-| Git | Discovery + explicit Init bootstrap; no commit/remote/push/PR/merge/tag automation |
-| Skills v1 | Local Home catalog + exact pins + Cursor/OpenCode projections (no marketplace) |
+| OpenSpec | Operational contract + governed change artifacts + layout/bootstrap observation; CLI PATH probe currently optional; CLI execution/provider hardening = next block |
+| Git / source control | Discovery + explicit Init local bootstrap + policy/diagnostics; no Core remote create/push/PR/merge/tag/repo-release automation |
+| Skills v1 | Local Home catalog + exact pins + digests + Cursor/OpenCode projections (no marketplace UI) |
+| Hooks | Engine + Cursor/OpenCode native projections; production action registry has no automatic Memory injection |
+| Memory | Core + retrieval + governed persistence + diagnostics + skill; native automatic injection deferred |
 | Marketplace / community registry | Not implemented |
 | Claude / Codex | Not activated |
-| Tag / release / publish | Human approval required |
+| Tag / release / publish | Human approval required; no Atlas Core release publisher |
 
-## Out of scope for this RC
+## Out of scope for this dogfooding baseline
 
-Final V1, Atlas Context Graph engine, MCP authentication/connection/verification orchestration, secret manager, marketplace/community registry / remote skill install, OpenSpec CLI automation, Claude/Codex activation, Git delivery automation beyond Init bootstrap, hooks, embeddings, daemon, new CLI commands, tag/release/publish.
+Final V1 / production-ready claims, Atlas Context Graph engine, MCP authentication/connection/verification orchestration, secret manager, marketplace/community registry / remote skill install, Framework Skill Acquisition, Skill Creator, OpenSpec CLI execution/provider hardening (Block B), Atlas Native Spec Engine, additional Spec Engines, Claude/Codex activation, Core Git remote/push/PR/merge/tag/repo-release automation, embeddings, daemon/background service, Config History, generic provider plugin platform, native automatic Memory injection, new CLI commands, tag/release/publish without human approval.
+
+**Implemented and in scope for dogfooding (do not list as missing):** Hooks engine + native projections, Skills v1, MCP projections, CodeGraph provider, Memory surfaces listed above.

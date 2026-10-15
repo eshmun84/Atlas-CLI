@@ -139,7 +139,7 @@ func writeStatusSourceControl(b *strings.Builder, result inspect.Inspection) {
 			fmt.Fprintf(b, "  Signing required: %s\n", statusNo.Render("no"))
 		}
 		if result.Runtime.Document.SourceControl.DeliveryAssist {
-			fmt.Fprintf(b, "  Delivery assist: %s\n", statusInfo.Render("configured (NOT IMPLEMENTED)"))
+			fmt.Fprintf(b, "  Delivery assist: %s\n", statusInfo.Render("preference stub (NOT a Core delivery engine)"))
 		} else {
 			fmt.Fprintf(b, "  Delivery assist: %s\n", statusNo.Render("not selected"))
 		}
@@ -220,7 +220,7 @@ func writeStatusGovernance(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintf(b, "  Review required: %s\n", yesNo(gov.ReviewRequired))
 	fmt.Fprintf(b, "  Evidence required: %s\n", yesNo(gov.EvidenceRequired))
 	fmt.Fprintf(b, "  OpenSpec CLI: %s\n", toolAvailability(result.Tools, "openspec"))
-	fmt.Fprintf(b, "  OpenSpec CLI automation: %s\n", statusInfo.Render("NOT IMPLEMENTED"))
+	fmt.Fprintf(b, "  OpenSpec CLI automation: %s\n", statusInfo.Render("NOT IMPLEMENTED (Block B)"))
 	fmt.Fprintln(b)
 }
 

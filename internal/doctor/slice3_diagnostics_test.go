@@ -27,7 +27,7 @@ func TestEvaluate_OpenSpecAbsentFailsConfirmRepair(t *testing.T) {
 		Tools:    []project.ToolInfo{{Name: "openspec", Available: false}},
 	})
 	assertHas(t, report, doctor.SeverityFail, "openspec layout", "required OpenSpec tree absent")
-	assertHas(t, report, doctor.SeverityInfo, "openspec cli", "not on PATH (not required for Atlas artifact governance)")
+	assertHas(t, report, doctor.SeverityInfo, "openspec cli", "not on PATH (currently optional; Block B will require OpenSpec CLI for governed SDD)")
 	for _, c := range report.Checks {
 		if c.Name == "openspec layout" && c.Repairability != doctor.RepairConfirm {
 			t.Fatalf("repairability = %q, want confirm-repair", c.Repairability)

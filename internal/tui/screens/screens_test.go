@@ -168,7 +168,7 @@ func TestRenderReview(t *testing.T) {
 		"No Atlas-managed backups required",
 		"Platform:",
 		"Governance files:",
-		"Assisted operations:",
+		"Assisted operations (preference stub):",
 		"Git operations",
 		"No repository init, commit, remote, push, pull request, merge, or tag",
 		"Runtime conflicts block Init and require manual cleanup",

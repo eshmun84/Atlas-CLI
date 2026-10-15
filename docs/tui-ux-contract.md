@@ -1,9 +1,9 @@
-# Atlas TUI UX Contract (Alpha 2)
+# Atlas TUI UX Contract
 
 This document defines the product UX contract for the Atlas CLI interactive shell.
 It governs navigation, Status, and Doctor. It does not authorize new product capabilities.
 
-**Release stance:** Alpha 2 is a release candidate, not final V1. Cursor and OpenCode are the supported materialized runtimes. Status/Doctor stay read-only; Runtime Repair is the explicit path for non-MCP runtime mutation; Configure Apply reconciles Atlas-owned MCP and Skills projections; Context Economy v0 is file-based and explicit-update; CodeGraph is an optional externally installed Code Intelligence provider (not MCP). Atlas Context Graph, MCP auth/connection/verification, skills marketplace/remote install, OpenSpec CLI automation, Git delivery automation beyond Init bootstrap, and Claude/Codex activation remain out of scope. See [release-readiness.md](release-readiness.md).
+**Baseline stance:** Current development/dogfooding baseline (source version `0.1.0`; not production-ready / not final V1). Cursor and OpenCode are the supported materialized runtimes. Status/Doctor stay read-only; Runtime Repair is the explicit path for non-MCP runtime mutation; Configure Apply reconciles Atlas-owned MCP and Skills projections; Context Economy v0 is file-based and explicit-update; CodeGraph is an optional externally installed Code Intelligence provider (not MCP). Skills v1, Memory surfaces, and Hooks projections are implemented capabilities (production hooks action registry has no automatic Memory injection). Atlas Context Graph, MCP auth/connection/verification, skills marketplace/remote install, Framework Skill Acquisition, Skill Creator, OpenSpec CLI provider hardening, Core Git remote/push/PR/merge/tag automation, and Claude/Codex activation remain out of scope. See [release-readiness.md](release-readiness.md).
 
 ## Principles
 
@@ -22,10 +22,13 @@ It governs navigation, Status, and Doctor. It does not authorize new product cap
 | Doctor | Deep diagnostics. |
 | Runtime Repair | Explicit repair (initialized projects). |
 | Context Economy | Explicit context update (initialized projects). |
+| Code Intelligence | Explicit refresh when applicable (initialized projects). |
 | Help | Keyboard and route help. |
 | Exit | Quit the TUI. |
 
-**Removed:** Dashboard as an independent screen. Its overview role is absorbed by Status.
+**Removed (superseded):** Dashboard / Home as an independent screen. Its overview role is absorbed by Status. Root is always Status.
+
+There is **no** Skills marketplace/checkbox screen and **no** Context Graph enable/disable checkbox in Init/Configure.
 
 Keyboard:
 
@@ -64,10 +67,10 @@ Sections, in order:
 1. **Workspace** — root, project name, Atlas setup state, project mode.
 2. **Atlas Runtime** — initialized / materialized / contract health summary (includes compact Memory status). No exhaustive runtime file lists.
 3. **Memory** — read-only Memory diagnostics summary: status (`healthy` / `degraded` / `unavailable` / `failed`), storage, schema, retrieval, persistence mode, observation count, quality anomaly count. Never creates, migrates, or repairs Memory.
-4. **Source Control / Delivery Tools** — Git repo/branch/remote (`none` when empty). Remote default branch is resolved only from local `refs/remotes/<remote>/HEAD` (`unknown locally` when that ref is missing; `none` when there is no default remote). `gh` availability, delivery-assist preference. No Git mutations; Status never contacts remotes or runs `git remote set-head`.
-5. **Project Technology** — detected stack and libraries. PATH tool `go` appears only when the project stack includes Go.
+4. **Source Control / Delivery Tools** — Git repo/branch/remote (`none` when empty). Remote default branch is resolved only from local `refs/remotes/<remote>/HEAD` (`unknown locally` when that ref is missing; `none` when there is no default remote). Tool availability and source-control preference. Atlas Core does not create remotes, push, open PRs, merge, tag, or publish repository releases. No Git mutations; Status never contacts remotes or runs `git remote set-head`.
+5. **Project Technology** — detected stack signals as **evidence** (not permanent technology configuration or bulk skill materialization). PATH tool `go` appears only when the project stack includes Go.
 6. **Adapters** — selected adapters and high-level projection health (`selected` / `materialized` / `missing` / `NOT SELECTED` for inactive adapters).
-7. **Governance Tools** — workflow/spec-engine preferences, OpenSpec CLI availability, and OpenSpec CLI automation (`NOT IMPLEMENTED`; governed change-artifact operations remain supported).
+7. **Governance Tools** — workflow/spec-engine preferences, OpenSpec CLI availability, and OpenSpec CLI automation (`NOT IMPLEMENTED` today; governed change-artifact operations remain supported; Block B hardens provider/CLI requirements).
 8. **SDD** — concise Spec Engine presence from the Inspection snapshot (`SDD: none` or `SDD: OpenSpec` plus active change summary). Read-only; does not copy OpenSpec artifacts.
 9. **MCP** — selected MCP count and per-adapter projection health (`materialized` / `drifted` / `missing` / `malformed`). Read-only; no auth or network.
 10. **Health** — PASS/WARNING/ERROR counts and result label from the same `doctor.Evaluate` summary as Doctor, optional compact “Needs attention” list (top warnings/errors only), Atlas Home presence (not path-primary), Context Economy / Memory state, suggested next action. Status must not show a clean PASS when Doctor has warnings or errors.
@@ -82,19 +85,19 @@ Sections, in order:
 2. **Workspace**
 3. **Git**
 4. **Atlas Configuration**
-5. **Atlas Runtime** — includes runtime file / marker / lock / contract detail.
+5. **Atlas Runtime** — includes runtime file / marker / lock / contract detail; Skills/hooks health where applicable.
 6. **SDD** — Spec Engine detection, active/archived change summary, malformed/unsafe/ambiguous layout findings. Read-only; never repairs or mutates OpenSpec.
 7. **Adapters** — projections and Atlas agent pack health.
 8. **Atlas Home** — path, presence, writability, layout, assets (detail lives here, not as Status primary).
 9. **Memory** — read-only Memory diagnostics checks (config, storage, schema, retrieval, persistence, bounded quality). Never creates, migrates, repairs, vacuums, or writes observations.
-10. **Context** — Context Economy v0 (implemented, file-based) separately from CodeGraph / Code Intelligence (optional externally installed provider; not MCP; may be unavailable) and Atlas Context Graph preference (`NOT IMPLEMENTED`).
+10. **Context** — Context Economy v0 (implemented, file-based) separately from CodeGraph / Code Intelligence (optional externally installed provider; not MCP; may be unavailable) and Atlas Context Graph preference (`NOT IMPLEMENTED`; no user toggle until end-to-end Context Graph exists).
 11. **MCP / External Context** — definition validity, projection presence/drift, ownership conflicts, malformed native config, missing prerequisites/env refs. Read-only; no auth, install, or network.
 
 Doctor remains read-only and never repairs.
 
-## Configure (Slice 27 / Slice 32)
+## Configure
 
-- Configure / Init Step 2 sections: Governance, Adapters, Delivery, MCP (no standalone Project screen).
+- Configure / Init Step 2 sections: Governance, Adapters, Source control / Delivery preference, MCP (no standalone Project screen; no Skills UI; no Context Graph checkbox).
 - Optional **Project Docs Scaffold** is chosen on Init Project Setup only (not repeated on Configure).
 - Configure subtitle: saves `config.yaml` — Runtime Repair / Context Economy are separate.
 - Configure Apply saves `.atlas/config.yaml` (and may create optional `docs/atlas/README.md` once when selected and missing).
@@ -105,27 +108,29 @@ Doctor remains read-only and never repairs.
 - MCP desired state is stored in Atlas config; Atlas-owned projections materialize to selected agents; auth/connection/verification may still depend on the provider or agent; secrets are not stored.
 - Optional project docs scaffold is developer-owned, off by default, never overwritten by Runtime Repair.
 - Context Economy v0 ≠ CodeGraph ≠ Atlas Context Graph.
+- `delivery_assist` / “Assisted operations” may still appear as a preference stub; it is **not** an Atlas Core remote delivery engine. Future version-control assistance belongs to governed skills, not Core automation.
 
-## Init Setup (Slice 25+)
+## Init Setup
 
-Init configures governed runtime, adapters, governance, and delivery assistance. It does not imply Atlas owns GitFlow or repository lifecycle.
+Init configures governed runtime, adapters, governance, and source-control preference. It does not imply Atlas owns GitFlow, remotes, PRs, or repository lifecycle publishing.
 
 - Project Setup: Project Name + New vs Existing (no Recommended mode); Project Mode uses `[x]` / `[ ]` markers like the rest of Init; optional Project Docs Scaffold (`[ ] Create docs/atlas/README.md`) below Project Mode.
 - Runtime conflicts (AGENTS.md, AGENT.md, CLAUDE.md, GEMINI.md, `.cursor/`, `.opencode/`, `.claude/`, `.agents/`, `.codex/`) show a blocking preflight before Project Setup. Refresh / Re-check is read-only rescan only. While conflicts remain, Exit / Back is the other action. After a clean re-check, Continue to Setup enters Project Setup — no silent overwrite or Init-time backup/quarantine.
 - Adapters: Cursor and OpenCode only; Available when the runtime tool is on PATH; unavailable rows are visible but disabled.
-- Delivery: Platform, Governance files, Assisted operations only. Versioned only when GitHub is selected. No tools diagnostics or Git ops on this screen.
+- Source control: Platform, Governance files, Assisted operations preference stub, signing policy. Versioned governance files unlock when GitHub platform is selected. No tools diagnostics or Git remote ops on this screen.
 - Memory is not an Init choice (always-on Atlas-managed memory).
-- Context is not an Init choice: Code Intelligence / CodeGraph is a separate surface; no Atlas Context Graph setup; Context Economy remains a separate explicit flow.
+- Context is not an Init choice: Code Intelligence / CodeGraph is a separate surface; no Atlas Context Graph setup/checkbox; Context Economy remains a separate explicit flow.
 - Review → Apply summarizes Project writes, Atlas Home writes, Atlas Home reset, and Git operations. When source control requires Git and no repository exists, Review may show Git bootstrap (initialize local repo with initial branch `main`). Apply never performs commit, remote, push, pull request, merge, or tag. Status and Doctor remain read-only.
 - When Atlas Home already holds project-scoped data for the same canonical project identity, Review requires explicit reset acceptance (`x`) before Apply. Reset deletes only `$ATLAS_HOME/projects/<project-id>/`.
 
-## Atlas Home storage (Slice 26)
+## Atlas Home storage
 
 - Project-scoped local data lives under `$ATLAS_HOME/projects/<project-id>/` (identity derived from canonical project root, not name alone).
 - Context Economy payloads: `$ATLAS_HOME/projects/<project-id>/context/`.
 - New backups (and quarantine of Atlas-owned unselected adapter artifacts only): `$ATLAS_HOME/projects/<project-id>/backups/<timestamp>/`. Runtime Repair never quarantines developer CLAUDE.md / GEMINI.md / AGENT.md / `.agents/` / `.claude/`.
 - Portable project files under `.atlas/` must not gain absolute machine paths or new machine-local event fields.
+- Future Config History (deferred), if ever needed: append-only audit under `$ATLAS_HOME/projects/<project-id>/audit/` — not inside `config.yaml`.
 
 ## Out of scope for this contract
 
-Final V1 claims, Atlas Context Graph engine, MCP auth/connection/verification, marketplace/community registry / remote skill install, OpenSpec CLI automation, Git delivery automation beyond Init bootstrap, Claude/Codex activation, tag/release/publish, new CLI commands.
+Final V1 / production-ready claims, Atlas Context Graph engine, MCP auth/connection/verification, marketplace/community registry / remote skill install, Framework Skill Acquisition, Skill Creator, OpenSpec CLI provider hardening, Core Git remote/push/PR/merge/tag/repo-release automation, Claude/Codex activation, embeddings, daemon, Config History, generic provider plugin platform, native automatic Memory injection, tag/release/publish, new CLI commands.

@@ -1814,7 +1814,7 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		"Selected: none selected",
 		"Platform: None",
 		"Governance files: Local only",
-		"Assisted operations: Disabled",
+		"Assisted operations (preference stub): Disabled",
 		"MCP desired state: 0 selected",
 		".atlas/config.yaml",
 		".atlas/local.yaml",

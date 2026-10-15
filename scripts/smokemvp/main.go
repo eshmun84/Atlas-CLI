@@ -1,4 +1,4 @@
-// Command smokemvp exercises Atlas Alpha 2 lower-level flows in temporary
+// Command smokemvp exercises Atlas dogfooding lower-level flows in temporary
 // workspaces. It is invoked by scripts/smoke-mvp.sh and never writes into
 // the Atlas repository root. Callers must set ATLAS_HOME to a temporary path.
 package main

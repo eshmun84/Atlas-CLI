@@ -7,14 +7,17 @@ const (
 	ConfidenceLow    = "low"
 )
 
-// Technology is a detected workspace technology signal.
+// Technology is a detected workspace technology evidence signal.
+// It is not permanent project technology configuration and does not
+// materialize skills/agents. Future Task Capability Discovery will use
+// task-scoped evidence → capability needs → registry → lazy skills.
 type Technology struct {
 	Name       string
 	Source     string
 	Confidence string
 }
 
-// DiscoverTechnologies maps discovered files to technologies.
+// DiscoverTechnologies maps discovered files to technology evidence signals.
 func DiscoverTechnologies(files FileInfo) []Technology {
 	var techs []Technology
 
