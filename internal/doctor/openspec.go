@@ -46,11 +46,12 @@ func evaluateRequiredOpenSpec(result inspect.Inspection) []Check {
 	case openspec.StateAvailable:
 		switch h.Project {
 		case openspec.ProjectAbsent:
-			checks = append(checks, fail("openspec provider", "OpenSpec CLI available but project not initialized", RepairConfirm,
-				"Run Atlas Init Apply (reviewed openspec init) or openspec init --tools <adapters>"))
+			// Runtime Repair refuses OpenSpec bootstrap — Init owns provider init.
+			checks = append(checks, fail("openspec provider", "OpenSpec CLI available but project not initialized", RepairManual,
+				"Run Atlas Init Apply (reviewed openspec init) or openspec init --tools <adapters>; Runtime Repair will not bootstrap OpenSpec"))
 		case openspec.ProjectLegacyMkdir:
-			checks = append(checks, fail("openspec provider", h.Message, RepairConfirm,
-				"Run Atlas Init Apply to replace legacy mkdir bootstrap with real openspec init"))
+			checks = append(checks, fail("openspec provider", h.Message, RepairManual,
+				"Run Atlas Init Apply to replace legacy mkdir bootstrap with real openspec init; Runtime Repair will not invent provider state"))
 		default:
 			if pin == "" {
 				checks = append(checks, fail("openspec provider", "OpenSpec project present but governance.openspec_version pin is unset", RepairManual,

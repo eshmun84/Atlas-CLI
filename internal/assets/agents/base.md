@@ -54,8 +54,9 @@ When that governance is active and the task is material:
 - route is **REQUIRED** `governed-sdd`;
 - the user need not mention Atlas, SDD, OpenSpec, spec, plan, or change;
 - follow `.atlas/contracts/sdd-openspec.md`;
-- before Implement, ensure `openspec/changes/<change-id>/proposal.md` and `tasks.md` (plus `specs/<domain>/spec.md` / `design.md` when needed);
-- OpenSpec CLI may be used when available, but is not the only allowed path;
+- a **real OpenSpec CLI provider is required** (exact project pin; compatible version; initialized project) — Atlas does **not** emulate OpenSpec and does **not** mkdir-bootstrap `openspec/` as a substitute;
+- inspect provider/change state via OpenSpec (`openspec status` / `openspec instructions --json` and opsx workflows) — do **not** treat hardcoded `openspec/changes/...` paths as a substitute for the provider;
+- if the provider is missing, incompatible, pin-mismatched, malformed, or not initialized → `blocked` / `interaction-required`; surface the condition; do not invent change artifacts or silently bootstrap; remediation is Atlas Init / Configure / explicit human-directed OpenSpec CLI — not Runtime Repair bootstrap;
 - NEVER invent OpenSpec CLI results.
 
 If required governance/contract/artifacts are missing or corrupt → `blocked` or `interaction-required`. MUST NOT implement directly.

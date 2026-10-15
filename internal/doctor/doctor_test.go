@@ -601,7 +601,7 @@ func healthyRuntime() runtime.Health {
 			FoundAdapters: []string{"cursor"},
 		},
 		SelectedAdapters:     []string{"cursor"},
-		ExpectedProjections:  []runtime.ProjectionStatus{{Adapter: "cursor", Path: config.FileCursorAtlasMDC, Present: true}},
+		ExpectedProjections:  []runtime.ProjectionStatus{{Adapter: "cursor", Path: config.FileCursorAtlasMDC, Present: true, Matches: true}},
 		ExpectedAgents:       agents,
 		AgentRegistryPresent: true,
 		AgentRegistryMatches: true,

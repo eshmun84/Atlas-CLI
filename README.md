@@ -19,7 +19,8 @@ Do not tag, create a GitHub release, or publish without explicit human approval.
 - Atlas Home (`ATLAS_HOME` or `~/.atlas`) with mirrored bundled assets and project-scoped `projects/<id>/` isolation
 - Filesystem safety and mutation locking for Atlas-owned writes
 - Runtime materialization: composed `AGENTS.md`, Cursor and OpenCode projections, runtime agents (orchestrator, SDD, review, worker), registry/manifest/lock
-- SDD governance with current OpenSpec integration (operational contract, layout/bootstrap observation, change discovery; see Spec Engine notes below)
+- SDD governance with **real OpenSpec provider** integration (exact project pin; Init runs `openspec init`; Doctor fails closed on missing/incompatible CLI; see Spec Engine notes below)
+- Task Capability Discovery: `atlas capability plan "<task>" --json` (bounded evidence → task-active skills → proactive governed retrieval planning; technology is evidence only)
 - Skills v1: local Home catalog, exact pins, deterministic digests, metadata resolver, progressive loading, Cursor/OpenCode projections, ownership/conflict handling, Repair integration
 - Memory Core, governed retrieval, governed persistence, Memory diagnostics, Memory Skill, Context Composition integration
 - Context Economy v0 (explicit index / capsule / pack under Atlas Home)
@@ -38,24 +39,26 @@ Do not tag, create a GitHub release, or publish without explicit human approval.
 - No native automatic Memory injection into agent context (explicit/proactive governed retrieval via Memory Skill / CLI / composition is supported)
 - No remote/community skills marketplace; no Framework Skill Acquisition; no Skill Creator
 - No Atlas Native Spec Engine; no additional Spec Engines beyond OpenSpec
-- No OpenSpec CLI execution or provider hardening yet (CLI is probed on PATH only today; Block B will require a real OpenSpec provider for governed SDD)
+- No OpenSpec emulation / mkdir-bootstrap of `openspec/` (provider init belongs to OpenSpec via Atlas Init; Runtime Repair does not bootstrap OpenSpec)
 - No generic provider plugin platform (domain-specific boundaries only: adapters, Spec Engines, Code Intelligence, MCP)
 - No Core automation for remote repository creation, push, PR, merge, tag, or repository-release publishing (policy/diagnostics/governance remain; future skills may assist developer/agent workflows)
 - No MCP secret storage, OAuth client, or live connection verification
 - No Claude / Codex activation
 - No daily workflow commands (`atlas start`, `atlas change`, `atlas mcp`)
 
-## Spec Engine (current vs next)
+## Spec Engine (OpenSpec)
 
-**Authoritative direction for the next Atlas version:** supported Spec Engine = **OpenSpec only**. Atlas Native Spec Engine is deferred. Additional engines are future.
+**Supported Spec Engine = OpenSpec only.** Atlas Native Spec Engine is deferred. Additional engines are future.
 
-| | Current implementation | Target (Block B — not implemented here) |
-| --- | --- | --- |
-| OpenSpec role | Real integration surface Atlas knows about | Required provider for governed SDD |
-| Filesystem | Atlas may bootstrap empty `openspec/` + `openspec/changes/`; inspects layout/changes | `openspec/` lifecycle/semantics belong to OpenSpec |
-| CLI | PATH probe only; currently optional for Atlas artifact governance | Compatible OpenSpec CLI/provider required; missing/incompatible blocks governed SDD |
-| Emulation | Atlas does not emulate OpenSpec CLI | No silent fallback to an internal engine |
-| Atlas ownership | SDD governance, agents, authority, fail-closed policy | Unchanged — Atlas does not own provider filesystem semantics |
+| | Current behavior |
+| --- | --- |
+| Provider | Real OpenSpec CLI required when `workflow=sdd` + `spec_engine=openspec` |
+| Pin | Exact `governance.openspec_version`; local CLI must match (older/newer mismatch blocks governed SDD) |
+| Init | Atlas Init Apply runs real `openspec init` (+ tool projections); adopts pin when empty |
+| Filesystem | `openspec/` lifecycle belongs to OpenSpec — Atlas does **not** mkdir-bootstrap as a substitute |
+| Repair | Runtime Repair **refuses** OpenSpec provider bootstrap; Init owns first-time / legacy remediation |
+| Emulation | No silent fallback to an internal engine; malformed/legacy fail closed |
+| Atlas ownership | SDD governance, agents, authority, fail-closed policy — not provider FS semantics |
 
 ## Install / local build
 
@@ -138,7 +141,7 @@ Read-only checks for config/state, `AGENTS.md` markers, selected adapters/projec
 
 ## Runtime Repair
 
-Explicit Review → Apply. Recomputes the plan before Apply. Restores missing/broken **Atlas-owned** runtime files (with Home-backed backup before replace/quarantine of Atlas-owned paths). Never moves or deletes developer/external surfaces such as `CLAUDE.md`, `GEMINI.md`, `AGENT.md`, `.agents/`, or `.claude/` — Status/Doctor may report coexistence only. Preserves `.cursor/mcp.json`, `opencode.json`, non-Atlas rules/settings, `README.md`, and non-Atlas agents. May reconcile reconcilable local-only `.gitignore` Atlas blocks and completely absent OpenSpec bootstrap dirs. Does **not** delete Context Economy payloads under Atlas Home. Does **not** reconcile MCP (use Configure Apply).
+Explicit Review → Apply. Recomputes the plan before Apply. Restores missing/broken **Atlas-owned** runtime files (with Home-backed backup before replace/quarantine of Atlas-owned paths). Never moves or deletes developer/external surfaces such as `CLAUDE.md`, `GEMINI.md`, `AGENT.md`, `.agents/`, or `.claude/` — Status/Doctor may report coexistence only. Preserves `.cursor/mcp.json`, `opencode.json`, non-Atlas rules/settings, `README.md`, and non-Atlas agents. May reconcile reconcilable local-only `.gitignore` Atlas blocks. Apply mutates only surfaces represented by the reviewed repair plan (e.g. hooks only when a hook target is planned). Does **not** bootstrap OpenSpec (use Atlas Init). Does **not** delete Context Economy payloads under Atlas Home. Does **not** reconcile MCP (use Configure Apply).
 
 ## Configure
 
@@ -188,7 +191,7 @@ Atlas Core does **not** create remotes, push, open PRs, merge, tag, or publish r
 ## Known limitations
 
 - Not production-ready / not final V1
-- OpenSpec: contract + governed change artifacts + layout/bootstrap observation; CLI execution/provider hardening is the next block
+- OpenSpec: real provider required for governed SDD; exact pin; Init owns `openspec init`; Repair does not bootstrap OpenSpec
 - Cursor + OpenCode only; Claude/Codex not activated
 - No Atlas Context Graph implementation
 - No marketplace/remote skill install; no Framework Skill Acquisition / Skill Creator

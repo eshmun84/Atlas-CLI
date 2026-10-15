@@ -693,7 +693,7 @@ func TestStatusGitTechLibraries(t *testing.T) {
 		Runtime: runtime.Health{
 			SelectedAdapters: []string{"cursor"},
 			ExpectedProjections: []runtime.ProjectionStatus{
-				{Adapter: "cursor", Path: ".cursor/rules/atlas.mdc", Present: true},
+				{Adapter: "cursor", Path: ".cursor/rules/atlas.mdc", Present: true, Matches: true},
 			},
 			ContextGraphReadable: true,
 			ContextGraphEnabled:  true,

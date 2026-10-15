@@ -13,9 +13,10 @@ No git tag, GitHub release, or publish without explicit human approval.
 - Atlas Home (`ATLAS_HOME` or `~/.atlas`) with project-scoped `projects/<project-id>/` isolation; Init requires a healthy Home and fails closed
 - Runtime gateway: composed `AGENTS.md`; **Cursor and OpenCode** materialized runtimes; orchestrator + specialized SDD/review/worker agents
 - Filesystem safety, mutation locking, brownfield backup into Atlas Home, transactional Apply with rollback
-- SDD governance + current OpenSpec integration: operational contract at `.atlas/contracts/sdd-openspec.md`; layout/bootstrap observation; change discovery; agents may create OpenSpec-compatible change artifacts. **OpenSpec CLI is probed on PATH only today and is currently optional for Atlas artifact governance** — real CLI/provider hardening is the next block (Block B), not a shipped claim here
+- SDD governance + **real OpenSpec provider**: operational contract at `.atlas/contracts/sdd-openspec.md`; Init Apply runs `openspec init`; exact project pin (`governance.openspec_version`); missing/incompatible/mismatched CLI blocks governed SDD; no Atlas emulation or mkdir-bootstrap; Runtime Repair refuses OpenSpec provider bootstrap
 - Skills v1: local Home catalog, exact pins, deterministic digests, metadata resolver, progressive loading, Cursor/OpenCode projections, ownership/conflict handling, Repair integration (no marketplace UI)
-- Memory Core, governed retrieval, governed persistence, Memory diagnostics, Memory Skill, Context Composition integration
+- Task Capability Discovery (Block C; resolves DOGFOOD-015): `atlas capability plan`; bounded evidence; task-active skill selection; proactive governed retrieval planning; technology signals remain evidence helpers, not permanent stack→skill configuration
+- Memory Core, governed retrieval, governed persistence, Memory diagnostics, Memory Skill, Context Composition integration; proactive path = capability plan → explicit retrieval → agent invokes Memory/context compose (native automatic injection deferred)
 - Context Economy **v0**: file-based, explicit Update (index / capsule / pack under Atlas Home)
 - Code Intelligence with optional externally installed **CodeGraph** provider (`internal/codeintel`; not MCP; may be unavailable)
 - MCP foundation: desired state in Atlas config + **Atlas-owned projections** to Cursor/OpenCode (no secret storage; no live auth/connection verification)
@@ -32,12 +33,10 @@ No git tag, GitHub release, or publish without explicit human approval.
 
 - Final V1 / production-ready claims
 - Atlas Context Graph engine (compatibility preference may persist; **no** Init/Configure checkbox; Memory/CE/Composition/CodeIntel/CodeGraph are **not** a completed Context Graph)
-- OpenSpec CLI execution and provider hardening (Block B target: required compatible provider; missing/incompatible blocks governed SDD; no emulation/fallback)
 - Atlas Native Spec Engine (deferred); additional Spec Engines (future)
 - Native automatic Memory injection (deferred); embeddings (planned/deferred); daemon/background service (deferred architectural option)
 - Config History as durable audit UX (deferred — current config/state/ownership/backups/tx/locks/rollback suffice)
 - Skills marketplace / Framework Skill Acquisition / Skill Creator (planned/future; not shipped)
-- Task Capability Discovery (Block C; resolves DOGFOOD-015) — `atlas capability plan`; technology signals remain evidence helpers, not permanent stack→skill configuration
 - Generic provider plugin platform (**removed** from current V1 plan; keep domain boundaries only)
 - Atlas Core repository-release publisher (**removed**); Core does not automate remote create / push / PR / merge / tag / repo release publish
 - Claude / Codex activation
@@ -45,14 +44,16 @@ No git tag, GitHub release, or publish without explicit human approval.
 - Daily workflow commands (`atlas start`, `atlas change`, `atlas mcp`)
 - Tag / GitHub release / publish of Atlas without explicit human approval
 
-### Spec Engine direction (documentation)
+### Spec Engine (OpenSpec — implemented)
 
-| | Current | Next (Block B) |
-| --- | --- | --- |
-| Supported engine | OpenSpec only (V1 config) | OpenSpec only |
-| CLI | PATH probe; currently optional | Required compatible OpenSpec CLI/provider for governed SDD |
-| `openspec/` | Atlas may bootstrap empty dirs; inspects layout | Lifecycle/semantics belong to OpenSpec |
-| Atlas role | SDD governance, agents, authority | Unchanged — not provider FS owner |
+| | Behavior |
+| --- | --- |
+| Supported engine | OpenSpec only (V1 config) |
+| CLI | Required compatible OpenSpec CLI for governed SDD; exact project pin match |
+| Init | Atlas Init Apply runs real `openspec init`; adopts pin when empty |
+| `openspec/` | Lifecycle/semantics belong to OpenSpec — no Atlas mkdir-bootstrap substitute |
+| Repair | Does **not** bootstrap absent/legacy OpenSpec; Init owns remediation |
+| Atlas role | SDD governance, agents, authority — not provider FS owner |
 
 ### Upgrade / migration notes
 
@@ -65,7 +66,7 @@ No git tag, GitHub release, or publish without explicit human approval.
 ### Known limitations
 
 - Dogfooding baseline, not final V1 / not production-ready
-- Contract file is not an OpenSpec runner; CLI provider hardening pending
+- OpenSpec provider required for governed SDD; contract is governance — not an OpenSpec emulator
 - Context Economy is deterministic file-based v0 (no embeddings, no Atlas Context Graph engine)
 - Hooks plumbing exists; automatic Memory injection actions are not registered in production
 - No Claude/Codex activation

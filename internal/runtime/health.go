@@ -33,6 +33,9 @@ type ProjectionStatus struct {
 	Adapter string
 	Path    string
 	Present bool
+	// Matches is true when Present and content equals Atlas-owned render.
+	// False when missing, unreadable, or content drifted (DOGFOOD-019).
+	Matches bool
 }
 
 // ForbiddenArtifactStatus is presence of a non-required generated artifact.
@@ -155,18 +158,12 @@ func EvaluateHealth(root string, atlas project.AtlasStatus, files project.FileIn
 				switch adapter {
 				case "cursor":
 					path := config.FileCursorAtlasMDC
-					health.ExpectedProjections = append(health.ExpectedProjections, ProjectionStatus{
-						Adapter: adapter,
-						Path:    path,
-						Present: atlasOwnedPresent(root, path),
-					})
+					health.ExpectedProjections = append(health.ExpectedProjections,
+						evaluateAdapterProjection(root, adapter, path, doc.Project.Name))
 				case "opencode":
 					path := config.FileOpenCodeAtlas
-					health.ExpectedProjections = append(health.ExpectedProjections, ProjectionStatus{
-						Adapter: adapter,
-						Path:    path,
-						Present: atlasOwnedPresent(root, path),
-					})
+					health.ExpectedProjections = append(health.ExpectedProjections,
+						evaluateAdapterProjection(root, adapter, path, doc.Project.Name))
 				}
 			}
 			for _, path := range config.AtlasAgentRuntimePaths(doc.Adapters.Selected) {
@@ -455,6 +452,28 @@ func inspectMemory(h Health, root, projectID string) memoryhealth.Diagnostics {
 		in.PersistenceMode = cfg.Memory.Persistence.Mode
 	}
 	return memoryhealth.Inspect(in)
+}
+
+func evaluateAdapterProjection(root, adapter, path, projectName string) ProjectionStatus {
+	st := ProjectionStatus{Adapter: adapter, Path: path, Present: atlasOwnedPresent(root, path)}
+	if !st.Present {
+		return st
+	}
+	var expected string
+	var renderErr error
+	switch adapter {
+	case "cursor":
+		expected, renderErr = config.RenderCursorAtlasMDC(projectName)
+	case "opencode":
+		expected, renderErr = config.RenderOpenCodeAtlas(projectName)
+	default:
+		return st
+	}
+	if renderErr != nil {
+		return st
+	}
+	st.Matches = fileMatches(root, path, expected)
+	return st
 }
 
 func fileMatches(root, rel, expected string) bool {

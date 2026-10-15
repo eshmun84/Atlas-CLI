@@ -45,9 +45,11 @@ If material under that governance:
 - class MUST be `governed-sdd`;
 - user need not mention planning/SDD/OpenSpec;
 - follow `.atlas/contracts/sdd-openspec.md`;
-- before Implement require `openspec/changes/<change-id>/proposal.md` + `tasks.md` (and specs/design when needed).
+- real OpenSpec CLI provider is **required** (exact project pin; initialized project) — do not emulate OpenSpec or invent layouts;
+- before Implement, confirm required change artifacts via OpenSpec status/instructions (and opsx workflows) — do not treat hardcoded `openspec/changes/...` paths as a provider substitute;
+- missing/incompatible/mismatched/malformed/uninitialized provider → `blocked` / `interaction-required`; point to Atlas Init / Configure / human-directed OpenSpec remediation (Runtime Repair does not bootstrap OpenSpec).
 
-If required config/contract/artifacts are missing or corrupt → `blocked` / `interaction-required`. MUST NOT implement directly.
+If required config/contract/artifacts/provider are missing or corrupt → `blocked` / `interaction-required`. MUST NOT implement directly.
 
 MUST NOT treat “planning failed” or “user did not request planning” as permission to mutate.
 

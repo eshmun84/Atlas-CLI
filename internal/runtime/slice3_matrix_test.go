@@ -297,7 +297,7 @@ func TestSlice3_Matrix_H_OpenSpecAbsentAndPartial(t *testing.T) {
 	root := materializeProject(t, []string{"cursor"}, true)
 	_ = os.RemoveAll(filepath.Join(root, "openspec"))
 	report := doctor.Evaluate(mustDiscover(t, root))
-	assertDoctorHas(t, report, doctor.SeverityFail, "openspec provider", doctor.RepairConfirm)
+	assertDoctorHas(t, report, doctor.SeverityFail, "openspec provider", doctor.RepairManual)
 	plan := runtime.BuildRuntimeRepairPlan(root, mustDiscover(t, root).Runtime)
 	for _, target := range plan.Targets {
 		if target.Kind == runtime.RepairKindOpenSpec {

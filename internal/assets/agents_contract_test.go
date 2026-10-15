@@ -83,9 +83,45 @@ func TestBaseAgentsTeachThinRouter(t *testing.T) {
 		"## 10. Project Memory",
 		"Future Memory",
 		"inline work by default",
+		"OpenSpec CLI may be used when available",
+		"not the only allowed path",
 	} {
 		if strings.Contains(body, banned) {
 			t.Fatalf("base.md must not contain obsolete %q", banned)
+		}
+	}
+	for _, want := range []string{
+		"real OpenSpec CLI provider is required",
+		"does **not** emulate OpenSpec",
+		"does **not** mkdir-bootstrap",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("base.md missing OpenSpec provider-required guidance %q", want)
+		}
+	}
+}
+
+func TestOrchestratorRequiresRealOpenSpecProvider(t *testing.T) {
+	t.Parallel()
+	body, err := assets.ReadRuntimeAgent("atlas-orchestrator.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, banned := range []string{
+		"OpenSpec CLI may be used when available",
+		"not the only allowed path",
+	} {
+		if strings.Contains(body, banned) {
+			t.Fatalf("orchestrator must not contain %q", banned)
+		}
+	}
+	for _, want := range []string{
+		"real OpenSpec CLI provider is **required**",
+		"do not emulate OpenSpec",
+		"Runtime Repair does not bootstrap OpenSpec",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("orchestrator missing %q", want)
 		}
 	}
 }

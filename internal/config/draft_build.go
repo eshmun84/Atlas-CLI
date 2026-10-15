@@ -124,10 +124,10 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 			{
 				Key:         "governance",
 				Title:       "Governance",
-				Description: "Governance configuration for AI-assisted work. Records Atlas policy preferences. This screen does not execute OpenSpec CLI (CLI execution/provider hardening is pending Block B).",
+				Description: "Governance configuration for AI-assisted work. Records Atlas policy preferences. Governed SDD requires a real OpenSpec CLI provider (exact project pin). Init Apply runs openspec init; this screen does not invoke the OpenSpec CLI.",
 				Fields: []ConfigField{
 					field("governance.default_workflow", "Workflow", "SDD (Spec-Driven Development) workflow preference.", "sdd", "sdd", FieldTypeChoice, []string{"sdd"}, FieldEditable, FieldEditable, true, false),
-					field("governance.spec_engine", "Spec engine", "Next Atlas version: OpenSpec only (Atlas Native deferred; other engines future). Today Atlas does not execute OpenSpec CLI from this screen; agents may create openspec/changes/<id>/ artifacts. Block B will require a compatible OpenSpec provider for governed SDD.", "openspec", "openspec", FieldTypeChoice, []string{"openspec"}, FieldEditable, FieldEditable, true, false),
+					field("governance.spec_engine", "Spec engine", "OpenSpec only (Atlas Native deferred; other engines future). Real OpenSpec CLI provider required for governed SDD — exact project pin; Atlas does not emulate OpenSpec or mkdir-bootstrap openspec/. Missing/incompatible CLI blocks governed SDD.", "openspec", "openspec", FieldTypeChoice, []string{"openspec"}, FieldEditable, FieldEditable, true, false),
 					field("governance.testing_required", "Testing required", "Quality gate: testing evidence is required when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
 					field("governance.review_required", "Review required", "Quality gate: review is required when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
 					field("governance.evidence_required", "Evidence required", "Quality gate: the agent must report verification evidence, commands, tests, smoke, results, and limitations when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),

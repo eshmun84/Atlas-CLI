@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eshmun84/Atlas-CLI/internal/adapters"
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/hookproj"
@@ -354,7 +353,9 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		}
 	}
 
-	if needHooksReconcile || adapterHooksSelected(doc) {
+	// DOGFOOD-018: hooks reconcile only when the reviewed plan includes a hook
+	// target. Adapter hooks selection alone must not mutate hook projections.
+	if needHooksReconcile {
 		hookRes, hookErr := config.ReconcileHookProjections(root, doc, false)
 		if hookErr != nil {
 			return rollback(fmt.Errorf("hooks repair: %w", hookErr))
@@ -373,9 +374,6 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 				result.Replaced = append(result.Replaced, target.Path)
 			}
 			result.Actions = append(result.Actions, target.Action+" "+target.Path)
-		}
-		if hookRes.Applied && len(plan.Targets) == 0 {
-			result.Actions = append(result.Actions, hookRes.Actions...)
 		}
 	}
 
@@ -465,16 +463,6 @@ func captureRepairMutationSnapshot(root, homePath, projectID string, plan Runtim
 		}
 	}
 	return snap, nil
-}
-
-func adapterHooksSelected(doc config.ProjectDocument) bool {
-	for _, a := range doc.Adapters.Selected {
-		id := adapters.ID(strings.ToLower(strings.TrimSpace(a)))
-		if adapters.Supports(id, adapters.ClassHooks) {
-			return true
-		}
-	}
-	return false
 }
 
 func restoreRepairMutationSnapshot(root string, snap repairMutationSnapshot) error {

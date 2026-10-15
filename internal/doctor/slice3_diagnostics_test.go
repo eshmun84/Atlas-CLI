@@ -3,6 +3,7 @@ package doctor_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/eshmun84/Atlas-CLI/internal/config"
@@ -10,6 +11,10 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 )
+
+func stringsContainsFold(s, sub string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
+}
 
 func TestEvaluate_OpenSpecMissingCLIFails(t *testing.T) {
 	root := t.TempDir()
@@ -59,8 +64,11 @@ func TestEvaluate_OpenSpecLegacyMkdirFails(t *testing.T) {
 	for _, c := range report.Checks {
 		if c.Name == "openspec provider" && c.Severity == doctor.SeverityFail {
 			found = true
-			if c.Repairability != doctor.RepairConfirm && c.Repairability != doctor.RepairManual {
-				t.Fatalf("legacy mkdir repairability = %q", c.Repairability)
+			if c.Repairability != doctor.RepairManual {
+				t.Fatalf("legacy mkdir repairability = %q, want manual (Init owns openspec init)", c.Repairability)
+			}
+			if !stringsContainsFold(c.RecommendedAction, "init") {
+				t.Fatalf("legacy mkdir should guide Init: %#v", c)
 			}
 		}
 	}
@@ -86,8 +94,8 @@ func TestEvaluate_OpenSpecPartialFailsManual(t *testing.T) {
 	for _, c := range report.Checks {
 		if c.Name == "openspec provider" && c.Severity == doctor.SeverityFail {
 			found = true
-			if c.Repairability != doctor.RepairManual && c.Repairability != doctor.RepairConfirm {
-				t.Fatalf("partial layout repairability = %q", c.Repairability)
+			if c.Repairability != doctor.RepairManual {
+				t.Fatalf("partial layout repairability = %q, want manual", c.Repairability)
 			}
 		}
 	}

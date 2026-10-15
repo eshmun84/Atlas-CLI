@@ -12,6 +12,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/sdd"
+	"github.com/eshmun84/Atlas-CLI/internal/skills"
 )
 
 // Report is the full doctor diagnostics result.
@@ -286,16 +287,20 @@ func evaluateRuntime(h runtime.Health) []Check {
 
 	if h.ConfigLoads {
 		for _, proj := range h.ExpectedProjections {
-			if proj.Present {
+			switch {
+			case !proj.Present:
+				checks = append(checks, fail("adapter projection "+proj.Adapter, proj.Path+" missing", RepairAtlas,
+					"Run Runtime Repair to restore Atlas-owned adapter entrypoints"))
+			case !proj.Matches:
+				checks = append(checks, fail("adapter projection "+proj.Adapter, proj.Path+" content drifted from Atlas contract", RepairAtlas,
+					"Run Runtime Repair to restore Atlas-owned adapter entrypoints"))
+			default:
 				checks = append(checks, Check{
 					Severity: SeverityPass,
 					Name:     "adapter projection " + proj.Adapter,
 					Message:  proj.Path + " present",
 				})
-				continue
 			}
-			checks = append(checks, fail("adapter projection "+proj.Adapter, proj.Path+" missing", RepairAtlas,
-				"Run Runtime Repair to restore Atlas-owned adapter entrypoints"))
 		}
 		missingAgents := 0
 		driftedAgents := 0
@@ -373,14 +378,23 @@ func evaluateRuntime(h runtime.Health) []Check {
 			})
 		}
 		counts := h.Skills.SummaryCounts()
+		repairableSkills := countOwnedSkillRepairables(h.Skills)
+		unownedStaleOrDrifted := countUnownedSkillNonMissing(h.Skills)
 		switch {
 		case counts["conflict"] > 0:
 			checks = append(checks, fail("skills projections", fmt.Sprintf("%d conflict(s) preserved", counts["conflict"]), RepairManual,
 				"Resolve skill projection conflicts manually; Atlas preserves project-owned conflicts"))
-		case counts["missing"]+counts["stale"]+counts["drifted"]+counts["invalid"]+counts["unsupported"] > 0:
-			checks = append(checks, fail("skills projections", fmt.Sprintf("not ready (missing=%d stale=%d drifted=%d invalid=%d unsupported=%d)",
-				counts["missing"], counts["stale"], counts["drifted"], counts["invalid"], counts["unsupported"]), RepairAtlas,
+		case repairableSkills > 0:
+			checks = append(checks, fail("skills projections", fmt.Sprintf("not ready (missing=%d stale=%d drifted=%d)",
+				counts["missing"], counts["stale"], counts["drifted"]), RepairAtlas,
 				"Run Runtime Repair to reconcile Atlas-owned skill projections"))
+		case counts["invalid"]+counts["unsupported"] > 0:
+			checks = append(checks, fail("skills projections", fmt.Sprintf("not repairable automatically (invalid=%d unsupported=%d)",
+				counts["invalid"], counts["unsupported"]), RepairManual,
+				"Fix or replace invalid/unsupported skill packages manually; Runtime Repair does not rewrite them"))
+		case unownedStaleOrDrifted > 0:
+			checks = append(checks, fail("skills projections", fmt.Sprintf("%d unowned stale/drifted projection(s) preserved", unownedStaleOrDrifted), RepairManual,
+				"Resolve unowned skill projections manually; Atlas preserves non-owned surfaces"))
 		case len(h.Skills.Projections) > 0:
 			checks = append(checks, Check{
 				Severity: SeverityPass,
@@ -1028,6 +1042,35 @@ func EvaluateWorkingDirectoryError(err error) Report {
 		Checks: []Check{fail("workspace", msg, RepairManual,
 			"Fix the working directory / permissions, then re-run Doctor")},
 	}
+}
+
+// countOwnedSkillRepairables counts skill projections Runtime Repair will plan
+// (owned missing/stale/drifted, or missing regardless of ownership).
+func countOwnedSkillRepairables(h skills.SkillHealth) int {
+	n := 0
+	for _, p := range h.Projections {
+		switch p.State {
+		case "missing":
+			n++
+		case "stale", "drifted":
+			if p.Owned {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// countUnownedSkillNonMissing counts stale/drifted projections Atlas does not own
+// (Repair preserves them; Doctor must not claim atlas-repair).
+func countUnownedSkillNonMissing(h skills.SkillHealth) int {
+	n := 0
+	for _, p := range h.Projections {
+		if !p.Owned && (p.State == "stale" || p.State == "drifted") {
+			n++
+		}
+	}
+	return n
 }
 
 // EvaluateDiscoveryError builds a FAIL report when workspace discovery fails.
