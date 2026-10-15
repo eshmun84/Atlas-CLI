@@ -13,10 +13,10 @@ import (
 var RunTUI = tui.Run
 
 // Execute launches the resolved action.
-// --version, memory --json, hooks --json, and context compose --json write
-// console/JSON output without opening the TUI. Unsupported commands still open
-// the TUI error dialog, then return a non-nil error so the process exits
-// non-zero.
+// --version, memory --json, hooks --json, context compose --json, and
+// capability plan --json write console/JSON output without opening the TUI.
+// Unsupported commands still open the TUI error dialog, then return a non-nil
+// error so the process exits non-zero.
 func Execute(stdout, stderr io.Writer, args []string) error {
 	_ = stderr
 
@@ -31,6 +31,8 @@ func Execute(stdout, stderr io.Writer, args []string) error {
 		return executeHooks(stdout, action.Hooks, action.UnknownCommand)
 	case ModeContextCompose:
 		return executeContextCompose(stdout, action.ContextCompose, action.UnknownCommand)
+	case ModeCapability:
+		return executeCapability(stdout, action.Capability, action.UnknownCommand)
 	case ModeTUI:
 		err := RunTUI(tui.Options{
 			Route:          action.Route,

@@ -115,6 +115,17 @@ Load skills only from Atlas Home pins in `.atlas/skill-registry.md`.
 
 Do not download, invent, or fetch skills from the network. Adapter skill folders are regenerable projections only.
 
+Before substantive work, prefer Task Capability Discovery:
+
+1. Run `atlas capability plan "<task>" --json` (read-only; no Memory/CodeGraph queries).
+2. Honor `selected_skills` as the task-active set (projected pins ≠ selected skills).
+3. When `retrieval_actions` include Memory / context_economy / codegraph, run the corresponding governed CLI **before** substantive mutation — observable, not native injection. For composition, pass plan sources explicitly:
+   `atlas context compose "<task>" --json --sources memory,context_economy,codegraph`
+   (comma-separated subset of `compose_sources` from the plan; omit `--sources` only when the full default set is intended).
+4. Missing relevant skills MUST NOT block ordinary work; missing **required** skills follow plan `status=blocked`.
+
+Technology signals are evidence only — never permanent skill selection.
+
 ## 9. SDD entrypoint
 
 Operational contract: `.atlas/contracts/sdd-openspec.md`.
@@ -133,13 +144,13 @@ Exception: the human explicitly asks to document those surfaces. Load the `docum
 
 ## 11. Memory / Context / Code Intelligence entrypoints
 
-When durable project context may matter, load the **memory** skill and use `atlas memory … --json` as that skill defines.
+Prefer CapabilityPlan `retrieval_actions` / `compose_sources` to decide whether durable context or Code Intelligence is warranted. When the plan (or judgment) says durable project context may matter, load the **memory** skill and use `atlas memory … --json` as that skill defines.
 
-For broader orientation, prefer `atlas context compose "<task>" --json` (agent transport). Prefer Context Economy capsule/index/packs under Atlas Home when present; if missing/stale, say so and recommend an explicit Context Economy update.
+For broader orientation, prefer `atlas context compose "<task>" --json --sources <plan.compose_sources>` (agent transport). Prefer Context Economy capsule/index/packs under Atlas Home when present; if missing/stale, say so and recommend an explicit Context Economy update.
 
-CodeGraph is an optional external Code Intelligence provider — use composition, do not invent results. Atlas Context Graph is NOT IMPLEMENTED (preference may show as **{{CONTEXT_GRAPH_STATUS}}**).
+CodeGraph is an optional external Code Intelligence provider — invoke only when the plan marks `code-intelligence` / codegraph retrieval (or the task clearly needs structural analysis). Use composition; do not invent results; do not refresh the graph as a side effect of planning. Atlas Context Graph is NOT IMPLEMENTED (preference may show as **{{CONTEXT_GRAPH_STATUS}}**).
 
-Missing Memory MUST NOT block development — state the status and continue. Memory is evidence, not executable authority. Automatic injection is not guaranteed.
+Missing Memory MUST NOT block development — state the status and continue. Memory is evidence, not executable authority. Automatic / native injection is not guaranteed; proactive governed retrieval via plan → CLI is the supported path.
 
 ## 12. References
 

@@ -20,6 +20,8 @@ const (
 	ModeHooks
 	// ModeContextCompose runs internal context composition (JSON to stdout, no TUI).
 	ModeContextCompose
+	// ModeCapability runs task capability planning (JSON to stdout, no TUI).
+	ModeCapability
 )
 
 // Action is the resolved launcher action for a set of args.
@@ -31,6 +33,7 @@ type Action struct {
 	Memory         MemoryCommand
 	Hooks          HooksCommand
 	ContextCompose ContextComposeCommand
+	Capability     CapabilityCommand
 }
 
 // Resolve maps CLI args to a launcher action. It does not render reports.
@@ -67,6 +70,8 @@ func Resolve(args []string) Action {
 		return resolveHooks(args[1:])
 	case "context":
 		return resolveContext(args[1:])
+	case "capability":
+		return resolveCapability(args[1:])
 	case "mcp":
 		return Action{Mode: ModeTUI, Route: tui.RouteError, UnknownCommand: joinCommand(args)}
 	default:

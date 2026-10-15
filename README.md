@@ -156,9 +156,10 @@ Optional. CodeGraph is an externally installed provider behind `internal/codeint
 
 Skills v1 is implemented: bundled catalog in Atlas Home, exact ID/version pins, digests, metadata-based resolve, Cursor/OpenCode projections, ownership handling, and Repair integration. There is **no** Skills UI, marketplace screen, or per-project checkbox catalog.
 
+**Task Capability Discovery (Block C)** resolves DOGFOOD-015: task → bounded evidence → capability/context needs → registry → task-active skills → governed retrieval actions. Technology discovery is one evidence source — **not** permanent capability selection. CLI: `atlas capability plan "<task>" --json` (read-only; no Memory/CodeGraph/MCP during planning). Projected pins remain for adapter compatibility; selected-for-task skills are a separate concept.
+
 Future direction (not implemented):
 
-- **Task Capability Discovery** — task → evidence → context/capability needs → registry → lazy skill loading (resolves DOGFOOD-015 later)
 - **Framework Skill Acquisition** — inspect/validate/review/approve/install a skill into Atlas Home for availability across projects (does **not** auto-project into every project)
 - **Skill Creator** — help author Atlas-compatible `SKILL.md` packages for later acquisition
 

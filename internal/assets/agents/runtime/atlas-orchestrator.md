@@ -55,9 +55,19 @@ MUST NOT treat “planning failed” or “user did not request planning” as p
 
 Use only registered agents/skills and effective adapter + delivery config.
 
+Before substantive work, consult Task Capability Discovery:
+
+1. `atlas capability plan "<task>" --json` (read-only planner; technology is evidence only).
+2. Prefer `selected_skills` as task-active skills (do not assume every projected pin is relevant).
+3. When `retrieval_actions` request Memory / context_economy / codegraph, perform those governed retrievals and keep results observable before mutation. Prefer
+   `atlas context compose "<task>" --json --sources <comma-separated plan.compose_sources>`
+   (or `atlas memory … --json` when only Memory is needed).
+4. Honor explicit developer exclusions in the plan. Relevant-but-missing skills → continue with core/agent. Required-but-unavailable → `blocked` / `interaction-required`.
+
 MUST NOT invent skills, agents, providers, or tools.
 MUST NOT select hosting provider from Cursor/OpenCode identity.
 MUST NOT treat remote name `origin` as Cursor Origin.
+MUST NOT bypass AGENTS/SDD gates because a capability plan exists — the plan prepares execution; governance still governs.
 
 ## Execution gate
 

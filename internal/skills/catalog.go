@@ -171,6 +171,12 @@ func DiscoverCatalog(homePath string) ([]Metadata, error) {
 	return out, nil
 }
 
+// BundledCatalog returns compact metadata for shipped skill packages from the
+// embed FS. Used when Atlas Home catalog is unavailable without mutating disk.
+func BundledCatalog() ([]Metadata, error) {
+	return catalogFromEmbed()
+}
+
 func catalogFromEmbed() ([]Metadata, error) {
 	var out []Metadata
 	for _, b := range BundledPackages() {

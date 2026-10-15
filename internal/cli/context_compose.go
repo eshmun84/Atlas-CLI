@@ -18,6 +18,10 @@ type ContextComposeCommand struct {
 	Budget int
 	Limit  int
 	JSON   bool
+	// Sources is an optional explicit compose source list (memory, context_economy, codegraph).
+	// Nil/omitted preserves composeapp default sources. When SourcesSet, empty is invalid.
+	Sources    []string
+	SourcesSet bool
 }
 
 func resolveContext(args []string) Action {
@@ -76,6 +80,16 @@ func resolveContext(args []string) Action {
 				return Action{Mode: ModeContextCompose, ContextCompose: cmd, UnknownCommand: "context compose --limit"}
 			}
 			cmd.Limit = n
+		case arg == "--sources":
+			if i+1 >= len(rest) {
+				return Action{Mode: ModeContextCompose, ContextCompose: cmd, UnknownCommand: "context compose --sources"}
+			}
+			cmd.SourcesSet = true
+			cmd.Sources = parseComposeSourcesCSV(rest[i+1])
+			i++
+		case strings.HasPrefix(arg, "--sources="):
+			cmd.SourcesSet = true
+			cmd.Sources = parseComposeSourcesCSV(strings.TrimPrefix(arg, "--sources="))
 		case strings.HasPrefix(arg, "-"):
 			return Action{Mode: ModeContextCompose, ContextCompose: cmd, UnknownCommand: joinCommand(append([]string{"context", "compose"}, rest...))}
 		default:
@@ -88,6 +102,43 @@ func resolveContext(args []string) Action {
 		return Action{Mode: ModeContextCompose, ContextCompose: cmd, UnknownCommand: joinCommand(append([]string{"context", "compose"}, rest...))}
 	}
 	return Action{Mode: ModeContextCompose, ContextCompose: cmd}
+}
+
+// knownComposeSources is the closed set accepted by --sources (contextcompose IDs).
+var knownComposeSources = map[string]bool{
+	contextcompose.SourceMemory:         true,
+	contextcompose.SourceContextEconomy: true,
+	contextcompose.SourceCodeGraph:      true,
+}
+
+func parseComposeSourcesCSV(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}
+
+func validateComposeSources(sources []string) (string, bool) {
+	if len(sources) == 0 {
+		return "empty --sources is invalid", false
+	}
+	for _, s := range sources {
+		if !knownComposeSources[s] {
+			return "unknown compose source: " + s, false
+		}
+	}
+	return "", true
 }
 
 // ComposeService builds the composition result. Overridable in tests.
@@ -103,7 +154,18 @@ func executeContextCompose(stdout io.Writer, cmd ContextComposeCommand, unknown 
 	case !cmd.JSON:
 		res = composeUsage("--json is required")
 	case strings.TrimSpace(cmd.Task) == "":
-		res = composeUsage("usage: atlas context compose \"<task>\" --json")
+		res = composeUsage("usage: atlas context compose \"<task>\" --json [--sources memory,context_economy,codegraph]")
+	case cmd.SourcesSet:
+		if msg, ok := validateComposeSources(cmd.Sources); !ok {
+			res = composeUsage(msg)
+		} else {
+			res = ComposeService(composeapp.Input{
+				Task:        cmd.Task,
+				BudgetChars: cmd.Budget,
+				MaxItems:    cmd.Limit,
+				Sources:     append([]string{}, cmd.Sources...),
+			})
+		}
 	default:
 		res = ComposeService(composeapp.Input{
 			Task:        cmd.Task,

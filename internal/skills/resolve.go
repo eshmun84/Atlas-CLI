@@ -36,6 +36,7 @@ func Resolve(in ResolveInput) ([]ResolvedSkill, error) {
 	files := lowerJoin(in.RelevantFiles)
 	phase := strings.ToLower(strings.TrimSpace(in.Phase))
 	hay := strings.TrimSpace(intent + " " + tech + " " + files + " " + phase)
+	capSet := capabilityMatchSet(in.Capabilities)
 
 	type scored struct {
 		ResolvedSkill
@@ -50,7 +51,7 @@ func Resolve(in ResolveInput) ([]ResolvedSkill, error) {
 			// Exact pin only — ignore other catalog versions of the same id.
 			continue
 		}
-		score, reason := scoreMetadata(meta, hay, intent, phase)
+		score, reason := scoreMetadata(meta, hay, intent, phase, capSet)
 		if score <= 0 {
 			continue
 		}
@@ -98,11 +99,21 @@ func requireSkillsCapable(adapterIDs []string) error {
 	return nil
 }
 
-func scoreMetadata(meta Metadata, hay, intent, phase string) (int, string) {
+func scoreMetadata(meta Metadata, hay, intent, phase string, capSet map[string]string) (int, string) {
 	score := 0
 	var reasons []string
 	name := strings.ToLower(meta.Name)
 	desc := strings.ToLower(meta.Description)
+	id := strings.ToLower(meta.ID)
+
+	// Capability Discovery boost: skill id or mapped capability id present.
+	if len(capSet) > 0 {
+		if reason, ok := capSet[id]; ok {
+			score += 6
+			reasons = append(reasons, "capability:"+reason)
+		}
+	}
+
 	if intent != "" && (strings.Contains(intent, name) || strings.Contains(name, intent)) {
 		score += 5
 		reasons = append(reasons, "intent-name")
@@ -132,6 +143,29 @@ func scoreMetadata(meta Metadata, hay, intent, phase string) (int, string) {
 		return 0, ""
 	}
 	return score, strings.Join(reasons, ",")
+}
+
+// capabilityMatchSet maps skill IDs (and aliases) → capability ID that selected them.
+func capabilityMatchSet(caps []string) map[string]string {
+	out := map[string]string{}
+	for _, raw := range caps {
+		capID := strings.ToLower(strings.TrimSpace(raw))
+		if capID == "" {
+			continue
+		}
+		// Direct skill-id form.
+		out[capID] = capID
+		// memory-retrieval → memory skill
+		switch capID {
+		case "memory-retrieval":
+			out["memory"] = capID
+		case "code-intelligence":
+			// No specialized Atlas skill; ignore for Resolve.
+		default:
+			out[capID] = capID
+		}
+	}
+	return out
 }
 
 func lowerJoin(vals []string) string {

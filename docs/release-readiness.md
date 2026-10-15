@@ -136,7 +136,7 @@ Authoritative automated coverage: `TestSlice3_Matrix_*` in `internal/runtime/sli
 | 012 | semantics fixed S2; full delivery assist deferred (not a Core remote-ops engine) |
 | 013 | fixed S2 / regression S3 |
 | 014 | fixed S1 / repair regression S3 |
-| 015 | deferred by design → future **Task Capability Discovery** |
+| 015 | **resolved (Block C)** — task-scoped capability discovery; technology is bounded evidence, not permanent skill selection (`atlas capability plan`) |
 
 ## Physical dogfooding readiness gate
 
@@ -151,7 +151,7 @@ make smoke-mvp
 # plus Slice 3 A–N matrix (covered by go test ./internal/runtime/ -run Slice3)
 ```
 
-Evidence required: clean install; greenfield + brownfield init; Status/Doctor read-only; Repair idempotent; `.gitignore` + absent-OpenSpec repair safe; malformed shared state fail-closed; DOGFOOD-001..014 no blocker inside remediated scope; DOGFOOD-015 explicitly deferred.
+Evidence required: clean install; greenfield + brownfield init; Status/Doctor read-only; Repair idempotent; `.gitignore` + absent-OpenSpec repair safe; malformed shared state fail-closed; DOGFOOD-001..014 no blocker inside remediated scope; DOGFOOD-015 resolved via Task Capability Discovery (Block C).
 
 Gate label when passing: **ready for resumed physical dogfooding** (not a production-ready claim).
 

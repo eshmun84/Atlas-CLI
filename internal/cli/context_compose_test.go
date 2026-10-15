@@ -56,6 +56,135 @@ func TestResolve_ContextComposeRoutes(t *testing.T) {
 	}
 }
 
+func TestResolve_ContextComposeSources(t *testing.T) {
+	t.Parallel()
+
+	action := cli.Resolve([]string{"context", "compose", "task", "--json", "--sources", "memory,codegraph"})
+	if !action.ContextCompose.SourcesSet {
+		t.Fatal("SourcesSet")
+	}
+	if got := strings.Join(action.ContextCompose.Sources, ","); got != "memory,codegraph" {
+		t.Fatalf("sources=%v", action.ContextCompose.Sources)
+	}
+
+	action = cli.Resolve([]string{"context", "compose", "task", "--json", "--sources=memory,context_economy"})
+	if got := strings.Join(action.ContextCompose.Sources, ","); got != "memory,context_economy" {
+		t.Fatalf("sources=%v", action.ContextCompose.Sources)
+	}
+
+	// Duplicates deduped deterministically (first-seen order).
+	action = cli.Resolve([]string{"context", "compose", "task", "--json", "--sources", "memory,codegraph,memory,codegraph"})
+	if got := strings.Join(action.ContextCompose.Sources, ","); got != "memory,codegraph" {
+		t.Fatalf("dedup sources=%v", action.ContextCompose.Sources)
+	}
+
+	// Omitted --sources preserves unset.
+	action = cli.Resolve([]string{"context", "compose", "task", "--json"})
+	if action.ContextCompose.SourcesSet || len(action.ContextCompose.Sources) != 0 {
+		t.Fatalf("omitted sources must be unset: %#v", action.ContextCompose)
+	}
+}
+
+func TestExecute_ContextComposeSourcesValidationAndPassthrough(t *testing.T) {
+	prevTUI := cli.RunTUI
+	cli.RunTUI = func(tui.Options) error {
+		t.Fatal("TUI must not launch")
+		return nil
+	}
+	defer func() { cli.RunTUI = prevTUI }()
+
+	t.Run("unknown_source_rejected", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := cli.Execute(&stdout, &bytes.Buffer{}, []string{
+			"context", "compose", "task", "--json", "--sources", "memory,nope",
+		})
+		if err == nil {
+			t.Fatal("expected failure")
+		}
+		var res composeapp.Result
+		if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != contextcompose.StatusInvalidRequest {
+			t.Fatalf("%#v", res)
+		}
+	})
+
+	t.Run("empty_sources_rejected", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := cli.Execute(&stdout, &bytes.Buffer{}, []string{
+			"context", "compose", "task", "--json", "--sources", "",
+		})
+		if err == nil {
+			t.Fatal("expected failure for empty --sources")
+		}
+		var res composeapp.Result
+		if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != contextcompose.StatusInvalidRequest {
+			t.Fatalf("%#v", res)
+		}
+	})
+
+	t.Run("passthrough_exact_sources", func(t *testing.T) {
+		var got []string
+		prev := cli.ComposeService
+		cli.ComposeService = func(in composeapp.Input) composeapp.Result {
+			got = append([]string{}, in.Sources...)
+			return composeapp.Result{
+				Command: composeapp.CommandCompose,
+				Response: contextcompose.Response{
+					SchemaVersion: contextcompose.SchemaVersion,
+					Status:        contextcompose.StatusSuccess,
+					BudgetChars:   contextcompose.DefaultBudgetChars,
+				},
+			}
+		}
+		defer func() { cli.ComposeService = prev }()
+
+		var stdout bytes.Buffer
+		if err := cli.Execute(&stdout, &bytes.Buffer{}, []string{
+			"context", "compose", "task", "--json", "--sources", "memory,codegraph",
+		}); err != nil {
+			t.Fatalf("err=%v stdout=%s", err, stdout.String())
+		}
+		if strings.Join(got, ",") != "memory,codegraph" {
+			t.Fatalf("ComposeService sources=%v", got)
+		}
+	})
+
+	t.Run("omitted_sources_nil_to_service", func(t *testing.T) {
+		var called bool
+		var got []string
+		prev := cli.ComposeService
+		cli.ComposeService = func(in composeapp.Input) composeapp.Result {
+			called = true
+			got = in.Sources
+			return composeapp.Result{
+				Command: composeapp.CommandCompose,
+				Response: contextcompose.Response{
+					SchemaVersion: contextcompose.SchemaVersion,
+					Status:        contextcompose.StatusSuccess,
+					BudgetChars:   contextcompose.DefaultBudgetChars,
+				},
+			}
+		}
+		defer func() { cli.ComposeService = prev }()
+
+		var stdout bytes.Buffer
+		if err := cli.Execute(&stdout, &bytes.Buffer{}, []string{"context", "compose", "task", "--json"}); err != nil {
+			t.Fatal(err)
+		}
+		if !called {
+			t.Fatal("ComposeService not called")
+		}
+		if got != nil {
+			t.Fatalf("omitted --sources must pass nil Sources, got %v", got)
+		}
+	})
+}
+
 func TestExecute_ContextComposeJSONSchema(t *testing.T) {
 	prevTUI := cli.RunTUI
 	cli.RunTUI = func(tui.Options) error {

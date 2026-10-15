@@ -63,10 +63,13 @@ type ResolveInput struct {
 	Technologies  []string
 	RelevantFiles []string
 	Phase         string
-	AdapterIDs    []string // adapters that must support Skills
-	Enabled       []Pin
-	Catalog       []Metadata
-	MaxResults    int
+	// Capabilities are closed capability IDs from Task Capability Discovery.
+	// Matching skill IDs receive a deterministic score boost.
+	Capabilities []string
+	AdapterIDs   []string // adapters that must support Skills
+	Enabled      []Pin
+	Catalog      []Metadata
+	MaxResults   int
 }
 
 // OwnershipDocument is machine-local Atlas ownership for skill projections.

@@ -183,6 +183,34 @@ func TestResolve_BoundedDeterministic(t *testing.T) {
 	}
 }
 
+func TestResolve_CapabilitiesBoost(t *testing.T) {
+	cat, err := skills.BundledCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := skills.Resolve(skills.ResolveInput{
+		Intent:       "continue project work",
+		Capabilities: []string{"testing", "memory-retrieval"},
+		Enabled:      skills.DefaultPins(),
+		Catalog:      cat,
+		AdapterIDs:   []string{"cursor"},
+		MaxResults:   5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, s := range out {
+		got[s.ID] = true
+		if !strings.Contains(s.Reason, "capability:") {
+			t.Fatalf("expected capability reason for %s: %s", s.ID, s.Reason)
+		}
+	}
+	if !got["testing"] || !got["memory"] {
+		t.Fatalf("want testing+memory from capabilities, got %#v", out)
+	}
+}
+
 func TestProjectors_CursorOpenCode(t *testing.T) {
 	skills.RegisterDefaultProjector(adaptercursor.NewSkillsProjector())
 	skills.RegisterDefaultProjector(adapteropencode.NewSkillsProjector())

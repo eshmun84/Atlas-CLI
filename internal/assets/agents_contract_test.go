@@ -72,6 +72,7 @@ func TestBaseAgentsTeachThinRouter(t *testing.T) {
 		"## 11. Memory / Context / Code Intelligence entrypoints",
 		"load the **memory** skill",
 		"atlas context compose",
+		"atlas capability plan",
 		"NOT IMPLEMENTED",
 	} {
 		if !strings.Contains(body, want) {

@@ -37,7 +37,7 @@ No git tag, GitHub release, or publish without explicit human approval.
 - Native automatic Memory injection (deferred); embeddings (planned/deferred); daemon/background service (deferred architectural option)
 - Config History as durable audit UX (deferred — current config/state/ownership/backups/tx/locks/rollback suffice)
 - Skills marketplace / Framework Skill Acquisition / Skill Creator (planned/future; not shipped)
-- Task Capability Discovery (future; resolves DOGFOOD-015 later) — technology signals remain evidence helpers, not permanent stack→skill configuration
+- Task Capability Discovery (Block C; resolves DOGFOOD-015) — `atlas capability plan`; technology signals remain evidence helpers, not permanent stack→skill configuration
 - Generic provider plugin platform (**removed** from current V1 plan; keep domain boundaries only)
 - Atlas Core repository-release publisher (**removed**); Core does not automate remote create / push / PR / merge / tag / repo release publish
 - Claude / Codex activation

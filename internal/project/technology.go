@@ -9,8 +9,9 @@ const (
 
 // Technology is a detected workspace technology evidence signal.
 // It is not permanent project technology configuration and does not
-// materialize skills/agents. Future Task Capability Discovery will use
-// task-scoped evidence → capability needs → registry → lazy skills.
+// materialize skills/agents. Task Capability Discovery (internal/capability)
+// consumes these signals as secondary evidence only — never as permanent
+// stack→skill selection (DOGFOOD-015).
 type Technology struct {
 	Name       string
 	Source     string
