@@ -142,6 +142,7 @@ Authoritative automated coverage: `TestSlice3_Matrix_*` in `internal/runtime/sli
 | 017 | **resolved (Block D Slice A)** — runtime agents require real OpenSpec; no CLI-optional / emulation bypass |
 | 018 | **resolved (Block D Slice A)** — Repair Apply mutates only reviewed plan targets (hooks) |
 | 019 | **resolved (Block D Slice A)** — Doctor repairability aligned with Repair/Init/manual authority |
+| 022 | **resolved (Block D / D5)** — real OpenSpec Init + team-clone exact-pin dogfood (`scripts/dogfoodopenspec`); older/newer/missing CLI block; no silent repin; Repair refuses bootstrap; capability probes covered without SkipCapProbes |
 
 ## Physical dogfooding readiness gate
 
@@ -156,7 +157,7 @@ make smoke-mvp
 # plus Slice 3 A–N matrix (covered by go test ./internal/runtime/ -run Slice3)
 ```
 
-Evidence required: clean install; greenfield + brownfield init; Status/Doctor read-only; Repair idempotent and plan-scoped; `.gitignore` reconcilable repair safe; OpenSpec absent/legacy → Init (not Repair bootstrap); malformed shared state fail-closed; DOGFOOD-001..015 no blocker inside remediated scope; DOGFOOD-016..019 (Block D Slice A) truth/governance/repair-authority aligned.
+Evidence required: clean install; greenfield + brownfield init; Status/Doctor read-only; Repair idempotent and plan-scoped; `.gitignore` reconcilable repair safe; OpenSpec absent/legacy → Init (not Repair bootstrap); malformed shared state fail-closed; DOGFOOD-001..015 no blocker inside remediated scope; DOGFOOD-016..019 (Block D Slice A) truth/governance/repair-authority aligned; DOGFOOD-022 real OpenSpec + team-clone dogfood (`ATLAS_BIN=./bin/atlas go run ./scripts/dogfoodopenspec`).
 
 Gate label when passing: **ready for resumed physical dogfooding** (not a production-ready claim).
 
