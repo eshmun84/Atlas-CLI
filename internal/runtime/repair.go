@@ -310,38 +310,34 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 		}
 	}
 
-	if selected["cursor"] && adapters.Supports(adapters.Cursor, adapters.ClassHooks) {
-		wrapper := ".cursor/hooks/atlas/dispatch"
-		present, err := config.AtlasOwnedFileExists(root, wrapper)
-		if err != nil {
-			plan.Blocked = true
-			plan.Blockers = append(plan.Blockers, "unsafe Atlas-owned Cursor hooks path: "+wrapper+": "+err.Error())
-		} else if !present {
+	// Hooks: only plan targets Reconcile can restore (missing/stale).
+	// Drifted/conflict/malformed are preserved and reported as warnings —
+	// Reconcile refuses automatic rewrite of digest-drifted owned artifacts.
+	for _, proj := range health.Hooks.Projections {
+		switch proj.State {
+		case "missing", "stale":
+			if !proj.Repairable {
+				continue
+			}
+			action := RepairActionCreate
+			if proj.State == "stale" {
+				action = RepairActionReplace
+			}
+			path := proj.PathRel
+			if path == "" {
+				continue
+			}
 			addRepairTarget(&plan, RuntimeRepairTarget{
-				Path:    wrapper,
-				Action:  RepairActionCreate,
+				Path:    path,
+				Action:  action,
 				Kind:    RepairKindHook,
-				Reason:  "Atlas-owned Cursor hooks wrapper missing",
-				Adapter: "cursor",
+				Reason:  "Atlas-owned hooks projection " + proj.State,
+				Adapter: proj.Adapter,
+				Backup:  action == RepairActionReplace,
 			})
-			plan.Drift = append(plan.Drift, "missing hooks wrapper: "+wrapper)
-		}
-	}
-	if selected["opencode"] && adapters.Supports(adapters.OpenCode, adapters.ClassHooks) {
-		plugin := ".opencode/plugins/atlas-hooks/index.ts"
-		present, err := config.AtlasOwnedFileExists(root, plugin)
-		if err != nil {
-			plan.Blocked = true
-			plan.Blockers = append(plan.Blockers, "unsafe Atlas-owned OpenCode hooks path: "+plugin+": "+err.Error())
-		} else if !present {
-			addRepairTarget(&plan, RuntimeRepairTarget{
-				Path:    plugin,
-				Action:  RepairActionCreate,
-				Kind:    RepairKindHook,
-				Reason:  "Atlas-owned OpenCode hooks plugin missing",
-				Adapter: "opencode",
-			})
-			plan.Drift = append(plan.Drift, "missing hooks plugin: "+plugin)
+			plan.Drift = append(plan.Drift, "hooks "+proj.State+": "+path)
+		case "drifted", "conflict", "malformed":
+			plan.Warnings = append(plan.Warnings, "hooks projection "+proj.State+" preserved: "+proj.PathRel)
 		}
 	}
 

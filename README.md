@@ -68,10 +68,17 @@ Requirements: **Go 1.27.1** (matches `go.mod`; use a toolchain that satisfies th
 make build                    # writes bin/atlas
 ./bin/atlas --version
 
-# Optional local install (defaults to ~/.local/bin when PREFIX unset)
-make install                  # PREFIX=$HOME/.local
+# Optional local install (defaults to ~/.local when PREFIX unset)
+make install                  # installs binary to $PREFIX/bin (default: ~/.local/bin)
 # or temporary:
 make install PREFIX=/tmp/atlas-prefix
+```
+
+`make install` does **not** modify your shell `PATH`. Ensure the install bin directory is on `PATH`, for example:
+
+```bash
+# bash / zsh (add to ~/.bashrc or ~/.zshrc if you want it permanent)
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 For validation without touching your real Atlas Home:
@@ -188,15 +195,39 @@ Atlas Core does **not** create remotes, push, open PRs, merge, tag, or publish r
 | Atlas Core repository-release publisher | Removed |
 | Native automatic Memory injection | Deferred |
 
+## Uninstall / purge (docs-only this cycle)
+
+Atlas does **not** ship `make uninstall`. Removal is intentional and layered:
+
+| Goal | What to remove | Notes |
+| --- | --- | --- |
+| Uninstall binary | `$PREFIX/bin/atlas` (default `~/.local/bin/atlas`) | Does not touch Atlas Home or projects |
+| Remove Atlas from a project | Project-local `.atlas/`, Atlas-owned runtime files (`AGENTS.md`, adapter projections, hooks wrappers, etc.) as you choose | Developer-owned files (README, MCP configs, OpenSpec trees) are separate |
+| Purge Atlas Home | `$ATLAS_HOME` (default `~/.atlas`) | **Destructive / optional.** Home may contain project Memory DBs, CodeGraph DBs, backups, skill assets/state. Do **not** treat `rm -rf ~/.atlas` as a casual uninstall. |
+
+Example binary removal only:
+
+```bash
+rm -f "${PREFIX:-$HOME/.local}/bin/atlas"
+```
+
+Optional Home purge (destructive — back up first if you need Memory/CodeGraph/skills data):
+
+```bash
+# WARNING: deletes local Atlas state under ATLAS_HOME
+# rm -rf "${ATLAS_HOME:-$HOME/.atlas}"
+```
+
 ## Known limitations
 
 - Not production-ready / not final V1
-- OpenSpec: real provider required for governed SDD; exact pin; Init owns `openspec init`; Repair does not bootstrap OpenSpec
+- OpenSpec: real provider required for governed SDD; exact pin; Init owns `openspec init`; Repair does not bootstrap OpenSpec; missing opsx/tool projections are Configure/Init (not Runtime Repair)
 - Cursor + OpenCode only; Claude/Codex not activated
 - No Atlas Context Graph implementation
 - No marketplace/remote skill install; no Framework Skill Acquisition / Skill Creator
 - MCP projections without secret manager / live connection verification
 - No Core Git remote/PR/merge/tag/release automation beyond Init local bootstrap
+- `delivery_assist` is a legacy/deferred config key (not an editable Core capability)
 - Configure Apply updates `.atlas/config.yaml` and MCP projections; use Runtime Repair to rematerialize non-MCP runtime files
 - OpenCode MCP: Atlas merges only `opencode.json`. If `opencode.jsonc` exists, OpenCode MCP reconciliation is blocked until JSONC-safe merging exists
 - No git tag / GitHub release / publish of Atlas itself unless a human explicitly approves later

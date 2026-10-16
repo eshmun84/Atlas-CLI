@@ -47,7 +47,7 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 	if plan.DeliveryPlatform != "None" {
 		t.Fatalf("delivery platform = %q", plan.DeliveryPlatform)
 	}
-	if plan.DeliveryAssistance != "Disabled" {
+	if plan.DeliveryAssistance != "Legacy off (deferred)" {
 		t.Fatalf("delivery assistance = %q", plan.DeliveryAssistance)
 	}
 	if plan.GovernanceStorage != "Local only" {

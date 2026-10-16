@@ -1,6 +1,7 @@
 package inspect
 
 import (
+	"context"
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/home"
@@ -27,6 +28,11 @@ type Inspection struct {
 	project.Snapshot
 	Runtime runtime.Health
 	SDD     sdd.Overview
+	// OpenSpecProvider is the bounded provider probe for governed SDD.
+	// Populated once per Inspect when DependsOnSDDContract; Status/Doctor
+	// must consume this snapshot instead of probing again.
+	OpenSpecProvider       openspec.Health
+	OpenSpecProviderProbed bool
 }
 
 // ProjectSnapshot returns the project-only half of the inspection.
@@ -43,11 +49,20 @@ func Inspect(root string) (Inspection, error) {
 	health := runtime.EvaluateHealth(snap.RootPath, snap.Atlas, snap.Files)
 	snap.Warnings = append(append([]string{}, snap.Warnings...), health.Warnings...)
 	overview := evaluateSDD(snap.RootPath, health)
-	return Inspection{
+	out := Inspection{
 		Snapshot: snap,
 		Runtime:  health,
 		SDD:      overview,
-	}, nil
+	}
+	if health.ConfigLoads && health.DependsOnSDDContract {
+		pin := strings.TrimSpace(health.Document.Governance.OpenSpecVersion)
+		out.OpenSpecProvider = openspec.Probe(context.Background(), openspec.ProbeInput{
+			Root:       snap.RootPath,
+			ProjectPin: pin,
+		})
+		out.OpenSpecProviderProbed = true
+	}
+	return out, nil
 }
 
 // evaluateSDD is the composition root that wires Spec Engine adapters.

@@ -48,7 +48,7 @@ func TestDeliveryAutodetect_GitRepoFromDiscovery(t *testing.T) {
 		ToolGitAvailable: true,
 	})
 	assertField(t, draft, "source_control.mode", config.SourceControlGitLocal, config.FieldEditable, config.FieldEditable)
-	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldEditable, config.FieldEditable)
+	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldReadonly, config.FieldReadonly)
 
 	afterDiscover := gitStatusShort(t, root)
 	if afterDiscover != before {

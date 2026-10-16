@@ -168,7 +168,7 @@ func TestRenderReview(t *testing.T) {
 		"No Atlas-managed backups required",
 		"Platform:",
 		"Governance files:",
-		"Assisted operations (preference stub):",
+		"Assisted operations (legacy/deferred):",
 		"Git operations",
 		"No repository init, commit, remote, push, pull request, merge, or tag",
 		"Runtime conflicts block Init and require manual cleanup",
@@ -424,7 +424,7 @@ func TestConfigFormFinalSections(t *testing.T) {
 		"Platform",
 		"[x] None", "[ ] Git local", "[ ] GitHub",
 		"Governance files", "[x] Local only", "[ ] Versioned",
-		"Assisted operations", "[ ] Enabled",
+		"Require signed commits",
 	} {
 		if !strings.Contains(sc, want) {
 			t.Fatalf("delivery missing %q:\n%s", want, sc)
@@ -433,6 +433,7 @@ func TestConfigFormFinalSections(t *testing.T) {
 	for _, banned := range []string{
 		"Tools", "Policy", "Suggestions only.", "git ok", "gh ok", "OpenSpec", "CodeGraph",
 		"Branch strategy", "Default remote", "GitFlow", "Development &", "Assistance",
+		"Assisted operations", "[ ] Enabled",
 	} {
 		if strings.Contains(sc, banned) {
 			t.Fatalf("delivery unexpected %q:\n%s", banned, sc)

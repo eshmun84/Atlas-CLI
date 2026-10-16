@@ -537,9 +537,9 @@ func yesNoLabel(v string) string {
 
 func deliveryAssistLabel(v string) string {
 	if strings.EqualFold(strings.TrimSpace(v), "true") {
-		return "Enabled"
+		return "Legacy on (no Core engine)"
 	}
-	return "Disabled"
+	return "Legacy off (deferred)"
 }
 
 func mcpEntries(draft config.MCPDraft) []MCPPlanEntry {

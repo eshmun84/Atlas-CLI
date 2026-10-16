@@ -86,13 +86,16 @@ Interactive TUI click-through remains optional human confirmation.
 - `source_control.mode=none`: missing Git repo is expected (Status omits Git WARN noise; Doctor PASS/INFO)
 - `git_local` / `git_github` without repo → FAIL; missing git executable when Git is required → FAIL
 - Signing: Doctor shows Atlas `signing_required` and read-only `commit.gpgsign`; policy required + gpgsign false → WARN (not FAIL); Repair never rewrites signing
-- Required OpenSpec (`workflow=sdd` + `spec_engine=openspec`): real CLI provider required; missing/incompatible/pin-mismatch → Doctor FAIL (`manual`); absent/legacy project → Doctor FAIL with Init guidance; Runtime Repair does **not** bootstrap OpenSpec
+- Required OpenSpec (`workflow=sdd` + `spec_engine=openspec`): real CLI provider required; missing/incompatible/pin-mismatch → Doctor FAIL (`manual`); absent/legacy project → Doctor FAIL with Init guidance; Runtime Repair does **not** bootstrap OpenSpec; Ready + missing tool/opsx projections → Doctor FAIL (`manual`) with Configure/Init guidance
+- Shared Inspection OpenSpec provider probe: Status + Doctor consume one probe per `inspect.Inspect` cycle
+- Hooks: Doctor compact health; missing/stale Atlas-owned wrappers → `atlas-repair`; drifted/conflict/malformed → `manual`
 - Local-only `.gitignore`: same analyzer for Init / Doctor / Repair; malformed markers → FAIL manual, no mutation
 - Doctor `atlas-repair` / `confirm-repair` tags must match Runtime Repair plan/apply authority (DOGFOOD-019); Apply mutates only reviewed plan targets (DOGFOOD-018)
+- Project-only Repair Home fingerprint stable (no implicit `EnsureAndMirror`)
 
 ## Runtime Repair authority boundary (Slice 3 + Block D Slice A)
 
-**May repair (explicit Review → Apply):** Atlas Home mirror, Atlas-owned runtime assets (AGENTS/agents/registries/manifest/lock/contracts/skills/hooks), reconcilable local-only `.gitignore` Atlas block (with project-scoped backup when writing). Apply mutates a managed surface only when that surface is represented by an approved repair target.
+**May repair (explicit Review → Apply):** Atlas Home mirror **only when the reviewed plan includes an explicit Home target**, Atlas-owned runtime assets (AGENTS/agents/registries/manifest/lock/contracts/skills/hooks), reconcilable local-only `.gitignore` Atlas block (with project-scoped backup when writing). Apply mutates a managed surface only when that surface is represented by an approved repair target. Project-only Repair requires a healthy compatible Home and does **not** silently remirror global Home assets.
 
 **Must not repair:** OpenSpec provider bootstrap / `openspec init`, Git init/branch/remote/push/commit, signing policy, `.atlas/config.yaml` rewrite, Memory migrate/init, CodeGraph rebuild, partial/malformed/legacy OpenSpec trees, malformed `.gitignore` delimiters, README, MCP live auth, arbitrary user files.
 
@@ -194,7 +197,10 @@ Gate label when passing: **ready for resumed physical dogfooding** (not a produc
 | Git / source control | Discovery + explicit Init local bootstrap + policy/diagnostics; no Core remote create/push/PR/merge/tag/repo-release automation |
 | Skills v1 | Local Home catalog + exact pins + digests + Cursor/OpenCode projections (no marketplace UI) |
 | Task Capability Discovery | Implemented (`atlas capability plan`); task-active skills + retrieval planning; technology = evidence only |
-| Hooks | Engine + Cursor/OpenCode native projections; production action registry has no automatic Memory injection |
+| Hooks | Engine + Cursor/OpenCode native projections; Doctor reports projection health (repairability aligned with Repair); production action registry has no automatic Memory injection |
+| OpenSpec tool projections | Missing opsx/tool markers when provider project is Ready → Doctor FAIL `manual` with Configure/Init guidance; Runtime Repair does not invent provider projections |
+| `delivery_assist` | Legacy/deferred config key; load/persist preserved; not an editable Init/Configure control; no Core delivery engine |
+| Install / uninstall | `make install` → `$PREFIX/bin` (default `~/.local/bin`); PATH not modified; uninstall/purge docs-only (binary vs Home purge vs project removal); Home purge is destructive |
 | Memory | Core + retrieval + governed persistence + diagnostics + skill; proactive = plan → CLI; native automatic injection deferred |
 | Marketplace / community registry | Not implemented |
 | Claude / Codex | Not activated |

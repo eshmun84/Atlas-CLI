@@ -12,6 +12,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/config"
 	atlascontext "github.com/eshmun84/Atlas-CLI/internal/context"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/hookproj"
 	"github.com/eshmun84/Atlas-CLI/internal/memoryhealth"
 	"github.com/eshmun84/Atlas-CLI/internal/project"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
@@ -88,6 +89,7 @@ type Health struct {
 	SkillRegistryMatches       bool
 	SkillRegistryRenderError   string
 	Skills                     skills.SkillHealth
+	Hooks                      hookproj.HookHealth
 	RuntimeManifestPresent     bool
 	RuntimeManifestMatches     bool
 	RuntimeManifestRenderError string
@@ -200,6 +202,7 @@ func EvaluateHealth(root string, atlas project.AtlasStatus, files project.FileIn
 				health.SkillRegistryMatches = fileMatches(root, config.FileSkillRegistry, expectedSkillRegistry)
 			}
 			health.Skills = config.InspectSkillHealth(root, doc)
+			health.Hooks = config.InspectHookHealth(root, doc)
 
 			expectedManifest, err := config.RenderRuntimeManifestYAML(doc.Project.Name, doc.Adapters.Selected)
 			health.RuntimeManifestPresent = atlasOwnedPresent(root, config.FileRuntimeManifest)

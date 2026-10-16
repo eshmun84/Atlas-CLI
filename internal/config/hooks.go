@@ -20,6 +20,38 @@ func HookProjectors() map[adapters.ID]hookproj.Projector {
 	return hookproj.DefaultProjectors()
 }
 
+// InspectHookHealth returns read-only hooks projection health for Status/Doctor.
+// Bounded to known projector paths; never mutates.
+func InspectHookHealth(root string, doc ProjectDocument) hookproj.HookHealth {
+	homePath, err := home.Resolve()
+	if err != nil {
+		return hookproj.HookHealth{
+			Projections: []hookproj.ProjectionStatus{{
+				State:   hookproj.StateMalformed,
+				Message: err.Error(),
+			}},
+		}
+	}
+	projectID, idErr := home.ProjectID(root, doc.Project.Name)
+	if idErr != nil {
+		return hookproj.HookHealth{
+			Projections: []hookproj.ProjectionStatus{{
+				State:   hookproj.StateMalformed,
+				Message: idErr.Error(),
+			}},
+		}
+	}
+	own, _ := hookproj.LoadOwnership(homePath, projectID)
+	return hookproj.Inspect(hookproj.InspectInput{
+		Root:       root,
+		HomePath:   homePath,
+		ProjectID:  projectID,
+		Adapters:   normalizeSelectedAdapters(doc.Adapters.Selected),
+		Projectors: HookProjectors(),
+		Ownership:  own,
+	})
+}
+
 // ReconcileHookProjections materializes/removes Atlas-owned native hook projections.
 // Must run under mutatelock with Home+Workspace already held by the caller.
 // reclaimUnowned is true only after an explicit Init Home reset.

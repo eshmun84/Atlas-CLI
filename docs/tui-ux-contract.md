@@ -70,12 +70,12 @@ Sections, in order:
 4. **Source Control / Delivery Tools** — Git repo/branch/remote (`none` when empty). Remote default branch is resolved only from local `refs/remotes/<remote>/HEAD` (`unknown locally` when that ref is missing; `none` when there is no default remote). Tool availability and source-control preference. Atlas Core does not create remotes, push, open PRs, merge, tag, or publish repository releases. No Git mutations; Status never contacts remotes or runs `git remote set-head`.
 5. **Project Technology** — detected stack signals as **evidence** (not permanent technology configuration or bulk skill materialization). PATH tool `go` appears only when the project stack includes Go.
 6. **Adapters** — selected adapters and high-level projection health (`selected` / `materialized` / `missing` / `NOT SELECTED` for inactive adapters).
-7. **Governance Tools** — workflow/spec-engine preferences and OpenSpec provider readiness (CLI + exact project pin + project init). Governed SDD requires a real OpenSpec provider; Atlas does not emulate OpenSpec.
+7. **Governance Tools** — workflow/spec-engine preferences and OpenSpec provider readiness (CLI + exact project pin + project init) from the shared Inspection provider snapshot (one bounded probe per Inspect). Governed SDD requires a real OpenSpec provider; Atlas does not emulate OpenSpec. Missing provider tool/opsx projections are Doctor findings with Configure/Init remediation (not Runtime Repair).
 8. **SDD** — concise Spec Engine presence from the Inspection snapshot (`SDD: none` or `SDD: OpenSpec` plus active change summary). Read-only; does not copy OpenSpec artifacts.
 9. **MCP** — selected MCP count and per-adapter projection health (`materialized` / `drifted` / `missing` / `malformed`). Read-only; no auth or network.
 10. **Health** — PASS/WARNING/ERROR counts and result label from the same `doctor.Evaluate` summary as Doctor, optional compact “Needs attention” list (top warnings/errors only), Atlas Home presence (not path-primary), Context Economy / Memory state, suggested next action. Status must not show a clean PASS when Doctor has warnings or errors.
 
-Status must **not** list full runtime artifact inventories (those belong in Doctor / Runtime Repair).
+Status must **not** list full runtime artifact inventories (those belong in Doctor / Runtime Repair). Hooks projection detail stays in Doctor; Status surfaces hooks problems only via the shared Health “Needs attention” summary when Doctor fails.
 
 ## Doctor (deep diagnostics)
 
@@ -85,7 +85,7 @@ Sections, in order:
 2. **Workspace**
 3. **Git**
 4. **Atlas Configuration**
-5. **Atlas Runtime** — includes runtime file / marker / lock / contract detail; Skills/hooks health where applicable.
+5. **Atlas Runtime** — includes runtime file / marker / lock / contract detail; Skills/hooks projection health (disabled / healthy / missing / stale / drifted / conflict / malformed) with repairability aligned to Runtime Repair.
 6. **SDD** — Spec Engine detection, active/archived change summary, malformed/unsafe/ambiguous layout findings. Read-only; never repairs or mutates OpenSpec.
 7. **Adapters** — projections and Atlas agent pack health.
 8. **Atlas Home** — path, presence, writability, layout, assets (detail lives here, not as Status primary).
@@ -109,7 +109,7 @@ Doctor remains read-only and never repairs.
 - MCP desired state is stored in Atlas config; Atlas-owned projections materialize to selected agents; auth/connection/verification may still depend on the provider or agent; secrets are not stored.
 - Optional project docs scaffold is developer-owned, off by default, never overwritten by Runtime Repair.
 - Context Economy v0 ≠ CodeGraph ≠ Atlas Context Graph.
-- `delivery_assist` / “Assisted operations” may still appear as a preference stub; it is **not** an Atlas Core remote delivery engine. Future version-control assistance belongs to governed skills, not Core automation.
+- `delivery_assist` is a **legacy/deferred** config key: preserved on load/persist for compatibility, hidden from Init/Configure selectors, **not** an editable product control, and **not** an Atlas Core remote delivery engine. Future version-control assistance belongs to governed skills, not Core automation.
 
 ## Init Setup
 
@@ -118,7 +118,7 @@ Init configures governed runtime, adapters, governance, and source-control prefe
 - Project Setup: Project Name + New vs Existing (no Recommended mode); Project Mode uses `[x]` / `[ ]` markers like the rest of Init; optional Project Docs Scaffold (`[ ] Create docs/atlas/README.md`) below Project Mode.
 - Runtime conflicts (AGENTS.md, AGENT.md, CLAUDE.md, GEMINI.md, `.cursor/`, `.opencode/`, `.claude/`, `.agents/`, `.codex/`) show a blocking preflight before Project Setup. Refresh / Re-check is read-only rescan only. While conflicts remain, Exit / Back is the other action. After a clean re-check, Continue to Setup enters Project Setup — no silent overwrite or Init-time backup/quarantine.
 - Adapters: Cursor and OpenCode only; Available when the runtime tool is on PATH; unavailable rows are visible but disabled.
-- Source control: Platform, Governance files, Assisted operations preference stub, signing policy. Versioned governance files unlock when GitHub platform is selected. No tools diagnostics or Git remote ops on this screen.
+- Source control: Platform, Governance files, signing policy. (`delivery_assist` is legacy/hidden — not an Init control.) Versioned governance files unlock when GitHub platform is selected. No tools diagnostics or Git remote ops on this screen.
 - Memory is not an Init choice (always-on Atlas-managed memory).
 - Context is not an Init choice: Code Intelligence / CodeGraph is a separate surface; no Atlas Context Graph setup/checkbox; Context Economy remains a separate explicit flow.
 - Review → Apply summarizes Project writes, Atlas Home writes, Atlas Home reset, and Git operations. When source control requires Git and no repository exists, Review may show Git bootstrap (initialize local repo with initial branch `main`). Apply never performs commit, remote, push, pull request, merge, or tag. Status and Doctor remain read-only.

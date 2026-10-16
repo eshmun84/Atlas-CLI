@@ -70,6 +70,7 @@ func Evaluate(result inspect.Inspection) Report {
 	}
 
 	checks = append(checks, evaluateMCP(result)...)
+	checks = append(checks, evaluateHooks(result)...)
 
 	return Report{Checks: checks}
 }

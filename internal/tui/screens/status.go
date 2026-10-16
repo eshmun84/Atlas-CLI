@@ -140,9 +140,9 @@ func writeStatusSourceControl(b *strings.Builder, result inspect.Inspection) {
 			fmt.Fprintf(b, "  Signing required: %s\n", statusNo.Render("no"))
 		}
 		if result.Runtime.Document.SourceControl.DeliveryAssist {
-			fmt.Fprintf(b, "  Delivery assist: %s\n", statusInfo.Render("preference stub (NOT a Core delivery engine)"))
+			fmt.Fprintf(b, "  Delivery assist: %s\n", statusInfo.Render("legacy preference (no Core engine; deferred)"))
 		} else {
-			fmt.Fprintf(b, "  Delivery assist: %s\n", statusNo.Render("not selected"))
+			fmt.Fprintf(b, "  Delivery assist: %s\n", statusNo.Render("legacy off (not a product capability)"))
 		}
 	} else {
 		fmt.Fprintf(b, "  Delivery assist: %s\n", statusNo.Render("n/a"))
@@ -228,10 +228,14 @@ func writeStatusGovernance(b *strings.Builder, result inspect.Inspection) {
 
 func writeStatusOpenSpecProvider(b *strings.Builder, result inspect.Inspection) {
 	pin := strings.TrimSpace(result.Runtime.Document.Governance.OpenSpecVersion)
-	h := openspec.Probe(context.Background(), openspec.ProbeInput{
-		Root:       result.RootPath,
-		ProjectPin: pin,
-	})
+	h := result.OpenSpecProvider
+	if !result.OpenSpecProviderProbed {
+		// Fallback for tests that construct Inspection without Inspect().
+		h = openspec.Probe(context.Background(), openspec.ProbeInput{
+			Root:       result.RootPath,
+			ProjectPin: pin,
+		})
+	}
 	fmt.Fprintf(b, "  Spec Engine: OpenSpec\n")
 	req := pin
 	if req == "" {

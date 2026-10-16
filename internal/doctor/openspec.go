@@ -11,6 +11,7 @@ import (
 
 // evaluateRequiredOpenSpec reports OpenSpec provider health when SDD+openspec is required.
 // Status/Doctor remain read-only: only Probe (version/list/help) is used.
+// Prefers the Inspection-shared provider snapshot (one probe per Inspect cycle).
 func evaluateRequiredOpenSpec(result inspect.Inspection) []Check {
 	if !result.Runtime.ConfigLoads || !result.Runtime.DependsOnSDDContract {
 		return nil
@@ -19,10 +20,14 @@ func evaluateRequiredOpenSpec(result inspect.Inspection) []Check {
 	doc := result.Runtime.Document
 	pin := strings.TrimSpace(doc.Governance.OpenSpecVersion)
 	root := strings.TrimSpace(result.RootPath)
-	h := openspec.Probe(context.Background(), openspec.ProbeInput{
-		Root:       root,
-		ProjectPin: pin,
-	})
+	h := result.OpenSpecProvider
+	if !result.OpenSpecProviderProbed {
+		// Fallback for unit tests that construct Inspection without Inspect().
+		h = openspec.Probe(context.Background(), openspec.ProbeInput{
+			Root:       root,
+			ProjectPin: pin,
+		})
+	}
 
 	var checks []Check
 
@@ -63,6 +68,7 @@ func evaluateRequiredOpenSpec(result inspect.Inspection) []Check {
 	case openspec.StateReady:
 		checks = append(checks, pass("openspec provider",
 			"ready (installed "+h.Installed+", project pin "+h.RequiredPin+")"))
+		checks = append(checks, evaluateOpenSpecToolProjections(root, doc.Adapters.Selected)...)
 	default:
 		checks = append(checks, fail("openspec provider", "unknown provider state", RepairManual, ""))
 	}
@@ -81,4 +87,17 @@ func evaluateRequiredOpenSpec(result inspect.Inspection) []Check {
 		checks = append(checks, pass("sdd openspec contract", config.FileSDDOpenSpecContract+" present"))
 	}
 	return checks
+}
+
+// evaluateOpenSpecToolProjections reports missing opsx/tool projections when the
+// provider project is Ready. Remediation is Configure/Init — never Runtime Repair.
+func evaluateOpenSpecToolProjections(root string, adapters []string) []Check {
+	missing := openspec.MissingToolProjections(root, adapters)
+	if len(missing) == 0 {
+		return []Check{pass("openspec tool projections", "expected provider tool projections present")}
+	}
+	return []Check{fail("openspec tool projections",
+		"provider tool projections stale/missing for: "+strings.Join(missing, ", "),
+		RepairManual,
+		"Run Atlas Configure Apply (or Init) to sync OpenSpec tool projections via openspec init --tools / openspec update; Runtime Repair will not invent provider projections")}
 }

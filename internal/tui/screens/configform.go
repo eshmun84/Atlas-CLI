@@ -276,14 +276,9 @@ func renderSectionDetail(view ConfigFormView, sections []config.ConfigSection, s
 		case config.FieldTypeBool:
 			focused := fieldsFocused && fi == fieldIdx
 			checked := strings.EqualFold(field.Value, "true")
-			if field.Key == "source_control.delivery_assist" {
-				fmt.Fprintln(&b, cfgFormBody.Render(field.Label))
-				fmt.Fprintln(&b, "  "+renderCheckRow("Enabled", checked, focused, editable))
-			} else {
-				fmt.Fprintln(&b, "  "+renderCheckRow(field.Label, checked, focused, editable))
-				if field.Description != "" {
-					fmt.Fprintln(&b, "    "+cfgFormMuted.Render(field.Description))
-				}
+			fmt.Fprintln(&b, "  "+renderCheckRow(field.Label, checked, focused, editable))
+			if field.Description != "" {
+				fmt.Fprintln(&b, "    "+cfgFormMuted.Render(field.Description))
 			}
 			if note := mutabilityNote(mut); note != "" {
 				fmt.Fprintln(&b, "    "+renderMutNote(mut, note))

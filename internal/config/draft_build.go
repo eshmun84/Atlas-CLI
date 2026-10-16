@@ -148,7 +148,6 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 				Fields: []ConfigField{
 					field("source_control.mode", "Platform", "Hosting/platform preference for governance policy. Not a Core remote-operations engine.", deliveryPlatform, deliveryPlatform, FieldTypeChoice, []string{"none", "git_local", "git_github"}, FieldEditable, FieldEditable, true, false),
 					field("source_control.governance_storage", "Governance files", "", "local_only", "local_only", FieldTypeChoice, []string{"local_only", "versioned"}, FieldEditable, FieldEditable, true, false),
-					field("source_control.delivery_assist", "Assisted operations", "Preference stub only — not an Atlas Core delivery engine. Future version-control assistance belongs to governed skills.", "false", "false", FieldTypeBool, nil, FieldEditable, FieldEditable, false, false),
 					field("source_control.signing_required", "Require signed commits", "When true, unsigned commits are not an allowed fallback.", "false", "false", FieldTypeBool, nil, FieldEditable, FieldEditable, false, false),
 				},
 			},
@@ -159,8 +158,9 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 				Fields:      nil,
 			},
 			{
-				// Hidden from SelectorSections; retained so persist/load keep remote + branch_strategy + memory.
-				// Context Economy is a separate explicit flow. Code Intelligence/CodeGraph is a separate surface.
+				// Hidden from SelectorSections; retained so persist/load keep remote + branch_strategy + memory
+				// and legacy delivery_assist. Context Economy is a separate explicit flow.
+				// Code Intelligence/CodeGraph is a separate surface.
 				// Atlas Context Graph remains NOT IMPLEMENTED: no Init/Configure checkbox; user enable/disable
 				// only when an end-to-end Context Graph exists. Compatibility key may remain in YAML.
 				Key:         "compat",
@@ -169,6 +169,7 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 				Fields: []ConfigField{
 					field("source_control.default_remote", "Default remote", "Not an Init setup decision.", remote, remote, FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 					field("source_control.branch_strategy", "Branch strategy", "Not an Init setup decision. Atlas does not configure GitFlow.", "manual", "manual", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
+					field("source_control.delivery_assist", "Assisted operations (legacy)", "Legacy/deferred preference — not an Atlas Core delivery engine. Hidden from Init/Configure UI; preserved on load/persist for backward compatibility. Future version-control assistance belongs to governed skills.", "false", "false", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 					field("memory.strategy", "Memory strategy", "Always-on local Atlas-managed memory; not an Init setup choice.", "sqlite_plus_context_capsule", "sqlite_plus_context_capsule", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, true, false),
 					field("context.graph.enabled", "Atlas Context Graph preference", "Compatibility only — not a user-facing toggle. Atlas Context Graph is NOT IMPLEMENTED. Memory, Context Economy, Context Composition, Code Intelligence, and CodeGraph are separate and are not a completed Context Graph.", "true", "true", FieldTypeReadonly, nil, FieldReadonly, FieldReadonly, false, false),
 				},

@@ -20,7 +20,6 @@ const (
 	ContextCodeIntelligence = "code-intelligence"
 	ContextOpenSpec         = "openspec"
 	ContextProjectFiles     = "project-files"
-	ContextExternalTool     = "external-tool"
 
 	RetrievalMemory    = "memory"
 	RetrievalCE        = "context_economy"
@@ -30,17 +29,16 @@ const (
 // TaskEvidence is bounded Tier-0/1 input for DiscoverPlan.
 // It is not a universal TaskDescriptor — only fields the planner consumes.
 type TaskEvidence struct {
-	TaskText                string
-	Classification          string
-	Workflow                string
-	Phase                   string
-	ExplicitFiles           []string
-	Technologies            []string
-	ExplicitRequires        []string // closed capability IDs (core or skill-mapped)
-	ExplicitSkillRequires   []string // specialized skill IDs from "use X skill" (not vocab expansion)
-	ExplicitExcludes        []string
-	ActiveChange            string
-	AvailableContextSources []string
+	TaskText              string
+	Classification        string
+	Workflow              string
+	Phase                 string
+	ExplicitFiles         []string
+	Technologies          []string
+	ExplicitRequires      []string // closed capability IDs (core or skill-mapped)
+	ExplicitSkillRequires []string // specialized skill IDs from "use X skill" (not vocab expansion)
+	ExplicitExcludes      []string
+	ActiveChange          string
 	// Governance flags from .atlas/config.yaml (reuse — not a second policy engine).
 	TestingRequired bool
 	ReviewRequired  bool

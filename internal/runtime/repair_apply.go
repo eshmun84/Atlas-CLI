@@ -208,14 +208,22 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		}
 	}
 
-	// EnsureAndMirror is an idempotent Atlas Home precondition (global Home
-	// assets). Project Apply rollback restores project-scoped repair targets
-	// and state; it does not undo global Home mirror refresh.
-	homeResult, err := home.EnsureAndMirror(now)
-	if err != nil {
-		return result, fmt.Errorf("runtime repair: %w", err)
+	// Home remirror is explicit and plan-scoped: only when the reviewed plan
+	// includes a Home target. Project-only repair requires a healthy compatible
+	// Home and must not silently refresh global assets/provenance.
+	if planHasHomeTarget(plan) {
+		ensured, err := home.EnsureAndMirror(now)
+		if err != nil {
+			return result, fmt.Errorf("runtime repair: %w", err)
+		}
+		homePath = ensured.HomePath
+	} else {
+		st, err := home.RequireHealthy()
+		if err != nil {
+			return result, fmt.Errorf("runtime repair: %w", err)
+		}
+		homePath = st.Path
 	}
-	homePath = homeResult.HomePath
 
 	projectName := health.Document.Project.Name
 	if projectName == "" {
@@ -226,12 +234,12 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		return result, fmt.Errorf("runtime repair: project id: %w", err)
 	}
 	// Fail closed on corrupt/unreadable local state before any project mutation.
-	if _, _, err := home.LoadProjectLocalState(homeResult.HomePath, projectID); err != nil {
+	if _, _, err := home.LoadProjectLocalState(homePath, projectID); err != nil {
 		return result, fmt.Errorf("runtime repair: %w", err)
 	}
 
 	// Snapshot BEFORE any project-Home mutation (layout/identity/local state).
-	snap, err := captureRepairMutationSnapshot(root, homeResult.HomePath, projectID, plan)
+	snap, err := captureRepairMutationSnapshot(root, homePath, projectID, plan)
 	if err != nil {
 		return result, fmt.Errorf("runtime repair: snapshot: %w", err)
 	}
@@ -242,22 +250,22 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 		// Attempt-backup stamps are outside layout footprint teardown (SAFE_TO_KEEP
 		// RemoveContainedRel). Remove stamp before empty createdDirs cleanup.
 		if snap.attemptBackup != "" {
-			if cleanErr := removeAttemptBackup(homeResult.HomePath, snap.attemptBackup); cleanErr != nil {
+			if cleanErr := removeAttemptBackup(homePath, snap.attemptBackup); cleanErr != nil {
 				return RuntimeRepairResult{}, fmt.Errorf("runtime repair: %w (restored project repair baseline; transactional backup cleanup failed: %v)", cause, cleanErr)
 			}
 		}
-		if err := fsafety.RestoreCreatedDirs(homeResult.HomePath, snap.projectHome.Footprint); err != nil {
+		if err := fsafety.RestoreCreatedDirs(homePath, snap.projectHome.Footprint); err != nil {
 			return RuntimeRepairResult{}, fmt.Errorf("runtime repair: %v (rollback failed: %v)", cause, err)
 		}
 		return RuntimeRepairResult{}, fmt.Errorf("runtime repair: %w (rolled back project repair baseline)", cause)
 	}
 
-	layoutDirs, err := home.EnsureProjectLayoutCreated(homeResult.HomePath, projectID)
+	layoutDirs, err := home.EnsureProjectLayoutCreated(homePath, projectID)
 	snap.projectHome.Footprint.MergeDirs(layoutDirs)
 	if err != nil {
 		return rollback(err)
 	}
-	idWrote, idDirs, idErr := home.WriteProjectIdentityTracked(homeResult.HomePath, projectID, projectName, root, now)
+	idWrote, idDirs, idErr := home.WriteProjectIdentityTracked(homePath, projectID, projectName, root, now)
 	snap.projectHome.Footprint.MergeDirs(idDirs)
 	if idErr != nil {
 		return rollback(idErr)
@@ -278,7 +286,7 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 	// Attempt-backup stamp is discarded via RemoveContainedRel after successful
 	// baseline restore. On BackupConflicts failure, merge partial footprint so
 	// rollback can tear down dirs Atlas already created.
-	backupDir, manifest, backupFP, err := config.BackupConflicts(root, homeResult.HomePath, projectID, backupItems, now)
+	backupDir, manifest, backupFP, err := config.BackupConflicts(root, homePath, projectID, backupItems, now)
 	if err != nil {
 		snap.projectHome.Footprint.MergeFootprint(backupFP)
 		return rollback(err)
@@ -413,12 +421,12 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 	}
 
 	if backupDir != "" {
-		if err := config.WriteBackupManifest(homeResult.HomePath, backupDir, manifest); err != nil {
+		if err := config.WriteBackupManifest(homePath, backupDir, manifest); err != nil {
 			return rollback(err)
 		}
 	}
 
-	if err := updateRepairState(root, homeResult.HomePath, projectID, health, now, result.Actions, &snap); err != nil {
+	if err := updateRepairState(root, homePath, projectID, health, now, result.Actions, &snap); err != nil {
 		return rollback(err)
 	}
 
@@ -558,6 +566,15 @@ func planIsHomeOnly(plan RuntimeRepairPlan) bool {
 		}
 	}
 	return true
+}
+
+func planHasHomeTarget(plan RuntimeRepairPlan) bool {
+	for _, target := range plan.Targets {
+		if target.Kind == RepairKindHome && target.Path == RepairHomePath {
+			return true
+		}
+	}
+	return false
 }
 
 func fileSnapshotByRel(files []fsafety.FileSnapshot, rel string) fsafety.FileSnapshot {

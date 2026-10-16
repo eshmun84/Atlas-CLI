@@ -23,8 +23,9 @@ No git tag, GitHub release, or publish without explicit human approval.
 - Neutral Hooks engine + Cursor native hooks + OpenCode native hooks. Production hooks **action registry has no automatic Memory injection / side-effect actions** yet
 - Source-control policy: local Git bootstrap when required, signing policy visibility, local-only `.gitignore` Atlas block management
 - Slice 3 diagnostics: Doctor repairability (`atlas-repair` / `confirm-repair` / `diagnostic-only` / `manual`); config-aware Git; Status compact readiness; A–N regression matrix
+- Block D / D6 polish: project-only Runtime Repair no longer silently remirrors Atlas Home; Hooks Doctor health; OpenSpec tool-projection diagnostics (Configure/Init, not Repair); one OpenSpec provider probe per Inspect; `delivery_assist` legacy/hidden; install PATH + safe uninstall/purge docs
 - Status and Doctor are **read-only**
-- Runtime Repair is the **explicit** runtime mutation path (Review → Apply)
+- Runtime Repair is the **explicit** runtime mutation path (Review → Apply); Home remirror only when the reviewed plan includes an explicit Home target
 - Configure Apply saves `.atlas/config.yaml` and reconciles Atlas-owned MCP projections; does not silently rematerialize non-MCP runtime
 - Configure OpenSpec tool sync/update participates in the Configure transaction (provider footprint snapshot + rollback on Apply failure where safely possible; not perfect external-process atomicity)
 - Home/project `schema_version` compatibility gates mutation (fail closed on newer/unsupported older); product `atlas_version` is provenance only; no general migration/`atlas upgrade` command
@@ -74,6 +75,8 @@ No git tag, GitHub release, or publish without explicit human approval.
 - Hooks plumbing exists; automatic Memory injection actions are not registered in production
 - No Claude/Codex activation
 - No Core Git remote/PR/merge/tag/release automation beyond Init local bootstrap
+- `delivery_assist` is legacy/deferred (not an editable Core capability)
+- Install does not modify shell PATH; uninstall/purge of Home is docs-only and destructive when chosen
 - Tests and smoke must use temporary `ATLAS_HOME` to avoid touching `~/.atlas`
 
 ### Validation

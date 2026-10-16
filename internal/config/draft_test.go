@@ -124,7 +124,7 @@ func TestBuildConfigDraft_GitRepoDetectedDefaultsGitLocal(t *testing.T) {
 		GitRepoDetected: true,
 	})
 	assertField(t, draft, "source_control.mode", config.SourceControlGitLocal, config.FieldEditable, config.FieldEditable)
-	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldEditable, config.FieldEditable)
+	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldReadonly, config.FieldReadonly)
 	mode, _ := draft.FieldByKey("source_control.mode")
 	if mode.Default != config.SourceControlGitLocal {
 		t.Fatalf("mode default = %q, want git_local", mode.Default)
@@ -140,7 +140,7 @@ func TestBuildConfigDraft_NoGitRepoDefaultsNone(t *testing.T) {
 		GitRepoDetected: false,
 	})
 	assertField(t, draft, "source_control.mode", config.SourceControlNone, config.FieldEditable, config.FieldEditable)
-	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldEditable, config.FieldEditable)
+	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldReadonly, config.FieldReadonly)
 }
 
 func TestBuildConfigDraft_PersistedSourceControlModeWinsOverGitDetect(t *testing.T) {
@@ -161,7 +161,7 @@ func TestBuildConfigDraft_PersistedSourceControlModeWinsOverGitDetect(t *testing
 	})
 	config.ApplyProjectDocument(&draftNone, docNone)
 	assertField(t, draftNone, "source_control.mode", config.SourceControlNone, config.FieldEditable, config.FieldEditable)
-	assertField(t, draftNone, "source_control.delivery_assist", "false", config.FieldEditable, config.FieldEditable)
+	assertField(t, draftNone, "source_control.delivery_assist", "false", config.FieldReadonly, config.FieldReadonly)
 
 	docGH := docNone
 	docGH.SourceControl.Mode = config.SourceControlGitGitHub
@@ -184,7 +184,7 @@ func TestBuildConfigDraft_GitDetectDoesNotEnableAssistedOps(t *testing.T) {
 		ToolGitAvailable: true,
 	})
 	assertField(t, draft, "source_control.mode", config.SourceControlGitLocal, config.FieldEditable, config.FieldEditable)
-	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldEditable, config.FieldEditable)
+	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldReadonly, config.FieldReadonly)
 }
 
 func TestConfigDraft_DeliveryPlatformUnlocksVersioned(t *testing.T) {

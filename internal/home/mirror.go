@@ -79,7 +79,10 @@ func chmodRealDir(path string, perm os.FileMode) error {
 
 // EnsureAndMirror creates layout (if needed) and mirrors bundled assets into Home.
 // This is the only supported mutating Home bootstrap. Callers: make install
-// (scripts/materializehome), Runtime Repair Apply, and Context Economy Update.
+// (scripts/materializehome), Runtime Repair Apply when the reviewed plan includes
+// an explicit Home target, and Context Economy Update.
+// Project-only Runtime Repair must not call EnsureAndMirror — it requires a
+// healthy Home first (home.RequireHealthy).
 // Init Apply must not call EnsureAndMirror — it requires a healthy Home first.
 func EnsureAndMirror(now time.Time) (EnsureResult, error) {
 	homePath, err := Resolve()

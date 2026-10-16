@@ -1818,7 +1818,7 @@ func TestInitReviewPlanContentAndApply(t *testing.T) {
 		"Selected: none selected",
 		"Platform: None",
 		"Governance files: Local only",
-		"Assisted operations (preference stub): Disabled",
+		"Assisted operations (legacy/deferred): Legacy off (deferred)",
 		"MCP desired state: 0 selected",
 		".atlas/config.yaml",
 		".atlas/local.yaml",
@@ -1942,14 +1942,17 @@ func TestInitDeliveryPreselectsGitLocalWhenRepoDetected(t *testing.T) {
 	if assist.Value != "false" {
 		t.Fatalf("assisted operations = %q, want false", assist.Value)
 	}
+	if assist.Editable(m.ConfigDraft().Mode) {
+		t.Fatal("delivery_assist must not be editable in Init/Configure UI")
+	}
 	m = gotoConfigSection(t, m, "source_control")
 	m = mustModel(m.Update(key("enter")))
 	view := m.View()
 	if !strings.Contains(view, "Git local") {
 		t.Fatalf("Delivery UI missing Git local preselection:\n%s", view)
 	}
-	if !strings.Contains(view, "[ ] Enabled") {
-		t.Fatalf("assisted operations must render disabled by default:\n%s", view)
+	if strings.Contains(view, "Assisted operations") || strings.Contains(view, "[ ] Enabled") {
+		t.Fatalf("delivery_assist must not appear as editable Delivery control:\n%s", view)
 	}
 }
 
