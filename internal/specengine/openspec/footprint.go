@@ -1,8 +1,11 @@
 package openspec
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
@@ -31,6 +34,109 @@ func InventoryProviderPaths(root string) (map[string]struct{}, error) {
 		}
 	}
 	return out, nil
+}
+
+// CaptureProviderFileSnapshots snapshots existing OpenSpec-owned regular files
+// under provider prefixes so Configure/Init rollback can restore content that
+// the provider later modifies or deletes. Snapshotting does not imply Atlas ownership.
+// Symlinked provider roots fail closed.
+func CaptureProviderFileSnapshots(root string) ([]fsafety.FileSnapshot, error) {
+	root = filepath.Clean(strings.TrimSpace(root))
+	if root == "" {
+		return nil, nil
+	}
+	seen := map[string]struct{}{}
+	for _, prefix := range ProviderPathPrefixes {
+		info, err := fsafety.LstatContained(root, prefix)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("openspec provider snapshot: %s: %w", prefix, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("openspec provider snapshot: refusing symlink %s", prefix)
+		}
+		if err := walkProviderPrefix(root, prefix, func(rel string) {
+			if !providerOwnedRel(rel) {
+				return
+			}
+			full := filepath.Join(root, filepath.FromSlash(rel))
+			st, lerr := os.Lstat(full)
+			if lerr != nil || st.IsDir() || st.Mode()&os.ModeSymlink != 0 || !st.Mode().IsRegular() {
+				return
+			}
+			seen[rel] = struct{}{}
+		}); err != nil {
+			return nil, err
+		}
+	}
+	rels := make([]string, 0, len(seen))
+	for rel := range seen {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	out := make([]fsafety.FileSnapshot, 0, len(rels))
+	for _, rel := range rels {
+		fs, err := fsafety.CaptureFileSnapshot(root, rel)
+		if err != nil {
+			return nil, fmt.Errorf("openspec provider snapshot %s: %w", rel, err)
+		}
+		if fs.Exists && fs.WasFile {
+			out = append(out, fs)
+		}
+	}
+	return out, nil
+}
+
+// RecordProviderMutationFootprint absorbs new provider paths and records
+// modifications/deletions against baseline snapshots so rollback can restore
+// exact pre-mutation provider-owned file state.
+func RecordProviderMutationFootprint(fp *fsafety.TransactionFootprint, root string, before map[string]struct{}, baseline []fsafety.FileSnapshot) error {
+	if fp == nil {
+		return nil
+	}
+	if err := AbsorbNewProviderPaths(fp, root, before); err != nil {
+		return err
+	}
+	root = filepath.Clean(strings.TrimSpace(root))
+	for _, snap := range baseline {
+		if !snap.Exists || !snap.WasFile || !providerOwnedRel(snap.Rel) {
+			continue
+		}
+		info, err := fsafety.LstatContained(root, snap.Rel)
+		if err != nil {
+			if os.IsNotExist(err) {
+				fp.AddDeleted(fsafety.DeletedFile{
+					Rel:      snap.Rel,
+					Expected: append([]byte(nil), snap.Data...),
+					Mode:     snap.Mode,
+					Info:     snap.Info,
+				})
+				continue
+			}
+			return fmt.Errorf("openspec provider footprint: %s: %w", snap.Rel, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("openspec provider footprint: %s: unexpected type after provider mutation", snap.Rel)
+		}
+		cur, err := fsafety.ReadFileContained(root, snap.Rel)
+		if err != nil {
+			return fmt.Errorf("openspec provider footprint: read %s: %w", snap.Rel, err)
+		}
+		mode := info.Mode().Perm()
+		if bytes.Equal(cur, snap.Data) && mode == snap.Mode {
+			continue
+		}
+		fp.AddFile(fsafety.WrittenFile{
+			Rel:      snap.Rel,
+			Created:  false,
+			Expected: append([]byte(nil), cur...),
+			Mode:     mode,
+			Info:     info,
+		})
+	}
+	return nil
 }
 
 // AbsorbNewProviderPaths records files/dirs created after before into fp for rollback.
@@ -105,6 +211,13 @@ func walkProviderPrefix(root, prefix string, fn func(rel string)) error {
 		fn(rel)
 		return nil
 	})
+}
+
+// ProviderOwnedRel reports whether rel is an OpenSpec-owned provider path
+// (openspec/ tree or opsx-/openspec-* adapter projections). Atlas-owned
+// surfaces under .cursor/.opencode are excluded.
+func ProviderOwnedRel(rel string) bool {
+	return providerOwnedRel(rel)
 }
 
 func providerOwnedRel(rel string) bool {

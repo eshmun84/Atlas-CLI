@@ -142,6 +142,7 @@ Authoritative automated coverage: `TestSlice3_Matrix_*` in `internal/runtime/sli
 | 017 | **resolved (Block D Slice A)** — runtime agents require real OpenSpec; no CLI-optional / emulation bypass |
 | 018 | **resolved (Block D Slice A)** — Repair Apply mutates only reviewed plan targets (hooks) |
 | 019 | **resolved (Block D Slice A)** — Doctor repairability aligned with Repair/Init/manual authority |
+| 020 | **resolved (Block D / D3)** — Configure Apply snapshots Atlas-managed + relevant provider-created surfaces before OpenSpec tool sync/update; restores them on Apply failure (partial provider failure + later Atlas failure); exact pin preserved/restored; rollback failure surfaces composite manual-inspection error |
 | 022 | **resolved (Block D / D5)** — real OpenSpec Init + team-clone exact-pin dogfood (`scripts/dogfoodopenspec`); older/newer/missing CLI block; no silent repin; Repair refuses bootstrap; capability probes covered without SkipCapProbes |
 
 ## Physical dogfooding readiness gate
@@ -165,7 +166,8 @@ Gate label when passing: **ready for resumed physical dogfooding** (not a produc
 
 - Status / Doctor / discovery / startup do not mutate
 - Runtime Repair remains the explicit mutation path for non-MCP runtime artifacts (Review → Apply)
-- Configure Apply saves config.yaml and reconciles Atlas-owned MCP projections; it does not silently rematerialize AGENTS/rules/agents
+- Configure Apply saves config.yaml and reconciles Atlas-owned MCP/skills/hooks projections; it does not silently rematerialize AGENTS/rules/agents
+- Configure + OpenSpec tool sync/update: snapshots Atlas-managed and relevant provider-created project surfaces before provider mutation; restores them on Apply failure where safely possible (not a claim of perfect transactionality across arbitrary external processes)
 - Context update remains explicit
 - Init Home reset requires explicit acceptance and deletes only `$ATLAS_HOME/projects/<project-id>/`
 - Atlas Home is not created by read-only flows
@@ -185,7 +187,7 @@ Gate label when passing: **ready for resumed physical dogfooding** (not a produc
 | CodeGraph | Optional Code Intelligence provider (externally installed; not MCP; may be unavailable) |
 | Atlas Context Graph | Preference/compat only; NOT IMPLEMENTED; no Init/Configure checkbox |
 | MCP | Desired state + Atlas-owned projections; no auth/connection/verification; secrets not stored |
-| OpenSpec | Real CLI provider required for governed SDD; exact project pin; Init runs `openspec init`; Repair refuses provider bootstrap; no emulation/mkdir substitute |
+| OpenSpec | Real CLI provider required for governed SDD; exact project pin; Init runs `openspec init`; Configure may run `openspec init --tools` / `openspec update` for adapter projection sync inside the Configure transaction (with provider footprint snapshot/rollback); Repair refuses provider bootstrap; no emulation/mkdir substitute |
 | Git / source control | Discovery + explicit Init local bootstrap + policy/diagnostics; no Core remote create/push/PR/merge/tag/repo-release automation |
 | Skills v1 | Local Home catalog + exact pins + digests + Cursor/OpenCode projections (no marketplace UI) |
 | Task Capability Discovery | Implemented (`atlas capability plan`); task-active skills + retrieval planning; technology = evidence only |

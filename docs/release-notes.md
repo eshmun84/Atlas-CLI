@@ -26,6 +26,7 @@ No git tag, GitHub release, or publish without explicit human approval.
 - Status and Doctor are **read-only**
 - Runtime Repair is the **explicit** runtime mutation path (Review → Apply)
 - Configure Apply saves `.atlas/config.yaml` and reconciles Atlas-owned MCP projections; does not silently rematerialize non-MCP runtime
+- Configure OpenSpec tool sync/update participates in the Configure transaction (provider footprint snapshot + rollback on Apply failure where safely possible; not perfect external-process atomicity)
 - `atlas --version` as the only normal console output
 - Validation: `make check`, `make smoke-mvp`, Slice 3 A–N tests
 
@@ -51,6 +52,7 @@ No git tag, GitHub release, or publish without explicit human approval.
 | Supported engine | OpenSpec only (V1 config) |
 | CLI | Required compatible OpenSpec CLI for governed SDD; exact project pin match |
 | Init | Atlas Init Apply runs real `openspec init`; adopts pin when empty |
+| Configure | May run `openspec init --tools` / `openspec update` for adapter projection sync; snapshots + rolls back captured provider footprint with Atlas surfaces on Apply failure |
 | `openspec/` | Lifecycle/semantics belong to OpenSpec — no Atlas mkdir-bootstrap substitute |
 | Repair | Does **not** bootstrap absent/legacy OpenSpec; Init owns remediation |
 | Atlas role | SDD governance, agents, authority — not provider FS owner |

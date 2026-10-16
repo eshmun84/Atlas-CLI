@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,6 +30,15 @@ const (
 // skill projection reconcile during ApplyConfig / PersistConfigure.
 // Production code leaves it nil.
 var afterSkillsReconcileHook func() error
+
+// configureOpenSpecRunner is an optional test seam for Configure OpenSpec
+// init/update. Production leaves it nil (real ExecRunner via openspec package).
+var configureOpenSpecRunner openspec.Runner
+
+// afterOpenSpecConfigureHook is an optional test seam invoked after a successful
+// Configure provider mutation and verification, before Atlas-owned writes.
+// Production leaves it nil.
+var afterOpenSpecConfigureHook func() error
 
 // Paths Apply must never create, modify, backup, replace, or delete.
 var forbiddenApplyRelPaths = []string{
@@ -458,8 +468,11 @@ type PersistConfigureResult struct {
 // It does not rematerialize general runtime assets (AGENTS.md, rules, agents)
 // and does not store credentials.
 // Optional project docs scaffold may be created once when selected and missing.
-// Config, MCP projections/ownership, and docs are one transaction: any Apply error
-// restores the pre-Apply observable baseline.
+// Config, MCP/skills/hooks projections, docs, and any Configure-driven OpenSpec
+// tool sync/update share one transaction: Atlas snapshots Atlas-managed surfaces
+// and relevant provider-created paths before OpenSpec mutation and restores them
+// on Apply failure where safely possible. External-provider rollback cannot be
+// claimed when the provider mutates outside the captured footprint.
 func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 	root := filepath.Clean(strings.TrimSpace(in.Root))
 	if root == "" || root == "." {
@@ -487,7 +500,7 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 	}
 	defer func() { _ = lockSet.Release() }()
 
-	// ---------- Locked: load current config → decide → snapshot → mutate ----------
+	// ---------- Locked Phase A: load → validate → decide OpenSpec → snapshot ----------
 	var previous ProjectDocument
 	prevFull, prevJoinErr := safeJoinAtlas(root, FileConfig)
 	if prevJoinErr != nil {
@@ -513,11 +526,6 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 	projectID, err := home.ProjectID(root, doc.Project.Name)
 	if err != nil {
 		return PersistConfigureResult{}, fmt.Errorf("persist configure: project id: %w", err)
-	}
-
-	baseline, err := captureConfigureMutationSnapshot(root, homePath, projectID)
-	if err != nil {
-		return PersistConfigureResult{}, fmt.Errorf("persist configure: snapshot: %w", err)
 	}
 
 	mcpChanged := MCPChanged(previous, doc)
@@ -562,32 +570,88 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 			}
 		}
 	}
+	needProviderMutation := needOpenSpecToolSync || needOpenSpecUpdate
 
-	// ---------- Phase B: mutation transaction ----------
+	baseline, err := captureConfigureMutationSnapshot(root, homePath, projectID, needProviderMutation)
+	if err != nil {
+		return PersistConfigureResult{}, fmt.Errorf("persist configure: snapshot: %w", err)
+	}
+
+	// ---------- Phase B: mutation transaction (lock held through rollback) ----------
 	rollback := func(cause error) (PersistConfigureResult, error) {
 		if restoreErr := restoreConfigureFiles(root, baseline); restoreErr != nil {
-			return PersistConfigureResult{}, fmt.Errorf("persist configure: %v (rollback failed: %v)", cause, restoreErr)
+			return PersistConfigureResult{}, fmt.Errorf("persist configure: %v (rollback failed: %v; manual inspection required — project may be partially mutated)", cause, restoreErr)
 		}
 		return PersistConfigureResult{}, fmt.Errorf("persist configure: %w (rolled back to baseline)", cause)
 	}
 
-	// Provider tool sync / update before Atlas config commit.
-	// Adding adapters requires `openspec init --tools` (update only refreshes existing tools).
-	if needOpenSpecToolSync {
-		tools := OpenSpecToolsFlag(doc)
-		initRes, initErr := openspec.RunInit(context.Background(), nil, osExe, root, tools)
-		if initErr != nil {
-			return PersistConfigureResult{}, fmt.Errorf("persist configure: openspec init --tools %s failed: %w (stdout=%q stderr=%q)",
-				tools, initErr, truncateApplyMsg(initRes.Stdout), truncateApplyMsg(initRes.Stderr))
+	// Provider tool sync / update before Atlas config commit, inside the same
+	// transaction. Adding adapters requires `openspec init --tools` (update only
+	// refreshes existing tools). Configure does not bootstrap absent OpenSpec projects.
+	if needProviderMutation {
+		beforeOS, invErr := openspec.InventoryProviderPaths(root)
+		if invErr != nil {
+			return rollback(fmt.Errorf("openspec provider inventory: %w", invErr))
+		}
+		providerBaseline := make([]fsafety.FileSnapshot, 0)
+		for _, fs := range baseline.files {
+			if openspec.ProviderOwnedRel(fs.Rel) && fs.Exists && fs.WasFile {
+				providerBaseline = append(providerBaseline, fs)
+			}
+		}
+		runner := configureOpenSpecRunner
+		absorb := func() {
+			_ = openspec.RecordProviderMutationFootprint(&baseline.footprint, root, beforeOS, providerBaseline)
+		}
+		if needOpenSpecToolSync {
+			tools := OpenSpecToolsFlag(doc)
+			initRes, initErr := openspec.RunInit(context.Background(), runner, osExe, root, tools)
+			absorb()
+			if initErr != nil {
+				cause := fmt.Errorf("openspec init --tools %s failed: %w (stdout=%q stderr=%q)",
+					tools, initErr, truncateApplyMsg(initRes.Stdout), truncateApplyMsg(initRes.Stderr))
+				if errors.Is(initErr, openspec.ErrTimeout) {
+					cause = fmt.Errorf("openspec provider command timed out during init --tools %s: %w (stdout=%q stderr=%q)",
+						tools, initErr, truncateApplyMsg(initRes.Stdout), truncateApplyMsg(initRes.Stderr))
+				}
+				return rollback(cause)
+			}
+		} else {
+			updRes, updErr := openspec.RunUpdate(context.Background(), runner, osExe, root)
+			absorb()
+			if updErr != nil {
+				cause := fmt.Errorf("openspec update failed: %w (stdout=%q stderr=%q)",
+					updErr, truncateApplyMsg(updRes.Stdout), truncateApplyMsg(updRes.Stderr))
+				if errors.Is(updErr, openspec.ErrTimeout) {
+					cause = fmt.Errorf("openspec provider command timed out during update: %w (stdout=%q stderr=%q)",
+						updErr, truncateApplyMsg(updRes.Stdout), truncateApplyMsg(updRes.Stderr))
+				}
+				return rollback(cause)
+			}
+		}
+		verify := openspec.Probe(context.Background(), openspec.ProbeInput{
+			Root:       root,
+			ProjectPin: doc.Governance.OpenSpecVersion,
+		})
+		if verify.Project != openspec.ProjectReady {
+			absorb()
+			return rollback(fmt.Errorf("openspec verification failed after configure provider mutation: %s", verify.Message))
+		}
+		if pin := strings.TrimSpace(doc.Governance.OpenSpecVersion); pin != "" && !verify.PinAligned {
+			absorb()
+			return rollback(fmt.Errorf("openspec pin verification failed after configure provider mutation: want %s (%s)", pin, verify.Message))
 		}
 		if missing := openspec.MissingToolProjections(root, doc.Adapters.Selected); len(missing) > 0 {
-			return PersistConfigureResult{}, fmt.Errorf("persist configure: openspec tool sync incomplete for %s", strings.Join(missing, ","))
+			absorb()
+			return rollback(fmt.Errorf("openspec tool sync incomplete for %s", strings.Join(missing, ",")))
 		}
-	} else if needOpenSpecUpdate {
-		updRes, updErr := openspec.RunUpdate(context.Background(), nil, osExe, root)
-		if updErr != nil {
-			return PersistConfigureResult{}, fmt.Errorf("persist configure: openspec update failed: %w (stdout=%q stderr=%q)",
-				updErr, truncateApplyMsg(updRes.Stdout), truncateApplyMsg(updRes.Stderr))
+		if absErr := openspec.RecordProviderMutationFootprint(&baseline.footprint, root, beforeOS, providerBaseline); absErr != nil {
+			return rollback(fmt.Errorf("openspec provider footprint: %w", absErr))
+		}
+		if afterOpenSpecConfigureHook != nil {
+			if hookErr := afterOpenSpecConfigureHook(); hookErr != nil {
+				return rollback(hookErr)
+			}
 		}
 	}
 

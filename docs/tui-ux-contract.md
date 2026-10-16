@@ -103,6 +103,7 @@ Doctor remains read-only and never repairs.
 - Configure Apply saves `.atlas/config.yaml` (and may create optional `docs/atlas/README.md` once when selected and missing).
 - Configure Apply does **not** rematerialize general runtime assets (`AGENTS.md`, rules, agents).
 - Configure Apply **does** reconcile Atlas-owned MCP projections when MCP/adapters change.
+- When adapter selection requires OpenSpec tool projections, Configure may invoke `openspec init --tools` / `openspec update` inside the same Apply transaction: Atlas snapshots Atlas-managed and relevant provider-created surfaces first and restores them on Apply failure where safely possible. Atlas does not claim perfect rollback for arbitrary external-provider side effects outside the captured footprint. First-time OpenSpec project bootstrap remains Init-owned.
 - Adapter/runtime impact for non-MCP artifacts requires explicit **Runtime Repair**.
 - Context payload refresh requires explicit **Context Economy** Update.
 - MCP desired state is stored in Atlas config; Atlas-owned projections materialize to selected agents; auth/connection/verification may still depend on the provider or agent; secrets are not stored.

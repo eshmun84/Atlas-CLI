@@ -5,12 +5,25 @@ import (
 
 	"github.com/eshmun84/Atlas-CLI/internal/assets"
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 )
 
 // SetAfterSkillsReconcileHookForTest installs a test-only seam after successful
 // skill projection reconcile in ApplyConfig / PersistConfigure.
 func SetAfterSkillsReconcileHookForTest(fn func() error) {
 	afterSkillsReconcileHook = fn
+}
+
+// SetConfigureOpenSpecRunnerForTest installs a test-only OpenSpec runner for
+// PersistConfigure provider mutations. Pass nil to restore production default.
+func SetConfigureOpenSpecRunnerForTest(r openspec.Runner) {
+	configureOpenSpecRunner = r
+}
+
+// SetAfterOpenSpecConfigureHookForTest installs a test-only seam after successful
+// Configure OpenSpec mutation+verification, before Atlas-owned writes.
+func SetAfterOpenSpecConfigureHookForTest(fn func() error) {
+	afterOpenSpecConfigureHook = fn
 }
 
 // RestoreConfigureFilesForTest exposes configure rollback for fail-closed tests.

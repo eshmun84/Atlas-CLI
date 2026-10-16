@@ -12,6 +12,7 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/mcp"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 	"github.com/eshmun84/Atlas-CLI/internal/skills"
+	"github.com/eshmun84/Atlas-CLI/internal/specengine/openspec"
 )
 
 // initMutationSnapshot captures project files/dirs and global Home mirror state
@@ -254,7 +255,7 @@ type configureMutationSnapshot struct {
 	hooksMutation   hookproj.MutationState
 }
 
-func captureConfigureMutationSnapshot(root, homePath, projectID string) (configureMutationSnapshot, error) {
+func captureConfigureMutationSnapshot(root, homePath, projectID string, includeProvider bool) (configureMutationSnapshot, error) {
 	snap := configureMutationSnapshot{
 		homePath:  homePath,
 		projectID: projectID,
@@ -268,6 +269,23 @@ func captureConfigureMutationSnapshot(root, homePath, projectID string) (configu
 		snap.ownershipRaw = raw
 		snap.ownershipMode = mode
 	}
+	seen := map[string]struct{}{}
+	add := func(rel string) error {
+		rel = filepath.ToSlash(filepath.Clean(rel))
+		if rel == "" || rel == "." {
+			return nil
+		}
+		if _, ok := seen[rel]; ok {
+			return nil
+		}
+		seen[rel] = struct{}{}
+		fs, err := fsafety.CaptureFileSnapshot(root, rel)
+		if err != nil {
+			return err
+		}
+		snap.files = append(snap.files, fs)
+		return nil
+	}
 	for _, rel := range []string{
 		FileConfig,
 		FileSkillRegistry,
@@ -278,11 +296,22 @@ func captureConfigureMutationSnapshot(root, homePath, projectID string) (configu
 		"opencode.json",
 		FileProjectDocsREADME,
 	} {
-		fs, err := fsafety.CaptureFileSnapshot(root, rel)
-		if err != nil {
+		if err := add(rel); err != nil {
 			return snap, err
 		}
-		snap.files = append(snap.files, fs)
+	}
+	if includeProvider {
+		providerFiles, err := openspec.CaptureProviderFileSnapshots(root)
+		if err != nil {
+			return snap, fmt.Errorf("provider footprint snapshot: %w", err)
+		}
+		for _, fs := range providerFiles {
+			if _, ok := seen[fs.Rel]; ok {
+				continue
+			}
+			seen[fs.Rel] = struct{}{}
+			snap.files = append(snap.files, fs)
+		}
 	}
 	return snap, nil
 }
@@ -297,10 +326,26 @@ func restoreConfigureFiles(root string, snap configureMutationSnapshot) error {
 	}
 	files := append([]fsafety.FileSnapshot(nil), snap.files...)
 	sort.Slice(files, func(i, j int) bool { return files[i].Rel < files[j].Rel })
+	baselineRels := make(map[string]struct{}, len(files))
 	for _, fs := range files {
+		baselineRels[fs.Rel] = struct{}{}
 		wrote := snap.footprint.FileByRel(fs.Rel)
 		if err := fsafety.RestoreFileSnapshot(root, fs, wrote, snap.footprint.DeletedByRel(fs.Rel)); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", fs.Rel, err))
+		}
+	}
+	// Remove provider/Atlas files recorded as Created but absent from the
+	// pre-mutation baseline (e.g. openspec init --tools / update outputs).
+	for _, w := range snap.footprint.SortedFiles() {
+		if !w.Created {
+			continue
+		}
+		if _, ok := baselineRels[w.Rel]; ok {
+			continue
+		}
+		ww := w
+		if err := fsafety.RestoreFileSnapshot(root, fsafety.FileSnapshot{Rel: w.Rel, Exists: false}, &ww, nil); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", w.Rel, err))
 		}
 	}
 	if err := fsafety.RestoreCreatedDirs(root, snap.footprint); err != nil {
