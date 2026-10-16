@@ -569,6 +569,8 @@ func homePresenceLabel(rt runtime.Health) string {
 		return statusFail.Render("missing")
 	case !rt.Home.Exists:
 		return statusNo.Render("not created")
+	case rt.Home.SchemaError != "":
+		return statusFail.Render("schema incompatible")
 	case !rt.Home.LayoutComplete || len(rt.Home.MissingAssets) > 0 || len(rt.Home.DriftedAssets) > 0:
 		return statusWarn.Render("present (needs attention)")
 	default:
@@ -601,6 +603,8 @@ func configStatus(rt runtime.Health) string {
 	switch {
 	case !rt.ConfigExists:
 		return statusNo.Render("missing")
+	case rt.ProjectSchemaError != "":
+		return statusFail.Render("schema incompatible")
 	case rt.ConfigLoads:
 		return statusYes.Render("configured")
 	default:

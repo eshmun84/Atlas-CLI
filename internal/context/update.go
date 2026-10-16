@@ -286,7 +286,12 @@ func ApplyUpdate(root, expectedSignature string, state config.StateDocument, obj
 		}
 	}
 
+	// Home/project schema must be compatible before remirror or context writes.
+	if err := config.RequireProjectSchemaCompatible(root); err != nil {
+		return result, fmt.Errorf("context update: %w", err)
+	}
 	// EnsureAndMirror is an idempotent global Home precondition (not undone here).
+	// It refuses remirror over incompatible Home schema.
 	if _, err := home.EnsureAndMirror(now); err != nil {
 		return result, fmt.Errorf("context update: %w", err)
 	}

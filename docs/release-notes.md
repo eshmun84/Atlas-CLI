@@ -27,6 +27,7 @@ No git tag, GitHub release, or publish without explicit human approval.
 - Runtime Repair is the **explicit** runtime mutation path (Review → Apply)
 - Configure Apply saves `.atlas/config.yaml` and reconciles Atlas-owned MCP projections; does not silently rematerialize non-MCP runtime
 - Configure OpenSpec tool sync/update participates in the Configure transaction (provider footprint snapshot + rollback on Apply failure where safely possible; not perfect external-process atomicity)
+- Home/project `schema_version` compatibility gates mutation (fail closed on newer/unsupported older); product `atlas_version` is provenance only; no general migration/`atlas upgrade` command
 - `atlas --version` as the only normal console output
 - Validation: `make check`, `make smoke-mvp`, Slice 3 A–N tests
 

@@ -12,9 +12,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const StateSchemaVersion = 1
-
 // StateDocument is $ATLAS_HOME/state/home.yaml.
+// SchemaVersion must equal CurrentSchemaVersion for this binary to mutate Home.
 type StateDocument struct {
 	SchemaVersion int               `yaml:"schema_version"`
 	HomePath      string            `yaml:"home_path"`

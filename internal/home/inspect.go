@@ -25,6 +25,9 @@ type Status struct {
 	StatePresent   bool
 	StateLoads     bool
 	StateError     string
+	SchemaVersion  int    // from state/home.yaml when loaded; 0 if absent/unreadable
+	SchemaError    string // non-empty when present schema is incompatible with this binary
+	AtlasVersion   string // provenance only; mismatch alone is not an error
 	CreatedAt      string
 	UpdatedAt      string
 	AssetCount     int
@@ -99,9 +102,14 @@ func InspectPath(homePath string) Status {
 		status.StateError = err.Error()
 	} else if present {
 		status.StateLoads = true
+		status.SchemaVersion = doc.SchemaVersion
+		status.AtlasVersion = doc.AtlasVersion
 		status.CreatedAt = doc.CreatedAt
 		status.UpdatedAt = doc.UpdatedAt
 		status.AssetCount = len(doc.Assets)
+		if cerr := CheckStateSchema(doc); cerr != nil {
+			status.SchemaError = cerr.Error()
+		}
 	}
 
 	for _, asset := range BundledAssets() {

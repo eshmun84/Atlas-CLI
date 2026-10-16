@@ -143,6 +143,7 @@ Authoritative automated coverage: `TestSlice3_Matrix_*` in `internal/runtime/sli
 | 018 | **resolved (Block D Slice A)** — Repair Apply mutates only reviewed plan targets (hooks) |
 | 019 | **resolved (Block D Slice A)** — Doctor repairability aligned with Repair/Init/manual authority |
 | 020 | **resolved (Block D / D3)** — Configure Apply snapshots Atlas-managed + relevant provider-created surfaces before OpenSpec tool sync/update; restores them on Apply failure (partial provider failure + later Atlas failure); exact pin preserved/restored; rollback failure surfaces composite manual-inspection error |
+| 021 | **resolved (Block D / D4)** — Home + project schema compatibility gates mutation (Init/Configure/Repair/install remirror/Context Update); newer/unsupported older schema fail closed with fingerprint stability; product `atlas_version` mismatch alone does not block; no general migration/`atlas upgrade` command |
 | 022 | **resolved (Block D / D5)** — real OpenSpec Init + team-clone exact-pin dogfood (`scripts/dogfoodopenspec`); older/newer/missing CLI block; no silent repin; Repair refuses bootstrap; capability probes covered without SkipCapProbes |
 
 ## Physical dogfooding readiness gate
@@ -175,6 +176,7 @@ Gate label when passing: **ready for resumed physical dogfooding** (not a produc
 - No credential writes
 - No generated runtime artifacts left in the Atlas repo root
 - No tag / release / publish without explicit human approval
+- Home/project schema compatibility gates mutation; product version mismatch alone does not; unsupported schema skew fails closed; install/remirror is not a schema migration mechanism; no general `atlas upgrade` / migration command exists yet
 
 ## Honest capability boundaries
 
@@ -188,6 +190,7 @@ Gate label when passing: **ready for resumed physical dogfooding** (not a produc
 | Atlas Context Graph | Preference/compat only; NOT IMPLEMENTED; no Init/Configure checkbox |
 | MCP | Desired state + Atlas-owned projections; no auth/connection/verification; secrets not stored |
 | OpenSpec | Real CLI provider required for governed SDD; exact project pin; Init runs `openspec init`; Configure may run `openspec init --tools` / `openspec update` for adapter projection sync inside the Configure transaction (with provider footprint snapshot/rollback); Repair refuses provider bootstrap; no emulation/mkdir substitute |
+| Home/project schema | `schema_version` on `$ATLAS_HOME/state/home.yaml` and `.atlas/config.yaml`; current = 1; mutation blocked on newer/unsupported older; legacy config missing marker treated as current; `atlas_version` is provenance only |
 | Git / source control | Discovery + explicit Init local bootstrap + policy/diagnostics; no Core remote create/push/PR/merge/tag/repo-release automation |
 | Skills v1 | Local Home catalog + exact pins + digests + Cursor/OpenCode projections (no marketplace UI) |
 | Task Capability Discovery | Implemented (`atlas capability plan`); task-active skills + retrieval planning; technology = evidence only |

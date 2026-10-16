@@ -86,10 +86,16 @@ func EnsureAndMirror(now time.Time) (EnsureResult, error) {
 	if err != nil {
 		return EnsureResult{}, err
 	}
-	// Fail closed on corrupt/unreadable state before any Home mutation.
-	existing, _, err := LoadState(homePath)
+	// Fail closed on corrupt/unreadable or incompatible state before any Home mutation.
+	// Never remirror over a newer/unsupported Home schema.
+	existing, statePresent, err := LoadState(homePath)
 	if err != nil {
 		return EnsureResult{}, err
+	}
+	if statePresent {
+		if cerr := CheckStateSchema(existing); cerr != nil {
+			return EnsureResult{HomePath: homePath}, fmt.Errorf("atlas home: refuse remirror: %w", cerr)
+		}
 	}
 	created := !Exists(homePath)
 	var fp fsafety.TransactionFootprint

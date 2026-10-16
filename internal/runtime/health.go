@@ -61,7 +61,10 @@ type Health struct {
 	ConfigExists bool
 	ConfigLoads  bool
 	ConfigError  string
-	Document     config.ProjectDocument
+	// ProjectSchemaError is set when config loads but schema is incompatible.
+	// Empty when missing config, legacy schema_version=0, or current schema.
+	ProjectSchemaError string
+	Document           config.ProjectDocument
 
 	StateExists bool
 	StateLoads  bool
@@ -151,6 +154,9 @@ func EvaluateHealth(root string, atlas project.AtlasStatus, files project.FileIn
 		} else {
 			health.ConfigLoads = true
 			health.Document = doc
+			if serr := config.CheckProjectSchema(doc); serr != nil {
+				health.ProjectSchemaError = serr.Error()
+			}
 			health.SelectedAdapters = append([]string{}, doc.Adapters.Selected...)
 			health.ContextGraphEnabled = doc.ContextGraphEnabled()
 			health.ContextGraphReadable = true
@@ -404,6 +410,9 @@ func collectRuntimeWarnings(h Health) []string {
 			if len(h.Home.DriftedAssets) > 0 {
 				warnings = append(warnings, "Atlas Home assets drifted")
 			}
+			if h.Home.SchemaError != "" {
+				warnings = append(warnings, "Atlas Home schema incompatible")
+			}
 		}
 	}
 	for _, art := range h.ForbiddenArtifacts {
@@ -413,6 +422,9 @@ func collectRuntimeWarnings(h Health) []string {
 	}
 	if h.ConfigExists && !h.ConfigLoads && h.ConfigError != "" {
 		warnings = append(warnings, "atlas config failed to load")
+	}
+	if h.ProjectSchemaError != "" {
+		warnings = append(warnings, "Atlas project schema incompatible")
 	}
 	if h.Initialized && !h.StateExists {
 		warnings = append(warnings, ".atlas/state.yaml missing for initialized project")

@@ -142,6 +142,12 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		return ApplyResult{HomePath: homePath, ProjectID: projectID},
 			fmt.Errorf("apply config: %w", err)
 	}
+	// Existing .atlas/config.yaml must be schema-compatible before any mutation.
+	// Fresh projects (no config) are allowed. Do not treat incompatible state as fresh.
+	if err := RequireProjectSchemaCompatible(root); err != nil {
+		return ApplyResult{HomePath: homePath, ProjectID: projectID},
+			fmt.Errorf("apply config: %w", err)
+	}
 
 	osHealth, osErr := PreflightOpenSpecForInit(context.Background(), root, doc)
 	if osErr != nil {
@@ -502,6 +508,7 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 
 	// ---------- Locked Phase A: load → validate → decide OpenSpec → snapshot ----------
 	var previous ProjectDocument
+	hadPrevious := false
 	prevFull, prevJoinErr := safeJoinAtlas(root, FileConfig)
 	if prevJoinErr != nil {
 		return PersistConfigureResult{}, fmt.Errorf("persist configure: %w", prevJoinErr)
@@ -516,6 +523,7 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 			return PersistConfigureResult{}, fmt.Errorf("persist configure: existing config unreadable: %w", loadErr)
 		}
 		previous = prev
+		hadPrevious = true
 	} else if !os.IsNotExist(prevStatErr) {
 		return PersistConfigureResult{}, fmt.Errorf("persist configure: inspect existing config: %w", prevStatErr)
 	}
@@ -526,6 +534,16 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 	projectID, err := home.ProjectID(root, doc.Project.Name)
 	if err != nil {
 		return PersistConfigureResult{}, fmt.Errorf("persist configure: project id: %w", err)
+	}
+	// Home + project schema must be compatible before provider or Atlas mutation
+	// (including OpenSpec tool sync from D3).
+	if _, err := home.RequireHealthy(); err != nil {
+		return PersistConfigureResult{}, fmt.Errorf("persist configure: %w", err)
+	}
+	if hadPrevious {
+		if err := CheckProjectSchema(previous); err != nil {
+			return PersistConfigureResult{}, fmt.Errorf("persist configure: %w", err)
+		}
 	}
 
 	mcpChanged := MCPChanged(previous, doc)

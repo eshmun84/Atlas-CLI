@@ -7,7 +7,12 @@ import (
 
 // RepairHomeHint is the actionable guidance when Atlas Home is not healthy.
 // Init Apply must fail closed and point operators here — never bootstrap Home.
+// Schema incompatibility is reported separately — Runtime Repair does not
+// migrate or downgrade Home schema.
 const RepairHomeHint = "Atlas Home is not healthy. Run Runtime Repair to restore Atlas Home, or re-run `make install` to materialize it, then retry init."
+
+// SchemaIncompatibleHint guides operators when Home schema skew blocks mutation.
+const SchemaIncompatibleHint = "Atlas Home schema is incompatible with this Atlas binary. No files were modified. Use a matching Atlas version, or recreate Atlas Home only after intentional backup/export. Runtime Repair does not migrate Home schema."
 
 // Healthy reports whether Atlas Home is machine-ready for project Init Apply.
 // Read-only: never creates or mutates Home.
@@ -21,6 +26,9 @@ func Healthy(status Status) bool {
 	if !status.StateLoads {
 		return false
 	}
+	if status.SchemaError != "" {
+		return false
+	}
 	if len(status.MissingAssets) > 0 || len(status.DriftedAssets) > 0 || len(status.AssetErrors) > 0 {
 		return false
 	}
@@ -28,11 +36,15 @@ func Healthy(status Status) bool {
 }
 
 // RequireHealthy inspects Atlas Home and returns an actionable error when it is
-// missing, incomplete, corrupt, or drifted. Read-only: never creates Home.
+// missing, incomplete, corrupt, drifted, or schema-incompatible.
+// Read-only: never creates Home.
 func RequireHealthy() (Status, error) {
 	status := Inspect()
 	if Healthy(status) {
 		return status, nil
+	}
+	if status.SchemaError != "" {
+		return status, fmt.Errorf("%s (%s)", SchemaIncompatibleHint, status.SchemaError)
 	}
 	return status, fmt.Errorf("%s (%s)", RepairHomeHint, summarizeUnhealthy(status))
 }
@@ -48,6 +60,9 @@ func summarizeUnhealthy(status Status) string {
 		parts = append(parts, "path "+displayHomePath(status.Path))
 		if !status.LayoutComplete {
 			parts = append(parts, "layout incomplete")
+		}
+		if status.SchemaError != "" {
+			parts = append(parts, "schema: "+status.SchemaError)
 		}
 		if status.StateError != "" {
 			parts = append(parts, "state: "+status.StateError)
@@ -77,6 +92,10 @@ func displayHomePath(path string) string {
 }
 
 // NeedsRepair reports whether Runtime Repair should offer an Atlas Home refresh.
+// Schema incompatibility is not Repair-owned (manual / matching Atlas version).
 func NeedsRepair(status Status) bool {
+	if status.SchemaError != "" {
+		return false
+	}
 	return !Healthy(status)
 }

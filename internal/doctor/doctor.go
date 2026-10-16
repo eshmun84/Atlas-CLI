@@ -190,6 +190,16 @@ func evaluateRuntime(h runtime.Health) []Check {
 				Name:     "atlas config loads",
 				Message:  "valid",
 			})
+			if h.ProjectSchemaError != "" {
+				checks = append(checks, fail("atlas project schema", h.ProjectSchemaError, RepairManual,
+					"Use an Atlas version that supports this project schema; Runtime Repair does not migrate project schema"))
+			} else {
+				checks = append(checks, Check{
+					Severity: SeverityPass,
+					Name:     "atlas project schema",
+					Message:  fmt.Sprintf("compatible (schema %d)", config.CurrentProjectSchemaVersion),
+				})
+			}
 		} else {
 			msg := "failed to load"
 			if h.ConfigError != "" {
@@ -961,6 +971,19 @@ func evaluateHome(h runtime.Health) []Check {
 		} else {
 			checks = append(checks, warnAction("atlas home layout", "incomplete",
 				"Run Runtime Repair (Home-only) to complete Atlas Home layout"))
+		}
+	}
+
+	if h.Home.Exists && h.Home.StateLoads {
+		if h.Home.SchemaError != "" {
+			checks = append(checks, fail("atlas home schema", h.Home.SchemaError, RepairManual,
+				"Use an Atlas version that supports this Home schema; Runtime Repair does not migrate Home schema"))
+		} else if h.Home.SchemaVersion > 0 {
+			checks = append(checks, Check{
+				Severity: SeverityPass,
+				Name:     "atlas home schema",
+				Message:  fmt.Sprintf("compatible (schema %d)", h.Home.SchemaVersion),
+			})
 		}
 	}
 

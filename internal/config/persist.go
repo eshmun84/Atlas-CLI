@@ -11,7 +11,9 @@ import (
 )
 
 const (
-	PersistSchemaVersion = 1
+	// PersistSchemaVersion is stamped into local.yaml / state.yaml / assets.lock.
+	// Project config schema is CurrentProjectSchemaVersion (same generation today).
+	PersistSchemaVersion = CurrentProjectSchemaVersion
 
 	MemoryStrategySQLite  = "sqlite"
 	MemoryStrategyCapsule = "context_capsule"
@@ -26,6 +28,9 @@ const (
 
 // ProjectDocument is the persisted project-shared .atlas/config.yaml.
 type ProjectDocument struct {
+	// SchemaVersion is the Atlas project config schema. Omitted/0 is legacy
+	// and treated as CurrentProjectSchemaVersion for compatibility.
+	SchemaVersion int                  `yaml:"schema_version,omitempty"`
 	Project       ProjectPersist       `yaml:"project"`
 	Governance    GovernancePersist    `yaml:"governance"`
 	Adapters      AdaptersPersist      `yaml:"adapters"`
@@ -253,6 +258,7 @@ func BuildProjectDocument(draft ConfigDraft, mcp MCPDraft) ProjectDocument {
 	}
 
 	return ProjectDocument{
+		SchemaVersion: CurrentProjectSchemaVersion,
 		Project: ProjectPersist{
 			Name:         draft.ProjectName(),
 			Mode:         PersistProjectMode(draft.ProjectMode()),

@@ -97,6 +97,15 @@ func ApplyRuntimeRepair(root, expectedSignature string, nowFn func() time.Time) 
 	}
 	defer func() { _ = lockSet.Release() }()
 
+	// Schema compatibility before any remirror or project mutation. Repair never
+	// stamps, migrates, or downgrades unsupported schemas.
+	if st := home.InspectPath(homePath); st.SchemaError != "" {
+		return RuntimeRepairResult{}, fmt.Errorf("runtime repair: %s", st.SchemaError)
+	}
+	if err := config.RequireProjectSchemaCompatible(root); err != nil {
+		return RuntimeRepairResult{}, fmt.Errorf("runtime repair: %w", err)
+	}
+
 	// ---------- Locked: recompute plan → validate signature → snapshot → mutate ----------
 	files, err := project.DiscoverFiles(root)
 	if err != nil {
