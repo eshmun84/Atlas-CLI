@@ -20,8 +20,6 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/home"
 	"github.com/eshmun84/Atlas-CLI/internal/initplan"
 	"github.com/eshmun84/Atlas-CLI/internal/inspect"
-	"github.com/eshmun84/Atlas-CLI/internal/mcp/cursor"
-	"github.com/eshmun84/Atlas-CLI/internal/mcp/opencode"
 	"github.com/eshmun84/Atlas-CLI/internal/runtime"
 	"github.com/eshmun84/Atlas-CLI/internal/tui"
 	"github.com/eshmun84/Atlas-CLI/internal/tui/screens"
@@ -67,7 +65,7 @@ func run() error {
 		{"same-name different-root isolation", checkSameNameDifferentRootIsolation},
 		{"initialized Cursor project", checkCursorProject},
 		{"initialized OpenCode project", checkOpenCodeProject},
-		{"Configure saves config without non-MCP rematerialize", checkConfigureConfigOnly},
+		{"Configure reconciles adapter add (Cursor→Cursor+OpenCode)", checkConfigureAdapterReconcile},
 		{"Init Home reset gate", checkInitHomeResetGate},
 		{"developer-owned files preserved", checkDeveloperOwnedPreserved},
 		{"status + doctor surfaces", checkStatusDoctor},
@@ -224,9 +222,10 @@ func checkGitReadmeExistingProject() error {
 	}
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:   "git-readme",
-		ProjectMode:   "existing",
-		DefaultRemote: "origin",
+		ProjectName:         "git-readme",
+		ProjectMode:         "existing",
+		DefaultRemote:       "origin",
+		ToolCursorAvailable: true,
 	})
 	if !draft.ToggleMulti("adapters.selected", "cursor") {
 		return fmt.Errorf("toggle cursor")
@@ -291,23 +290,16 @@ func checkSameNameDifferentRootIsolation() error {
 	return nil
 }
 
-func checkConfigureConfigOnly() error {
+func checkConfigureAdapterReconcile() error {
 	root, err := materialize([]string{"cursor"}, true)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(root)
 
-	agentsBefore, err := os.ReadFile(filepath.Join(root, config.FileAgentsMD))
-	if err != nil {
-		return err
-	}
-	cursorBefore, err := os.ReadFile(filepath.Join(root, config.FileCursorAtlasMDC))
-	if err != nil {
-		return err
-	}
-	beforeTree, err := snapshotPaths(root)
-	if err != nil {
+	// Seed unknown Cursor content that Configure must preserve.
+	unknownRel := filepath.Join(".cursor", "user-notes.txt")
+	if err := os.WriteFile(filepath.Join(root, unknownRel), []byte("keep-me\n"), 0o644); err != nil {
 		return err
 	}
 
@@ -324,7 +316,7 @@ func checkConfigureConfigOnly() error {
 		return fmt.Errorf("toggle opencode")
 	}
 	mcp := config.EmptyMCPDraft()
-	mcp.ToggleBuiltin(0)
+	_ = mcp.EnableBuiltin(config.MCPBuiltinContext7)
 	res, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: draft, MCP: mcp})
 	if err != nil {
 		return err
@@ -335,59 +327,31 @@ func checkConfigureConfigOnly() error {
 	if !strings.Contains(res.Notice, "MCP selections were reconciled") {
 		return fmt.Errorf("missing MCP reconcile notice: %q", res.Notice)
 	}
-	if !res.Impact.RuntimeRepairNeeded {
-		return fmt.Errorf("adapter change should recommend Runtime Repair")
+	if res.Impact.RuntimeRepairNeeded {
+		return fmt.Errorf("adapter add must not require Runtime Repair solely for Atlas-owned reconcile")
 	}
-	agentsAfter, err := os.ReadFile(filepath.Join(root, config.FileAgentsMD))
+	if !res.Impact.AdapterChange {
+		return fmt.Errorf("expected AdapterChange impact")
+	}
+	if _, err := os.Stat(filepath.Join(root, config.FileCursorAtlasMDC)); err != nil {
+		return fmt.Errorf("Cursor Atlas rule must remain: %w", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, config.FileOpenCodeAtlas)); err != nil {
+		return fmt.Errorf("OpenCode Atlas projection must be materialized: %w", err)
+	}
+	unknown, err := os.ReadFile(filepath.Join(root, unknownRel))
 	if err != nil {
-		return err
+		return fmt.Errorf("unknown Cursor content must be preserved: %w", err)
 	}
-	if string(agentsAfter) != string(agentsBefore) {
-		return fmt.Errorf("Configure mutated AGENTS.md")
-	}
-	cursorAfter, err := os.ReadFile(filepath.Join(root, config.FileCursorAtlasMDC))
-	if err != nil {
-		return err
-	}
-	if string(cursorAfter) != string(cursorBefore) {
-		return fmt.Errorf("Configure mutated Cursor projection")
-	}
-	if _, err := os.Stat(filepath.Join(root, config.FileOpenCodeAtlas)); !os.IsNotExist(err) {
-		return fmt.Errorf("Configure must not materialize OpenCode runtime projection")
-	}
-	afterTree, err := snapshotPaths(root)
-	if err != nil {
-		return err
-	}
-	configRel := filepath.ToSlash(config.FileConfig)
-	allowedMutations := map[string]bool{
-		configRel: true,
-		filepath.ToSlash(config.FileSkillRegistry): true,
-		filepath.ToSlash(cursor.ConfigRelPath):     true,
-		filepath.ToSlash(opencode.ConfigRelPath):   true,
-	}
-	for path, content := range beforeTree {
-		got, ok := afterTree[path]
-		if !ok {
-			return fmt.Errorf("Configure removed %s", path)
-		}
-		if allowedMutations[path] {
-			continue
-		}
-		// Configure may reconcile Atlas-owned skill projections when adapters/pins change.
-		if strings.HasPrefix(path, ".cursor/skills/") || strings.HasPrefix(path, ".opencode/skills/") {
-			continue
-		}
-		if got != content {
-			return fmt.Errorf("Configure mutated %s", path)
-		}
+	if string(unknown) != "keep-me\n" {
+		return fmt.Errorf("unknown Cursor content mutated: %q", unknown)
 	}
 	doc, err := config.LoadProjectDocumentAt(root)
 	if err != nil {
 		return err
 	}
-	if !containsString(doc.Adapters.Selected, "opencode") {
-		return fmt.Errorf("config.yaml missing opencode preference: %#v", doc.Adapters.Selected)
+	if !containsString(doc.Adapters.Selected, "cursor") || !containsString(doc.Adapters.Selected, "opencode") {
+		return fmt.Errorf("config.yaml adapters = %#v, want cursor+opencode", doc.Adapters.Selected)
 	}
 	return nil
 }
@@ -704,9 +668,11 @@ func checkDeveloperOwnedPreserved() error {
 	}
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:   "owned",
-		ProjectMode:   "existing",
-		DefaultRemote: "origin",
+		ProjectName:           "owned",
+		ProjectMode:           "existing",
+		DefaultRemote:         "origin",
+		ToolCursorAvailable:   true,
+		ToolOpenCodeAvailable: true,
 	})
 	for _, adapter := range []string{"cursor", "opencode"} {
 		if !draft.ToggleMulti("adapters.selected", adapter) {
@@ -1285,11 +1251,20 @@ func materializeNamedMode(projectName string, adapters []string, projectMode str
 	if name == "" {
 		name = "smoke"
 	}
-	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+	in := config.ProjectSetupInput{
 		ProjectName:   name,
 		ProjectMode:   mode,
 		DefaultRemote: "origin",
-	})
+	}
+	for _, adapter := range adapters {
+		switch adapter {
+		case "cursor":
+			in.ToolCursorAvailable = true
+		case "opencode":
+			in.ToolOpenCodeAvailable = true
+		}
+	}
+	draft := config.BuildConfigDraft(config.ConfigModeInit, in)
 	for _, adapter := range adapters {
 		if !draft.ToggleMulti("adapters.selected", adapter) {
 			os.RemoveAll(root)

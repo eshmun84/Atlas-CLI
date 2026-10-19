@@ -365,6 +365,7 @@ func run() error {
 	fpJ0 := fingerprintTree(jCopy)
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName: "d5-dev-a", ProjectMode: "existing", DefaultRemote: "origin",
+		ToolCursorAvailable: true,
 	})
 	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	_ = draft.SetValue("source_control.mode", "git_local")
@@ -456,11 +457,20 @@ func run() error {
 }
 
 func applyInit(root string, adapters []string, name string) error {
-	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+	in := config.ProjectSetupInput{
 		ProjectName:   name,
 		ProjectMode:   "existing",
 		DefaultRemote: "origin",
-	})
+	}
+	for _, a := range adapters {
+		switch a {
+		case "cursor":
+			in.ToolCursorAvailable = true
+		case "opencode":
+			in.ToolOpenCodeAvailable = true
+		}
+	}
+	draft := config.BuildConfigDraft(config.ConfigModeInit, in)
 	for _, a := range adapters {
 		if !draft.ToggleMulti("adapters.selected", a) {
 			return fmt.Errorf("toggle adapter %s", a)

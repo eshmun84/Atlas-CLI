@@ -41,12 +41,14 @@ func TestDeliveryAutodetect_GitRepoFromDiscovery(t *testing.T) {
 	}
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:      filepath.Base(root),
-		ProjectMode:      "existing",
-		GitRepoDetected:  result.Git.IsRepo,
-		DefaultRemote:    result.Git.DefaultRemote,
-		ToolGitAvailable: true,
+		ProjectName:         filepath.Base(root),
+		ProjectMode:         "existing",
+		GitRepoDetected:     result.Git.IsRepo,
+		DefaultRemote:       result.Git.DefaultRemote,
+		ToolGitAvailable:    true,
+		ToolCursorAvailable: true,
 	})
+	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	assertField(t, draft, "source_control.mode", config.SourceControlGitLocal, config.FieldEditable, config.FieldEditable)
 	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldReadonly, config.FieldReadonly)
 

@@ -194,8 +194,9 @@ Manual TUI / Alpha 2 smoke (not fully automated — requires an interactive term
        .atlas/contracts/sdd-openspec.md
   4. Sidebar shows Configure, Status, Doctor, Runtime Repair, Context Economy.
   5. Configure → adapter/MCP change → Apply saves config.yaml and reconciles
-     Atlas-owned MCP projections; Runtime Repair still required for non-MCP
-     runtime artifacts; no silent AGENTS/rules/agents rematerialize.
+     Atlas-owned AGENTS/rules/agents/MCP/skills/hooks for the selected adapters;
+     unknown/user-owned adapter content is preserved. Runtime Repair remains
+     for unrelated drift. At least one supported agent is required.
   6. Context Economy → Review → Apply Update → verify
        $ATLAS_HOME/projects/<id>/context/{index.yaml,capsule.md,packs/…}
        and .atlas/state.yaml refs. No product-repo context/ directory.

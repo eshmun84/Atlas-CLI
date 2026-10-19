@@ -122,7 +122,7 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		SpecEngine:         fieldLabel(draft, "governance.spec_engine"),
 		TestingRequired:    yesNoLabel(fieldValue(draft, "governance.testing_required")),
 		ReviewRequired:     yesNoLabel(fieldValue(draft, "governance.review_required")),
-		EvidenceRequired:   yesNoLabel(fieldValue(draft, "governance.evidence_required")),
+		EvidenceRequired:   "inherent",
 		Adapters:           adaptersDisplay(adaptersValue),
 		DeliveryPlatform:   fieldLabel(draft, "source_control.mode"),
 		DeliveryAssistance: deliveryAssistLabel(fieldValue(draft, "source_control.delivery_assist")),
@@ -180,6 +180,12 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		{Path: config.FileSDDOpenSpecContract, Kind: "atlas", Status: status},
 		{Path: config.FileAgentsMD, Kind: "runtime", Status: status},
 	}
+	if !config.DraftHasSupportedAdapter(draft) {
+		plan.Blockers = append(plan.Blockers, PlanBlocker{
+			Message: config.ErrAdaptersRequired,
+		})
+	}
+
 	homeStatus := home.Inspect()
 	if !home.Healthy(homeStatus) {
 		plan.Blockers = append(plan.Blockers, PlanBlocker{
@@ -409,11 +415,13 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		})
 	}
 
-	if platform == config.SourceControlGitGitHub && storage == "versioned" {
-		plan.GovernanceNote = "Atlas governance files may be versioned according to explicit Atlas policy (GitHub selected)."
-	} else {
-		plan.GovernanceNote = "Atlas governance files stay Local only (.gitignore managed block). Versioning requires a supported hosting platform preference (GitHub)."
+	switch storage {
+	case config.GovernanceFilesVersioned:
+		plan.GovernanceNote = "Atlas / AI governance artifacts are part of the repository (versioned). Independent of Git hosting provider. Atlas Core does not push or open PRs."
+	default:
+		plan.GovernanceNote = "Atlas / AI governance artifacts stay local (.gitignore managed block). Independent of Git hosting provider."
 	}
+	_ = platform
 
 	if boolFieldTrue(draft, "project.docs_scaffold") {
 		plan.Creates = append(plan.Creates, PlannedFile{
@@ -429,7 +437,7 @@ func BuildReview(in ReviewInput) MaterializationPlan {
 		PlanWarning{Message: "Apply is the only mutation step. Status and Doctor remain read-only."},
 		PlanWarning{Message: "Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files."},
 		PlanWarning{Message: "Apply requires a healthy Atlas Home (from install / Runtime Repair); Init does not bootstrap global Home."},
-		PlanWarning{Message: "After Init, Configure Apply saves .atlas/config.yaml and reconciles MCP projections when MCP/adapters change; Runtime Repair rematerializes non-MCP runtime files; Context Economy Update refreshes context."},
+		PlanWarning{Message: "After Init, Configure Apply saves .atlas/config.yaml and reconciles Atlas-owned adapter/MCP/skills/hooks projections when adapters or MCP change; Runtime Repair remains for unrelated drift; Context Economy Update refreshes context."},
 		PlanWarning{Message: "Runtime conflicts block Init and require manual cleanup in this slice."},
 		PlanWarning{Message: "MCP desired state is stored in Atlas config and materialized into selected agent MCP configs (Atlas-owned entries only)."},
 		PlanWarning{Message: "MCP authentication, connection, and verification may still depend on the provider or agent. Secrets are not stored."},
@@ -543,7 +551,7 @@ func deliveryAssistLabel(v string) string {
 }
 
 func mcpEntries(draft config.MCPDraft) []MCPPlanEntry {
-	out := make([]MCPPlanEntry, 0, draft.ConfiguredCount())
+	out := make([]MCPPlanEntry, 0, draft.SelectedBuiltinCount())
 	for _, item := range draft.Builtins {
 		if !item.Enabled {
 			continue
@@ -553,15 +561,6 @@ func mcpEntries(draft config.MCPDraft) []MCPPlanEntry {
 			Kind:    "built-in",
 			Enabled: true,
 			Status:  config.StatusLabel(item.Status),
-		})
-	}
-	for _, server := range draft.CustomServers {
-		out = append(out, MCPPlanEntry{
-			Name:      server.Name,
-			Kind:      "custom",
-			Transport: server.Transport.TransportLabel(),
-			Enabled:   server.Enabled,
-			Status:    config.StatusLabel(server.Status),
 		})
 	}
 	if len(out) == 0 {

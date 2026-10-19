@@ -50,7 +50,7 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 	if plan.DeliveryAssistance != "Legacy off (deferred)" {
 		t.Fatalf("delivery assistance = %q", plan.DeliveryAssistance)
 	}
-	if plan.GovernanceStorage != "Local only" {
+	if plan.GovernanceStorage != "Keep local" {
 		t.Fatalf("governance = %q", plan.GovernanceStorage)
 	}
 	if plan.MCPCount != 0 {
@@ -82,7 +82,7 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 		"Apply is the only mutation step. Status and Doctor remain read-only.",
 		"Apply writes Atlas configuration under .atlas/ and materializes compact runtime gateway files.",
 		"Apply requires a healthy Atlas Home",
-		"After Init, Configure Apply saves .atlas/config.yaml and reconciles MCP projections",
+		"After Init, Configure Apply saves .atlas/config.yaml and reconciles Atlas-owned adapter/MCP",
 		"MCP desired state is stored in Atlas config and materialized into selected agent MCP configs",
 		"Runtime conflicts block Init and require manual cleanup in this slice.",
 		"Context Economy v0 is a separate explicit flow. CodeGraph is an optional externally installed Code Intelligence provider",
@@ -98,7 +98,7 @@ func TestBuildReview_NoArtifacts(t *testing.T) {
 			t.Fatalf("stale MCP/Configure wording still present (%q): %#v %#v", banned, plan.Preservations, plan.Warnings)
 		}
 	}
-	if !strings.Contains(plan.GovernanceNote, "Local only") {
+	if !strings.Contains(plan.GovernanceNote, "stay local") && !strings.Contains(plan.GovernanceNote, "Keep local") {
 		t.Fatalf("governance note = %q", plan.GovernanceNote)
 	}
 	if len(plan.HomeWrites) == 0 {
@@ -142,9 +142,10 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 	}
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:    "demo",
-		ProjectMode:    "existing",
-		CursorDetected: true,
+		ProjectName:         "demo",
+		ProjectMode:         "existing",
+		CursorDetected:      true,
+		ToolCursorAvailable: true,
 	})
 	if !draft.SelectOption("source_control.mode", "git_github") {
 		t.Fatal("set github")
@@ -153,13 +154,9 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 		t.Fatal("set versioned")
 	}
 	mcp := config.EmptyMCPDraft()
-	if !mcp.EnableBuiltin(config.MCPBuiltinJira) {
-		t.Fatal("select jira")
+	if !mcp.EnableBuiltin(config.MCPBuiltinContext7) {
+		t.Fatal("select context7")
 	}
-	if _, err := mcp.AddCustom("Jira Main", config.MCPTransportStdio, "npx", "-y demo-mcp", ""); err != nil {
-		t.Fatalf("add mcp: %v", err)
-	}
-	mcp.ToggleCustom(0)
 
 	plan := initplan.BuildReview(initplan.ReviewInput{
 		Root:      root,
@@ -171,19 +168,16 @@ func TestBuildReview_WithArtifactsAndMCP(t *testing.T) {
 	if len(plan.ExistingArtifacts) != 2 {
 		t.Fatalf("artifacts = %#v", plan.ExistingArtifacts)
 	}
-	if len(plan.MCPEntries) != 2 {
+	if len(plan.MCPEntries) != 1 {
 		t.Fatalf("mcp = %#v", plan.MCPEntries)
 	}
-	if plan.MCPEntries[0].Name != "Jira" || plan.MCPEntries[0].Kind != "built-in" {
+	if plan.MCPEntries[0].Name != "Context7" || plan.MCPEntries[0].Kind != "built-in" {
 		t.Fatalf("builtin mcp = %#v", plan.MCPEntries[0])
 	}
-	if plan.MCPEntries[1].Name != "Jira Main" || plan.MCPEntries[1].Kind != "custom" || plan.MCPEntries[1].Transport != "stdio" {
-		t.Fatalf("custom mcp = %#v", plan.MCPEntries[1])
-	}
-	if plan.MCPEntries[0].Status == "" || plan.MCPEntries[1].Status == "" {
+	if plan.MCPEntries[0].Status == "" {
 		t.Fatalf("mcp status = %#v", plan.MCPEntries)
 	}
-	if plan.GovernanceNote == "" || plan.GovernanceStorage != "Versioned" {
+	if plan.GovernanceNote == "" || plan.GovernanceStorage != "Version with project" {
 		t.Fatalf("governance note=%q storage=%q", plan.GovernanceNote, plan.GovernanceStorage)
 	}
 

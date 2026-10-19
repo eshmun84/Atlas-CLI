@@ -44,7 +44,7 @@ func TestReconcile_BlocksUnownedEqualPayload_CursorAndOpenCode(t *testing.T) {
 			root := t.TempDir()
 			homePath := t.TempDir()
 			pid := "own-conflict"
-			def, ok := mcp.BuiltinByID(mcp.BuiltinGitHub)
+			def, ok := mcp.BuiltinByID(mcp.BuiltinContext7)
 			if !ok {
 				t.Fatal("github builtin missing")
 			}

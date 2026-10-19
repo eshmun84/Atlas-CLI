@@ -13,6 +13,7 @@ import (
 
 func localOnlyDoc() config.ProjectDocument {
 	return config.ProjectDocument{
+		Adapters:      config.AdaptersPersist{Selected: []string{"cursor", "opencode"}},
 		SourceControl: config.SourceControlPersist{GovernanceFiles: config.GovernanceFilesLocalOnly},
 	}
 }

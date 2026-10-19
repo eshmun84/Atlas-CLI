@@ -98,28 +98,20 @@ func NormalizeTransport(value string) MCPTransport {
 	return MCPTransport(mcp.NormalizeTransport(value))
 }
 
-// DefaultMCPBuiltins returns the built-in MCP catalog, all unselected.
+// DefaultMCPBuiltins returns Atlas Managed MCP V1 built-ins, all unselected (opt-in).
 func DefaultMCPBuiltins() []MCPBuiltinDraft {
 	out := make([]MCPBuiltinDraft, 0, len(mcp.BuiltinCatalog()))
 	for _, def := range mcp.BuiltinCatalog() {
-		status := MCPStatusNotSelected
 		desc := def.CompatibilityNote
 		if desc == "" {
-			switch def.ID {
-			case mcp.BuiltinFilesystem:
-				desc = "Local stdio filesystem access for the project workspace."
-			case mcp.BuiltinGitHub:
-				desc = "Remote GitHub MCP (Streamable HTTP). Auth via agent OAuth/PAT — Atlas stores no token."
-			default:
-				desc = def.DisplayName
-			}
+			desc = def.DisplayName
 		}
 		out = append(out, MCPBuiltinDraft{
 			ID:          MCPBuiltinID(def.ID),
 			Name:        def.DisplayName,
 			Enabled:     false,
 			Description: desc,
-			Status:      status,
+			Status:      MCPStatusNotSelected,
 			Auth:        MCPAuthRequirement(def.AuthRequirement),
 		})
 	}
@@ -215,8 +207,9 @@ func (d MCPDraft) HasName(name string) bool {
 }
 
 // AddCustom validates and appends an in-memory custom MCP entry.
-// For streamable_http, envRefs are treated as process-level EnvRefs only
-// (no Authorization header). Prefer AddCustomRemote / AddCustomDetailed for auth.
+// Legacy/test helper only: Atlas Managed MCP V1 UI does not create custom MCPs,
+// and DesiredState never materializes them. Prefer editing project YAML only for
+// preserve/load compatibility tests.
 func (d *MCPDraft) AddCustom(name string, transport MCPTransport, commandOrURL, arguments, envRefs string) (MCPServerDraft, error) {
 	return d.AddCustomDetailed(name, transport, commandOrURL, mcp.SplitLegacyArgs(arguments), mcp.SplitLegacyEnvRefs(envRefs), nil, "")
 }
@@ -314,33 +307,19 @@ func (d *MCPDraft) AddCustomDetailed(
 }
 
 // DesiredState maps the draft onto the agent-neutral MCP desired state.
+// Atlas Managed MCP V1 materializes only Context7 and Chrome DevTools.
+// Legacy custom entries may still load/persist in project YAML for compatibility,
+// but they are never included in DesiredState (no new Atlas materialization).
 func (d MCPDraft) DesiredState() (mcp.DesiredState, error) {
 	sel := mcp.Selection{
 		BuiltinEnabled: map[string]bool{},
 	}
 	for _, b := range d.Builtins {
-		sel.BuiltinEnabled[string(b.ID)] = b.Enabled
-	}
-	for _, s := range d.CustomServers {
-		args := s.Args
-		if len(args) == 0 {
-			args = mcp.SplitLegacyArgs(s.Arguments)
+		id := string(b.ID)
+		if !mcp.IsManagedBuiltin(id) {
+			continue
 		}
-		envRefs := s.EnvRefs
-		if len(envRefs) == 0 {
-			envRefs = mcp.SplitLegacyEnvRefs(s.EnvironmentReferences)
-		}
-		sel.Custom = append(sel.Custom, mcp.CustomSpec{
-			ID:           s.ID,
-			Name:         s.Name,
-			Transport:    string(s.Transport),
-			CommandOrURL: s.CommandOrURL,
-			Args:         args,
-			EnvRefs:      envRefs,
-			HeaderRefs:   s.HeaderRefs,
-			Auth:         mcp.AuthRequirement(s.AuthRequirement),
-			Enabled:      s.Enabled,
-		})
+		sel.BuiltinEnabled[id] = b.Enabled
 	}
 	return mcp.BuildDesiredState(sel)
 }

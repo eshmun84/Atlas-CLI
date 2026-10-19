@@ -265,11 +265,13 @@ func BuildProjectDocument(draft ConfigDraft, mcp MCPDraft) ProjectDocument {
 			DocsScaffold: boolField(draft, "project.docs_scaffold", false),
 		},
 		Governance: GovernancePersist{
-			Workflow:         fieldValueOr(draft, "governance.default_workflow", WorkflowSDD),
-			SpecEngine:       fieldValueOr(draft, "governance.spec_engine", SpecProviderOpenSpec),
-			TestingRequired:  boolField(draft, "governance.testing_required", true),
-			ReviewRequired:   boolField(draft, "governance.review_required", true),
-			EvidenceRequired: boolField(draft, "governance.evidence_required", true),
+			Workflow:        fieldValueOr(draft, "governance.default_workflow", WorkflowSDD),
+			SpecEngine:      fieldValueOr(draft, "governance.spec_engine", SpecProviderOpenSpec),
+			TestingRequired: boolField(draft, "governance.testing_required", true),
+			ReviewRequired:  boolField(draft, "governance.review_required", true),
+			// Evidence is inherent governance behavior — always on. Legacy YAML may
+			// still carry evidence_required; rebuilds normalize to true.
+			EvidenceRequired: true,
 		},
 		Adapters: AdaptersPersist{Selected: selected},
 		SourceControl: SourceControlPersist{
@@ -455,6 +457,67 @@ func validateAdaptersSelected(selected []string) []string {
 	return errs
 }
 
+// ErrAdaptersRequired is the user-facing message when no supported agent is selected.
+const ErrAdaptersRequired = "At least one supported agent is required."
+
+// RequireSupportedAdapters enforces the Init/Configure mutation invariant:
+// an initialized Atlas project must select at least one supported adapter.
+// Load/Status/Doctor may still inspect legacy zero-adapter configs.
+func RequireSupportedAdapters(selected []string) error {
+	if len(normalizeSelectedAdapters(selected)) == 0 {
+		return fmt.Errorf("%s", ErrAdaptersRequired)
+	}
+	return nil
+}
+
+// RequireSupportedAdaptersFromDraft requires ≥1 selected adapter that is both
+// supported and currently available (not marked DisabledValues / "Not available").
+func RequireSupportedAdaptersFromDraft(draft ConfigDraft) error {
+	if !DraftHasSupportedAdapter(draft) {
+		return fmt.Errorf("%s", ErrAdaptersRequired)
+	}
+	return nil
+}
+
+// DraftHasSupportedAdapter reports whether the draft selects at least one
+// supported adapter that is available for mutation (tool present / not disabled).
+func DraftHasSupportedAdapter(draft ConfigDraft) bool {
+	field, ok := draft.FieldByKey("adapters.selected")
+	if !ok {
+		return false
+	}
+	for _, adapter := range normalizeSelectedAdapters(SplitChips(field.Value)) {
+		if !field.OptionDisabled(adapter) {
+			return true
+		}
+	}
+	return false
+}
+
+// PreserveRetiredMCPBuiltins copies retired Atlas Managed MCP builtin flags from
+// previous into next so Configure does not wipe legacy YAML compatibility keys.
+// Managed V1 builtins (Context7, Chrome DevTools) come from the draft only.
+func PreserveRetiredMCPBuiltins(previous, next *ProjectDocument) {
+	if previous == nil || next == nil {
+		return
+	}
+	next.MCP.Builtins.Filesystem = previous.MCP.Builtins.Filesystem
+	next.MCP.Builtins.GitHub = previous.MCP.Builtins.GitHub
+	next.MCP.Builtins.Jira = previous.MCP.Builtins.Jira
+}
+
+// PreserveLegacyMCPCustom keeps prior custom MCP YAML entries when the draft
+// did not carry them (UI can no longer create/edit custom). Atlas does not
+// rematerialize custom entries into adapter MCP configs.
+func PreserveLegacyMCPCustom(previous, next *ProjectDocument) {
+	if previous == nil || next == nil {
+		return
+	}
+	if len(next.MCP.Custom) == 0 && len(previous.MCP.Custom) > 0 {
+		next.MCP.Custom = append([]MCPCustomPersist(nil), previous.MCP.Custom...)
+	}
+}
+
 func validateSkillPins(pins []SkillPinPersist) []string {
 	var errs []string
 	seen := map[string]struct{}{}
@@ -541,7 +604,7 @@ func ApplyProjectDocument(draft *ConfigDraft, doc ProjectDocument) {
 	setDraftValue(draft, "governance.spec_engine", doc.Governance.SpecEngine)
 	setDraftValue(draft, "governance.testing_required", boolText(doc.Governance.TestingRequired))
 	setDraftValue(draft, "governance.review_required", boolText(doc.Governance.ReviewRequired))
-	setDraftValue(draft, "governance.evidence_required", boolText(doc.Governance.EvidenceRequired))
+	// evidence_required is not a draft field; runtime semantics remain evidence-on.
 	selected := doc.Adapters.Selected
 	if selected == nil {
 		selected = []string{}
@@ -628,12 +691,12 @@ func (d ProjectDocument) ToConfig() Config {
 		mode = MemoryPersistenceGoverned
 	}
 	cfg.Memory.Persistence.Mode = mode
-	cfg.ExternalContextProviders.JiraEnabled = d.MCP.Builtins.Jira.Enabled
-	cfg.ExternalContextProviders.MCPEnabled = d.MCP.Builtins.Filesystem.Enabled ||
+	cfg.ExternalContextProviders.JiraEnabled = d.MCP.Builtins.Jira.Enabled // legacy YAML only
+	cfg.ExternalContextProviders.MCPEnabled = d.MCP.Builtins.Context7.Enabled ||
+		d.MCP.Builtins.ChromeDevTools.Enabled ||
+		d.MCP.Builtins.Filesystem.Enabled ||
 		d.MCP.Builtins.GitHub.Enabled ||
 		d.MCP.Builtins.Jira.Enabled ||
-		d.MCP.Builtins.Context7.Enabled ||
-		d.MCP.Builtins.ChromeDevTools.Enabled ||
 		len(d.MCP.Custom) > 0
 	return cfg
 }

@@ -17,9 +17,9 @@ import (
 func TestNativeKeyCollisionBlocked(t *testing.T) {
 	t.Parallel()
 	_, err := mcp.BuildDesiredState(mcp.Selection{
-		BuiltinEnabled: map[string]bool{mcp.BuiltinGitHub: true},
+		BuiltinEnabled: map[string]bool{mcp.BuiltinContext7: true},
 		Custom: []mcp.CustomSpec{{
-			ID: "custom-1", Name: "GitHub", Transport: "streamable_http",
+			ID: "custom-1", Name: "Context7", Transport: "streamable_http",
 			CommandOrURL: "https://example.com/mcp", Enabled: true,
 		}},
 	})
@@ -52,7 +52,7 @@ func TestSymlinkParentEscapeBlocked(t *testing.T) {
 	}
 
 	home := t.TempDir()
-	def := mustBuiltin(t, mcp.BuiltinFilesystem)
+	def := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	def.Enabled = true
 	_, err = mcp.Reconcile(mcp.ReconcileInput{
 		Root: root, HomePath: home, ProjectID: "sym-proj",
@@ -76,7 +76,7 @@ func TestSymlinkParentEscapeBlocked(t *testing.T) {
 func TestBackupsOutsideWorkspace(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	def := mustBuiltin(t, mcp.BuiltinFilesystem)
+	def := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	def.Enabled = true
 	projectors := map[mcp.AdapterID]mcp.Projector{mcp.AdapterCursor: cursor.New()}
 	res1, err := mcp.Reconcile(mcp.ReconcileInput{
@@ -91,7 +91,7 @@ func TestBackupsOutsideWorkspace(t *testing.T) {
 	// Drift Atlas-owned entry so the next apply updates and takes a Home backup.
 	writeJSON(t, filepath.Join(root, cursor.ConfigRelPath), map[string]any{
 		"mcpServers": map[string]any{
-			"filesystem": map[string]any{"command": "drifted"},
+			"chrome_devtools": map[string]any{"command": "drifted"},
 		},
 	})
 	res, err := mcp.Reconcile(mcp.ReconcileInput{
@@ -135,7 +135,7 @@ func (p failOpenCodeAfterCursor) ApplyMCPProjection(root string, entries []mcp.N
 		return fmt.Errorf("induced opencode failure (cursor unreadable: %v)", err)
 	}
 	// Deterministic apply order (cursor < opencode): first adapter must already be mutated.
-	if !strings.Contains(string(raw), `"github"`) {
+	if !strings.Contains(string(raw), `"context7"`) {
 		return fmt.Errorf("induced opencode failure (cursor was not mutated first)")
 	}
 	if p.cursorMutatedSeen != nil {
@@ -147,9 +147,9 @@ func (p failOpenCodeAfterCursor) ApplyMCPProjection(root string, entries []mcp.N
 func TestMultiAdapterRollback(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	fs := mustBuiltin(t, mcp.BuiltinFilesystem)
+	fs := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	fs.Enabled = true
-	gh := mustBuiltin(t, mcp.BuiltinGitHub)
+	gh := mustBuiltin(t, mcp.BuiltinContext7)
 	gh.Enabled = true
 	projectorsOK := map[mcp.AdapterID]mcp.Projector{mcp.AdapterCursor: cursor.New()}
 
@@ -180,7 +180,7 @@ func TestMultiAdapterRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(cursorBaseline), `"filesystem"`) || !strings.Contains(string(cursorBaseline), "personal-db") {
+	if !strings.Contains(string(cursorBaseline), `"chrome_devtools"`) || !strings.Contains(string(cursorBaseline), "personal-db") {
 		t.Fatalf("baseline cursor unexpected: %s", cursorBaseline)
 	}
 	ocBaseline, err := os.ReadFile(filepath.Join(root, opencode.ConfigRelPath))
@@ -222,7 +222,7 @@ func TestMultiAdapterRollback(t *testing.T) {
 	if string(cursorAfter) != string(cursorBaseline) {
 		t.Fatalf("cursor not restored to pre-failure baseline:\n%s", cursorAfter)
 	}
-	if strings.Contains(string(cursorAfter), `"github"`) {
+	if strings.Contains(string(cursorAfter), `"context7"`) {
 		t.Fatal("github leaked on cursor after rollback")
 	}
 	if !strings.Contains(string(cursorAfter), "personal-db") {
@@ -232,7 +232,7 @@ func TestMultiAdapterRollback(t *testing.T) {
 	if string(ocAfter) != string(ocBaseline) {
 		t.Fatalf("opencode not restored:\n%s", ocAfter)
 	}
-	if strings.Contains(string(ocAfter), `"filesystem"`) || strings.Contains(string(ocAfter), `"github"`) {
+	if strings.Contains(string(ocAfter), `"chrome_devtools"`) || strings.Contains(string(ocAfter), `"context7"`) {
 		t.Fatal("atlas entries leaked on opencode after rollback")
 	}
 	ownAfter, err := mcp.LoadOwnership(home, "rb")
@@ -274,7 +274,7 @@ func ownershipDocsEqual(a, b mcp.OwnershipDocument) bool {
 func TestOpenCodeFlatAndNestedPreservation(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	def := mustBuiltin(t, mcp.BuiltinGitHub)
+	def := mustBuiltin(t, mcp.BuiltinContext7)
 	def.Enabled = true
 
 	t.Run("flat", func(t *testing.T) {
@@ -304,7 +304,7 @@ func TestOpenCodeFlatAndNestedPreservation(t *testing.T) {
 		if _, ok := mcpObj["keep-flat"]; !ok {
 			t.Fatal("user entry lost")
 		}
-		if _, ok := mcpObj["github"]; !ok {
+		if _, ok := mcpObj["context7"]; !ok {
 			t.Fatal("github missing")
 		}
 	})
@@ -342,7 +342,7 @@ func TestOpenCodeFlatAndNestedPreservation(t *testing.T) {
 		if _, ok := servers["keep-nested"]; !ok {
 			t.Fatal("user nested entry lost")
 		}
-		if _, ok := servers["github"]; !ok {
+		if _, ok := servers["context7"]; !ok {
 			t.Fatal("github missing in nested")
 		}
 	})
@@ -374,7 +374,7 @@ func TestOpenCodeFlatAndNestedPreservation(t *testing.T) {
 func TestRepeatedApplyIdempotentNoChurn(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	def := mustBuiltin(t, mcp.BuiltinFilesystem)
+	def := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	def.Enabled = true
 	fixed := time.Date(2026, 10, 8, 19, 0, 0, 0, time.UTC)
 	projectors := map[mcp.AdapterID]mcp.Projector{mcp.AdapterCursor: cursor.New()}

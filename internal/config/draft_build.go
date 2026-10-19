@@ -86,11 +86,13 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 	// CursorDetected/OpenCodeDetected still seed selection for Apply/Configure inputs.
 	cursorAvailable := setup.ToolCursorAvailable
 	opencodeAvailable := setup.ToolOpenCodeAvailable
+	// Auto-select only when the tool is available. Detected-but-unavailable must
+	// not create a selected+disabled draft that blocks Apply / Continue.
 	adapters := ""
-	if setup.CursorDetected {
+	if setup.CursorDetected && cursorAvailable {
 		adapters = ToggleChip(adapters, "cursor")
 	}
-	if setup.OpenCodeDetected {
+	if setup.OpenCodeDetected && opencodeAvailable {
 		adapters = ToggleChip(adapters, "opencode")
 	}
 	var adapterDisabled []string
@@ -101,7 +103,7 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 		adapterDisabled = append(adapterDisabled, "opencode")
 	}
 
-	adaptersField := field("adapters.selected", "", "", adapters, adapters, FieldTypeMulti, []string{"cursor", "opencode"}, FieldEditable, FieldEditable, false, false)
+	adaptersField := field("adapters.selected", "", "At least one supported agent is required.", adapters, adapters, FieldTypeMulti, []string{"cursor", "opencode"}, FieldEditable, FieldEditable, true, false)
 	adaptersField.DisabledValues = adapterDisabled
 
 	deliveryPlatform := DefaultSourceControlMode(setup.GitRepoDetected)
@@ -124,19 +126,20 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 			{
 				Key:         "governance",
 				Title:       "Governance",
-				Description: "Governance configuration for AI-assisted work. Records Atlas policy preferences. Governed SDD requires a real OpenSpec CLI provider (exact project pin). Init Apply runs openspec init; this screen does not invoke the OpenSpec CLI.",
+				Description: "Governance configuration for AI-assisted work. Records Atlas policy preferences. Governed SDD requires a real OpenSpec CLI provider (exact project pin). Init Apply runs openspec init; this screen does not invoke the OpenSpec CLI. Verification evidence is inherent when Atlas requires or performs a verification gate.",
 				Fields: []ConfigField{
 					field("governance.default_workflow", "Workflow", "SDD (Spec-Driven Development) workflow preference.", "sdd", "sdd", FieldTypeChoice, []string{"sdd"}, FieldEditable, FieldEditable, true, false),
 					field("governance.spec_engine", "Spec engine", "OpenSpec only (Atlas Native deferred; other engines future). Real OpenSpec CLI provider required for governed SDD — exact project pin; Atlas does not emulate OpenSpec or mkdir-bootstrap openspec/. Missing/incompatible CLI blocks governed SDD.", "openspec", "openspec", FieldTypeChoice, []string{"openspec"}, FieldEditable, FieldEditable, true, false),
-					field("governance.testing_required", "Testing required", "Quality gate: testing evidence is required when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
+					field("governance.testing_required", "Requires testing", "Quality gate: testing is required when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
 					field("governance.review_required", "Review required", "Quality gate: review is required when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
-					field("governance.evidence_required", "Evidence required", "Quality gate: the agent must report verification evidence, commands, tests, smoke, results, and limitations when applicable.", "true", "true", FieldTypeBool, nil, FieldEditable, FieldEditable, true, false),
+					// evidence_required is not user-editable; runtime semantics are always evidence-on.
+					// Legacy YAML may still carry the field; BuildProjectDocument normalizes to true.
 				},
 			},
 			{
 				Key:         "adapters",
 				Title:       "Adapters",
-				Description: "Selection is saved to config. Runtime files update only via Init Apply or explicit Runtime Repair — not Configure Apply.",
+				Description: "Supported local agents for this project. At least one is required. Configure Apply reconciles Atlas-owned adapter projections for the selected set.",
 				Fields: []ConfigField{
 					adaptersField,
 				},
@@ -147,14 +150,14 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 				Description: "Source-control preference and signing policy. Atlas Core may bootstrap a local Git repo; it does not create remotes, push, open PRs, merge, tag, or publish repository releases.",
 				Fields: []ConfigField{
 					field("source_control.mode", "Platform", "Hosting/platform preference for governance policy. Not a Core remote-operations engine.", deliveryPlatform, deliveryPlatform, FieldTypeChoice, []string{"none", "git_local", "git_github"}, FieldEditable, FieldEditable, true, false),
-					field("source_control.governance_storage", "Governance files", "", "local_only", "local_only", FieldTypeChoice, []string{"local_only", "versioned"}, FieldEditable, FieldEditable, true, false),
+					field("source_control.governance_storage", "Governance files", "Are Atlas / AI governance artifacts versioned with the project or kept local? Independent of Git hosting provider.", "local_only", "local_only", FieldTypeChoice, []string{"local_only", "versioned"}, FieldEditable, FieldEditable, true, false),
 					field("source_control.signing_required", "Require signed commits", "When true, unsigned commits are not an allowed fallback.", "false", "false", FieldTypeBool, nil, FieldEditable, FieldEditable, false, false),
 				},
 			},
 			{
 				Key:         "mcp",
-				Title:       "MCP",
-				Description: "Desired state in Atlas config; Atlas-owned projections materialize to selected agents. Auth/connection/verification may still depend on the provider or agent. Secrets are not stored.",
+				Title:       "MCP integrations",
+				Description: "Atlas Managed MCP V1: Context7 and Chrome DevTools. Desired state in Atlas config; Atlas-owned projections materialize to selected agents. Other MCPs are developer-managed. Secrets are not stored.",
 				Fields:      nil,
 			},
 			{
@@ -180,17 +183,13 @@ func BuildConfigDraft(mode ConfigMode, setup ProjectSetupInput) ConfigDraft {
 	return draft
 }
 
-// SyncDevelopmentDelivery enforces governance-file versioning rules from the
-// source-control platform preference. Versioned is enabled only when a
-// supported hosting platform (GitHub) is selected. This does not authorize
-// Core remote create/push/PR/merge/tag automation.
+// SyncDevelopmentDelivery normalizes governance-file storage options.
+// Governance storage is provider-neutral: versioned and local_only are always
+// available regardless of source_control.mode (including git_local). This does
+// not authorize Core remote create/push/PR/merge/tag automation.
 func SyncDevelopmentDelivery(draft *ConfigDraft) {
 	if draft == nil {
 		return
-	}
-	mode := "none"
-	if field, ok := draft.FieldByKey("source_control.mode"); ok {
-		mode = strings.TrimSpace(field.Value)
 	}
 	for si := range draft.Sections {
 		if draft.Sections[si].Key != "source_control" {
@@ -202,14 +201,9 @@ func SyncDevelopmentDelivery(draft *ConfigDraft) {
 				continue
 			}
 			field.Options = []string{"local_only", "versioned"}
-			field.Description = ""
-			if mode == SourceControlGitGitHub {
-				field.DisabledValues = nil
-				if field.Value != GovernanceFilesLocalOnly && field.Value != GovernanceFilesVersioned {
-					field.Value = GovernanceFilesLocalOnly
-				}
-			} else {
-				field.DisabledValues = []string{"versioned"}
+			field.DisabledValues = nil
+			field.Description = "Keep local: Atlas / AI governance artifacts are excluded from version control. Version with project: Atlas / AI governance artifacts are part of the repository."
+			if field.Value != GovernanceFilesLocalOnly && field.Value != GovernanceFilesVersioned {
 				field.Value = GovernanceFilesLocalOnly
 			}
 			return

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,29 +22,89 @@ const (
 	gitignoreBlockEnd   = "# <<< Atlas local governance <<<"
 )
 
-// AtlasLocalGovernanceGitignoreLines is the canonical managed ignore block body
-// (without begin/end markers).
-var AtlasLocalGovernanceGitignoreLines = []string{
-	".atlas/",
-	".cursor/",
-	"AGENTS.md",
-	"openspec/",
-	"docs/atlas/",
+// AtlasLocalGovernanceGitignoreLinesFor returns managed ignore paths derived
+// from Atlas ownership for the given document (adapters + skill pins).
+//
+// Ownership notes:
+//   - Shared Atlas surfaces (`.atlas/`, AGENTS.md, openspec/, docs/atlas/) always.
+//   - Cursor: coarse `.cursor/` — Git cannot safely separate Atlas vs user Cursor files.
+//   - OpenCode: Atlas-owned path patterns only (no blanket `.opencode/`, no root
+//     `opencode.json`). Managed MCP lives at `.opencode/opencode.json` (OpenCode
+//     config layer that merges after root `opencode.json`), so local_only can hide
+//     Atlas MCP without hiding user-owned root OpenCode settings.
+func AtlasLocalGovernanceGitignoreLinesFor(doc ProjectDocument) []string {
+	lines := []string{
+		".atlas/",
+		"AGENTS.md",
+		"openspec/",
+		"docs/atlas/",
+	}
+	hasCursor, hasOpenCode := false, false
+	for _, a := range normalizeSelectedAdapters(doc.Adapters.Selected) {
+		switch a {
+		case "cursor":
+			hasCursor = true
+		case "opencode":
+			hasOpenCode = true
+		}
+	}
+	if hasCursor {
+		lines = append(lines, ".cursor/")
+	}
+	if hasOpenCode {
+		lines = append(lines,
+			".opencode/atlas.md",
+			".opencode/agents/atlas-*.md",
+			".opencode/plugins/atlas-hooks/",
+			".opencode/opencode.json",
+			".opencode/commands/opsx-*",
+			".opencode/skills/openspec-*/",
+		)
+		seenSkill := map[string]struct{}{}
+		var skillLines []string
+		for _, pin := range doc.SkillPins() {
+			id := strings.TrimSpace(pin.ID)
+			if id == "" || strings.HasPrefix(id, "openspec-") {
+				continue
+			}
+			if _, ok := seenSkill[id]; ok {
+				continue
+			}
+			seenSkill[id] = struct{}{}
+			skillLines = append(skillLines, ".opencode/skills/"+id+"/")
+		}
+		sort.Strings(skillLines)
+		lines = append(lines, skillLines...)
+	}
+	return lines
 }
 
-// AtlasLocalGovernanceGitignoreBlock returns the full managed block including markers
-// and a trailing newline.
-func AtlasLocalGovernanceGitignoreBlock() string {
+// AtlasLocalGovernanceGitignoreLines is the full dual-adapter ignore body used
+// by callers without a project document (tests / fallback). Prefer
+// AtlasLocalGovernanceGitignoreLinesFor with the live ProjectDocument.
+var AtlasLocalGovernanceGitignoreLines = AtlasLocalGovernanceGitignoreLinesFor(ProjectDocument{
+	Adapters: AdaptersPersist{Selected: []string{"cursor", "opencode"}},
+})
+
+// AtlasLocalGovernanceGitignoreBlockFor returns the managed block for doc.
+func AtlasLocalGovernanceGitignoreBlockFor(doc ProjectDocument) string {
 	var b strings.Builder
 	b.WriteString(gitignoreBlockBegin)
 	b.WriteByte('\n')
-	for _, line := range AtlasLocalGovernanceGitignoreLines {
+	for _, line := range AtlasLocalGovernanceGitignoreLinesFor(doc) {
 		b.WriteString(line)
 		b.WriteByte('\n')
 	}
 	b.WriteString(gitignoreBlockEnd)
 	b.WriteByte('\n')
 	return b.String()
+}
+
+// AtlasLocalGovernanceGitignoreBlock returns the full dual-adapter managed block.
+func AtlasLocalGovernanceGitignoreBlock() string {
+	return AtlasLocalGovernanceGitignoreBlockFor(ProjectDocument{
+		Adapters: AdaptersPersist{Selected: []string{"cursor", "opencode"}},
+	})
 }
 
 // GitignoreReconcileResult describes a managed .gitignore update.
@@ -54,22 +115,46 @@ type GitignoreReconcileResult struct {
 	Content   string
 }
 
-// NeedsLocalOnlyGitignore reports whether Apply should reconcile .gitignore.
+// NeedsLocalOnlyGitignore reports whether local_only policy applies.
 func NeedsLocalOnlyGitignore(doc ProjectDocument) bool {
 	return strings.TrimSpace(doc.SourceControl.GovernanceFiles) == GovernanceFilesLocalOnly
 }
 
-// PlanLocalOnlyGitignore returns the desired .gitignore bytes when local_only is set.
-// Read-only: does not write. When current already matches, Changed is false.
-func PlanLocalOnlyGitignore(root string, doc ProjectDocument) (GitignoreReconcileResult, error) {
-	if !NeedsLocalOnlyGitignore(doc) {
-		return GitignoreReconcileResult{}, nil
-	}
+// NeedsVersionedGitignoreCleanup reports whether versioned policy should remove
+// the Atlas managed ignore block (governance surfaces remain visible to Git).
+func NeedsVersionedGitignoreCleanup(doc ProjectDocument) bool {
+	return strings.TrimSpace(doc.SourceControl.GovernanceFiles) == GovernanceFilesVersioned
+}
+
+// PlanGovernanceGitignore returns the desired .gitignore mutation for the
+// governance_files policy. local_only upserts the managed block; versioned
+// removes it while preserving project-owned content. Independent of Git hosting.
+func PlanGovernanceGitignore(root string, doc ProjectDocument) (GitignoreReconcileResult, error) {
 	root = filepath.Clean(strings.TrimSpace(root))
 	if root == "" || root == "." {
 		return GitignoreReconcileResult{}, fmt.Errorf("gitignore: workspace root is required")
 	}
 
+	switch {
+	case NeedsLocalOnlyGitignore(doc):
+		return planLocalOnlyGitignore(root, doc)
+	case NeedsVersionedGitignoreCleanup(doc):
+		return planVersionedGitignoreCleanup(root)
+	default:
+		return GitignoreReconcileResult{}, nil
+	}
+}
+
+// PlanLocalOnlyGitignore returns the desired .gitignore bytes when local_only is set.
+// Prefer PlanGovernanceGitignore for callers that also handle versioned cleanup.
+func PlanLocalOnlyGitignore(root string, doc ProjectDocument) (GitignoreReconcileResult, error) {
+	if !NeedsLocalOnlyGitignore(doc) {
+		return GitignoreReconcileResult{}, nil
+	}
+	return planLocalOnlyGitignore(root, doc)
+}
+
+func planLocalOnlyGitignore(root string, doc ProjectDocument) (GitignoreReconcileResult, error) {
 	full, err := fsafety.ContainedJoin(root, FileGitignore)
 	if err != nil {
 		return GitignoreReconcileResult{}, err
@@ -79,11 +164,33 @@ func PlanLocalOnlyGitignore(root string, doc ProjectDocument) (GitignoreReconcil
 		if !os.IsNotExist(readErr) {
 			return GitignoreReconcileResult{}, fmt.Errorf("gitignore: read: %w", readErr)
 		}
-		desired := AtlasLocalGovernanceGitignoreBlock()
+		desired := AtlasLocalGovernanceGitignoreBlockFor(doc)
 		return GitignoreReconcileResult{Changed: true, Created: true, Content: desired}, nil
 	}
 
-	desired, err := mergeAtlasGitignoreBlock(string(existing))
+	desired, err := mergeAtlasGitignoreBlock(string(existing), doc)
+	if err != nil {
+		return GitignoreReconcileResult{}, err
+	}
+	if desired == string(existing) {
+		return GitignoreReconcileResult{Changed: false, Content: desired}, nil
+	}
+	return GitignoreReconcileResult{Changed: true, Created: false, Content: desired}, nil
+}
+
+func planVersionedGitignoreCleanup(root string) (GitignoreReconcileResult, error) {
+	full, err := fsafety.ContainedJoin(root, FileGitignore)
+	if err != nil {
+		return GitignoreReconcileResult{}, err
+	}
+	existing, readErr := os.ReadFile(full)
+	if readErr != nil {
+		if os.IsNotExist(readErr) {
+			return GitignoreReconcileResult{}, nil
+		}
+		return GitignoreReconcileResult{}, fmt.Errorf("gitignore: read: %w", readErr)
+	}
+	desired, err := stripAtlasGitignoreBlocks(string(existing))
 	if err != nil {
 		return GitignoreReconcileResult{}, err
 	}
@@ -94,11 +201,31 @@ func PlanLocalOnlyGitignore(root string, doc ProjectDocument) (GitignoreReconcil
 }
 
 // ReconcileLocalOnlyGitignore upserts the Atlas managed block under local_only.
+// Prefer ReconcileGovernanceGitignore when versioned cleanup is also required.
+func ReconcileLocalOnlyGitignore(root, homePath, projectID string, doc ProjectDocument, now time.Time) (GitignoreReconcileResult, fsafety.TransactionFootprint, fsafety.TransactionFootprint, error) {
+	if !NeedsLocalOnlyGitignore(doc) {
+		return GitignoreReconcileResult{}, fsafety.TransactionFootprint{}, fsafety.TransactionFootprint{}, nil
+	}
+	return reconcileGovernanceGitignore(root, homePath, projectID, doc, now, "local_only gitignore")
+}
+
+// ReconcileGovernanceGitignore applies local_only upsert or versioned block removal.
 // Backs up an existing file only when a mutation will occur.
 // workspaceFP tracks .gitignore writes; homeFP tracks Home-scoped backups.
-func ReconcileLocalOnlyGitignore(root, homePath, projectID string, doc ProjectDocument, now time.Time) (GitignoreReconcileResult, fsafety.TransactionFootprint, fsafety.TransactionFootprint, error) {
+func ReconcileGovernanceGitignore(root, homePath, projectID string, doc ProjectDocument, now time.Time) (GitignoreReconcileResult, fsafety.TransactionFootprint, fsafety.TransactionFootprint, error) {
+	reason := "governance gitignore"
+	switch {
+	case NeedsLocalOnlyGitignore(doc):
+		reason = "local_only gitignore"
+	case NeedsVersionedGitignoreCleanup(doc):
+		reason = "versioned gitignore cleanup"
+	}
+	return reconcileGovernanceGitignore(root, homePath, projectID, doc, now, reason)
+}
+
+func reconcileGovernanceGitignore(root, homePath, projectID string, doc ProjectDocument, now time.Time, reason string) (GitignoreReconcileResult, fsafety.TransactionFootprint, fsafety.TransactionFootprint, error) {
 	var workspaceFP, homeFP fsafety.TransactionFootprint
-	plan, err := PlanLocalOnlyGitignore(root, doc)
+	plan, err := PlanGovernanceGitignore(root, doc)
 	if err != nil {
 		return GitignoreReconcileResult{}, workspaceFP, homeFP, err
 	}
@@ -107,7 +234,7 @@ func ReconcileLocalOnlyGitignore(root, homePath, projectID string, doc ProjectDo
 	}
 
 	if !plan.Created {
-		backupDir, backupFP, backupErr := backupSingleProjectFile(root, homePath, projectID, FileGitignore, "init apply local_only gitignore", now)
+		backupDir, backupFP, backupErr := backupSingleProjectFile(root, homePath, projectID, FileGitignore, reason, now)
 		homeFP.MergeFootprint(backupFP)
 		if backupErr != nil {
 			return GitignoreReconcileResult{}, workspaceFP, homeFP, backupErr
@@ -124,11 +251,36 @@ func ReconcileLocalOnlyGitignore(root, homePath, projectID string, doc ProjectDo
 	return plan, workspaceFP, homeFP, nil
 }
 
+// stripAtlasGitignoreBlocks removes all Atlas managed blocks, preserving
+// project-owned content. Malformed markers fail closed.
+func stripAtlasGitignoreBlocks(existing string) (string, error) {
+	spans, err := findAtlasGitignoreSpans(existing)
+	if err != nil {
+		return "", err
+	}
+	if len(spans) == 0 {
+		return existing, nil
+	}
+	var b strings.Builder
+	cursor := 0
+	for _, span := range spans {
+		b.WriteString(existing[cursor:span.begin])
+		cursor = span.end
+	}
+	b.WriteString(existing[cursor:])
+	out := b.String()
+	// Collapse excess blank lines left by block removal (cosmetic).
+	for strings.Contains(out, "\n\n\n") {
+		out = strings.ReplaceAll(out, "\n\n\n", "\n\n")
+	}
+	return out, nil
+}
+
 // mergeAtlasGitignoreBlock consolidates zero-or-more Atlas managed blocks into
 // exactly one canonical block while preserving project-owned content outside
 // those blocks. Malformed markers fail closed without guessing.
-func mergeAtlasGitignoreBlock(existing string) (string, error) {
-	block := AtlasLocalGovernanceGitignoreBlock()
+func mergeAtlasGitignoreBlock(existing string, doc ProjectDocument) (string, error) {
+	block := AtlasLocalGovernanceGitignoreBlockFor(doc)
 	spans, err := findAtlasGitignoreSpans(existing)
 	if err != nil {
 		return "", err

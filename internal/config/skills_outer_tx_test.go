@@ -22,10 +22,11 @@ func TestApplyConfig_SkillReconcileThenLaterFailure_RestoresProjectionsAndOwners
 	root := t.TempDir()
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:    "skills-tx-absent",
-		ProjectMode:    "new",
-		DefaultRemote:  "origin",
-		CursorDetected: true,
+		ProjectName:         "skills-tx-absent",
+		ProjectMode:         "new",
+		DefaultRemote:       "origin",
+		CursorDetected:      true,
+		ToolCursorAvailable: true,
 	})
 	if !draft.SetValue("adapters.selected", "cursor") {
 		t.Fatal("adapters")
@@ -83,10 +84,11 @@ func TestPersistConfigure_SkillReconcileThenLaterFailure_RestoresProjectionsAndO
 	root := t.TempDir()
 
 	baseDraft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:    "skills-tx-exist",
-		ProjectMode:    "new",
-		DefaultRemote:  "origin",
-		CursorDetected: true,
+		ProjectName:         "skills-tx-exist",
+		ProjectMode:         "new",
+		DefaultRemote:       "origin",
+		CursorDetected:      true,
+		ToolCursorAvailable: true,
 	})
 	if !baseDraft.SetValue("adapters.selected", "cursor") {
 		t.Fatal("adapters")
@@ -116,11 +118,13 @@ func TestPersistConfigure_SkillReconcileThenLaterFailure_RestoresProjectionsAndO
 	}
 
 	cfgDraft := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
-		ProjectName:      "skills-tx-exist",
-		ProjectMode:      "new",
-		DefaultRemote:    "origin",
-		CursorDetected:   true,
-		OpenCodeDetected: true,
+		ProjectName:           "skills-tx-exist",
+		ProjectMode:           "new",
+		DefaultRemote:         "origin",
+		CursorDetected:        true,
+		OpenCodeDetected:      true,
+		ToolCursorAvailable:   true,
+		ToolOpenCodeAvailable: true,
 	})
 	if !cfgDraft.SetValue("adapters.selected", "cursor,opencode") {
 		t.Fatal("adapters")

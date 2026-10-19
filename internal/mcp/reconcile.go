@@ -65,6 +65,11 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 	for _, a := range in.Ownership.Adapters {
 		allAdapters[a.Adapter] = struct{}{}
 	}
+	// Always inspect known projectors so hollow empty native configs left after
+	// a prior deselection (ownership already cleared) can still be removed.
+	for a := range in.Projectors {
+		allAdapters[a] = struct{}{}
+	}
 
 	adapterList := make([]AdapterID, 0, len(allAdapters))
 	for adapter := range allAdapters {
@@ -85,10 +90,11 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 		}
 
 		// OpenCode JSONC is officially supported by OpenCode, but Atlas does not
-		// implement JSONC-safe merging in Slice 32 — block without creating opencode.json.
+		// implement JSONC-safe merging for the Atlas MCP layer — block without
+		// creating `.opencode/opencode.json`.
 		if adapter == AdapterOpenCode {
 			if blocked, msg, err := OpenCodeJSONCBlocks(in.Root); err != nil {
-				return result, fmt.Errorf("mcp reconcile: inspect opencode.jsonc: %w", err)
+				return result, fmt.Errorf("mcp reconcile: inspect .opencode/opencode.jsonc: %w", err)
 			} else if blocked {
 				result.Blocked = true
 				result.Errors = append(result.Errors, msg)
@@ -131,7 +137,17 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 
 		if !selected {
 			if len(owned) == 0 {
-				plan = Plan{}
+				// Hollow empty native config left after prior Atlas key removal:
+				// schedule removal so deselected adapter trees can be pruned.
+				if snap.Exists && !snap.Malformed && len(snap.Servers) == 0 {
+					plan = Plan{Actions: []PlanAction{{
+						Adapter: adapter,
+						Kind:    ActionRemove,
+						Reason:  "remove hollow empty MCP config after adapter deselection",
+					}}}
+				} else {
+					plan = Plan{}
+				}
 			} else {
 				plan = BuildPlan(adapter, nil, snap, owned)
 			}
@@ -289,6 +305,9 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 			if ferr := recordMCPWriteFootprint(&tx, in.Root, proj.ConfigRelPath(), !baselineExisted); ferr != nil && err == nil {
 				err = ferr
 			}
+			if ferr := recordOpenCodeLegacyFootprint(&tx, in.Root, adapter); ferr != nil && err == nil {
+				err = ferr
+			}
 			if err != nil {
 				return rollback(fmt.Errorf("remove %s: %w", adapter, err))
 			}
@@ -322,6 +341,9 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 		if ferr := recordMCPWriteFootprint(&tx, in.Root, proj.ConfigRelPath(), !baselineExisted); ferr != nil && err == nil {
 			err = ferr
 		}
+		if ferr := recordOpenCodeLegacyFootprint(&tx, in.Root, adapter); ferr != nil && err == nil {
+			err = ferr
+		}
 		if err != nil {
 			return rollback(fmt.Errorf("apply %s: %w", adapter, err))
 		}
@@ -340,24 +362,56 @@ func Reconcile(in ReconcileInput) (ReconcileResult, error) {
 	return result, nil
 }
 
+// recordOpenCodeLegacyFootprint records root opencode.json when OpenCode reconcile
+// may have stripped legacy Atlas-managed keys from it.
+func recordOpenCodeLegacyFootprint(tx *TransactionSnapshot, root string, adapter AdapterID) error {
+	if adapter != AdapterOpenCode {
+		return nil
+	}
+	legacyExisted := false
+	for _, fs := range tx.Files {
+		if fs.Adapter == adapter && fs.RelPath == "opencode.json" && fs.Exists {
+			legacyExisted = true
+			break
+		}
+	}
+	return recordMCPWriteFootprint(tx, root, "opencode.json", !legacyExisted)
+}
+
 // recordMCPWriteFootprint captures post-write identity for a path Atlas just wrote.
 func recordMCPWriteFootprint(tx *TransactionSnapshot, root, rel string, created bool) error {
 	if tx == nil {
 		return fmt.Errorf("mcp footprint: nil transaction")
 	}
+	rel = filepath.ToSlash(rel)
 	data, err := fsafety.ReadFileContained(root, rel)
 	if err != nil {
-		if created && os.IsNotExist(err) {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		if created {
 			return nil // path absent after create-path mutation; nothing to verify on rollback remove
 		}
-		return err
+		// Adapter deselection / hollow cleanup deleted the native file.
+		for _, fs := range tx.Files {
+			if filepath.ToSlash(fs.RelPath) != rel || !fs.Exists {
+				continue
+			}
+			tx.Footprint.AddDeleted(fsafety.DeletedFile{
+				Rel:      rel,
+				Expected: append([]byte(nil), fs.Raw...),
+				Mode:     fs.Mode,
+			})
+			return nil
+		}
+		return nil // absent before and after
 	}
 	info, err := fsafety.LstatContained(root, rel)
 	if err != nil {
 		return err
 	}
 	tx.Footprint.AddFile(fsafety.WrittenFile{
-		Rel:      filepath.ToSlash(rel),
+		Rel:      rel,
 		Created:  created,
 		Expected: append([]byte(nil), data...),
 		Mode:     info.Mode().Perm(),

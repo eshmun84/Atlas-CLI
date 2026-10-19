@@ -152,7 +152,7 @@ func TestPersistConfigure_NoProviderMutationWhenProjectionsHealthy(t *testing.T)
 		t.Fatal("adapters")
 	}
 	mcp := config.EmptyMCPDraft()
-	mcp.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcp.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 
 	if _, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: draft, MCP: mcp}); err != nil {
 		t.Fatalf("configure: %v", err)
@@ -352,7 +352,7 @@ func TestPersistConfigure_UnrelatedAtlasChange_PreservesProviderTree(t *testing.
 		_ = draft.SetValue("project.docs_scaffold", "true")
 	}
 	mcp := config.EmptyMCPDraft()
-	mcp.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcp.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	if _, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: draft, MCP: mcp}); err != nil {
 		t.Fatalf("configure: %v", err)
 	}

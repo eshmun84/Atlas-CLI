@@ -250,11 +250,7 @@ func renderSectionDetail(view ConfigFormView, sections []config.ConfigSection, s
 		return cfgFormMuted.Render("No configuration sections.")
 	}
 	section := sections[sectionIdx]
-	title := section.Title
-	if section.Key == "mcp" && view.MCP.Mode == MCPModeAdd {
-		title = "Add MCP"
-	}
-	fmt.Fprintln(&b, cfgFormSection.Render(title))
+	fmt.Fprintln(&b, cfgFormSection.Render(section.Title))
 	if section.Description != "" {
 		fmt.Fprintln(&b, cfgFormMuted.Render(section.Description))
 	}

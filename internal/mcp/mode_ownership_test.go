@@ -26,7 +26,7 @@ func TestCursorNativeConfig_PreservesMode0600(t *testing.T) {
 			"personal": map[string]any{"command": "echo"},
 		},
 	}, 0o600)
-	fs := mustBuiltin(t, mcp.BuiltinFilesystem)
+	fs := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	fs.Enabled = true
 	_, err := mcp.Reconcile(mcp.ReconcileInput{
 		Root: root, HomePath: home, ProjectID: "mode-cur",
@@ -48,7 +48,7 @@ func TestCursorNativeConfig_PreservesMode0600(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"personal"`) || !strings.Contains(string(raw), `"filesystem"`) {
+	if !strings.Contains(string(raw), `"personal"`) || !strings.Contains(string(raw), `"chrome_devtools"`) {
 		t.Fatalf("merge incomplete: %s", raw)
 	}
 }
@@ -63,7 +63,7 @@ func TestOpenCodeNativeConfig_PreservesMode0600(t *testing.T) {
 			"keep": map[string]any{"type": "local", "command": []any{"echo"}},
 		},
 	}, 0o600)
-	fs := mustBuiltin(t, mcp.BuiltinFilesystem)
+	fs := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	fs.Enabled = true
 	_, err := mcp.Reconcile(mcp.ReconcileInput{
 		Root: root, HomePath: home, ProjectID: "mode-oc",
@@ -100,7 +100,7 @@ func TestNativeConfig_RollbackRestoresBytesAndMode(t *testing.T) {
 		"mcp":     map[string]any{},
 	}, 0o644)
 
-	fs := mustBuiltin(t, mcp.BuiltinFilesystem)
+	fs := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	fs.Enabled = true
 	// Establish Cursor ownership first.
 	res1, err := mcp.Reconcile(mcp.ReconcileInput{
@@ -121,7 +121,7 @@ func TestNativeConfig_RollbackRestoresBytesAndMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gh := mustBuiltin(t, mcp.BuiltinGitHub)
+	gh := mustBuiltin(t, mcp.BuiltinContext7)
 	gh.Enabled = true
 	_, err = mcp.Reconcile(mcp.ReconcileInput{
 		Root: root, HomePath: home, ProjectID: "rb-mode",
@@ -156,7 +156,7 @@ func TestNativeConfig_RollbackRestoresBytesAndMode(t *testing.T) {
 func TestOwnership_AbsentBaselineRemovedOnRollback(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	fs := mustBuiltin(t, mcp.BuiltinFilesystem)
+	fs := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	fs.Enabled = true
 	ownPath := mcp.OwnershipPath(home, "first-own")
 	if _, err := os.Lstat(ownPath); !os.IsNotExist(err) {
@@ -182,7 +182,7 @@ func TestOwnership_AbsentBaselineRemovedOnRollback(t *testing.T) {
 func TestOwnership_Existing0600RestoredOnRollback(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
-	fs := mustBuiltin(t, mcp.BuiltinFilesystem)
+	fs := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	fs.Enabled = true
 	res1, err := mcp.Reconcile(mcp.ReconcileInput{
 		Root: root, HomePath: home, ProjectID: "own-mode",
@@ -206,7 +206,7 @@ func TestOwnership_Existing0600RestoredOnRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gh := mustBuiltin(t, mcp.BuiltinGitHub)
+	gh := mustBuiltin(t, mcp.BuiltinContext7)
 	gh.Enabled = true
 	_, err = mcp.Reconcile(mcp.ReconcileInput{
 		Root: root, HomePath: home, ProjectID: "own-mode",
@@ -238,10 +238,13 @@ func TestOpenCodeJSONC_BlocksWithoutMutation(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
 	jsonc := []byte("{\n  // comment\n  \"mcp\": {}\n}\n")
-	if err := os.WriteFile(filepath.Join(root, mcp.OpenCodeJSONCRel), jsonc, 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".opencode"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fs := mustBuiltin(t, mcp.BuiltinFilesystem)
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(mcp.OpenCodeJSONCRel)), jsonc, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	fs.Enabled = true
 	_, err := mcp.Reconcile(mcp.ReconcileInput{
 		Root: root, HomePath: home, ProjectID: "jsonc",
@@ -252,8 +255,8 @@ func TestOpenCodeJSONC_BlocksWithoutMutation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "opencode.jsonc") {
 		t.Fatalf("expected JSONC block, got %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(root, opencode.ConfigRelPath)); !os.IsNotExist(err) {
-		t.Fatal("opencode.json must not be created")
+	if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(opencode.ConfigRelPath))); !os.IsNotExist(err) {
+		t.Fatal(".opencode/opencode.json must not be created")
 	}
 	got, err := os.ReadFile(filepath.Join(root, mcp.OpenCodeJSONCRel))
 	if err != nil || string(got) != string(jsonc) {
@@ -287,6 +290,9 @@ func (p failApplyAfterMutationV) ApplyMCPProjection(root string, entries []mcp.N
 
 func writeJSONMode(t *testing.T, path string, doc map[string]any, mode os.FileMode) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		t.Fatal(err)

@@ -30,6 +30,8 @@ const (
 	FileCursorAtlasMDC = ".cursor/rules/atlas.mdc"
 	// FileOpenCodeAtlas is the project-local OpenCode adapter convention for Atlas.
 	FileOpenCodeAtlas = ".opencode/atlas.md"
+	// FileOpenCodeMCP is the Atlas-owned OpenCode MCP config layer (not root opencode.json).
+	FileOpenCodeMCP = ".opencode/opencode.json"
 
 	DirCursorAgents   = ".cursor/agents"
 	DirOpenCodeAgents = ".opencode/agents"

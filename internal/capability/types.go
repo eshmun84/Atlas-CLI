@@ -40,8 +40,9 @@ type TaskEvidence struct {
 	ExplicitExcludes      []string
 	ActiveChange          string
 	// Governance flags from .atlas/config.yaml (reuse — not a second policy engine).
-	TestingRequired bool
-	ReviewRequired  bool
+	TestingRequired  bool
+	ReviewRequired   bool
+	EvidenceRequired bool // always true at runtime; not a user-editable opt-out
 	// Registry inputs for skill resolution (caller-supplied; planner does not discover Home).
 	EnabledPins []skills.Pin
 	Catalog     []skills.Metadata

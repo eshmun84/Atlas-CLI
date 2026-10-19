@@ -20,11 +20,13 @@ func TestApplyConfig_ProjectsSkillsForSelectedAdapters(t *testing.T) {
 	}
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:      "skills-demo",
-		ProjectMode:      "new",
-		DefaultRemote:    "origin",
-		CursorDetected:   true,
-		OpenCodeDetected: true,
+		ProjectName:           "skills-demo",
+		ProjectMode:           "new",
+		DefaultRemote:         "origin",
+		CursorDetected:        true,
+		OpenCodeDetected:      true,
+		ToolCursorAvailable:   true,
+		ToolOpenCodeAvailable: true,
 	})
 	if !draft.SetValue("adapters.selected", "cursor,opencode") {
 		t.Fatal("adapters.selected")

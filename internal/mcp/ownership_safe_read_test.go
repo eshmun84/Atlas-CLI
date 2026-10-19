@@ -54,7 +54,7 @@ func TestLoadOwnership_SymlinkLeaf_RefusesExternalAndBlocksReconcile(t *testing.
 		Adapters: config.AdaptersPersist{Selected: []string{"cursor"}},
 	}
 	draft := doc.ToMCPDraft()
-	if !draft.EnableBuiltin(config.MCPBuiltinFilesystem) {
+	if !draft.EnableBuiltin(config.MCPBuiltinChromeDevTools) {
 		t.Fatal("enable filesystem")
 	}
 

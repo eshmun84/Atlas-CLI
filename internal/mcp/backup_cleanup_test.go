@@ -28,9 +28,9 @@ func TestReconcile_AttemptBackupRemovedAfterSuccessfulRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := mustBuiltin(t, mcp.BuiltinFilesystem)
+	fs := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	fs.Enabled = true
-	gh := mustBuiltin(t, mcp.BuiltinGitHub)
+	gh := mustBuiltin(t, mcp.BuiltinContext7)
 	gh.Enabled = true
 
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, cursor.ConfigRelPath)), 0o755); err != nil {
@@ -124,9 +124,9 @@ func TestReconcile_CleanupFailureAfterSuccessfulRestore(t *testing.T) {
 	root := t.TempDir()
 	homePath := t.TempDir()
 	pid := "bak-clean-fail"
-	fs := mustBuiltin(t, mcp.BuiltinFilesystem)
+	fs := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	fs.Enabled = true
-	gh := mustBuiltin(t, mcp.BuiltinGitHub)
+	gh := mustBuiltin(t, mcp.BuiltinContext7)
 	gh.Enabled = true
 
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, cursor.ConfigRelPath)), 0o755); err != nil {
@@ -187,7 +187,7 @@ func TestReconcile_AttemptBackupRetainedWhenRollbackFails(t *testing.T) {
 	root := t.TempDir()
 	homePath := t.TempDir()
 	pid := "bak-retain"
-	fs := mustBuiltin(t, mcp.BuiltinFilesystem)
+	fs := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	fs.Enabled = true
 
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, cursor.ConfigRelPath)), 0o755); err != nil {
@@ -207,7 +207,7 @@ func TestReconcile_AttemptBackupRetainedWhenRollbackFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gh := mustBuiltin(t, mcp.BuiltinGitHub)
+	gh := mustBuiltin(t, mcp.BuiltinContext7)
 	gh.Enabled = true
 	_, err = mcp.Reconcile(mcp.ReconcileInput{
 		Root: root, HomePath: homePath, ProjectID: pid,

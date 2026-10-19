@@ -319,9 +319,9 @@ func OptionLabel(value string) string {
 	case "main_develop_staging":
 		return "Main + develop + staging"
 	case "local_only":
-		return "Local only"
+		return "Keep local"
 	case "versioned":
-		return "Versioned"
+		return "Version with project"
 	case "sqlite":
 		return "SQLite"
 	case "context_capsule":
@@ -395,8 +395,7 @@ func ToggleChip(list, value string) string {
 func boolOptions(key string) []LabeledOption {
 	switch key {
 	case "governance.testing_required",
-		"governance.review_required",
-		"governance.evidence_required":
+		"governance.review_required":
 		return []LabeledOption{
 			{Value: "true", Label: "Yes"},
 			{Value: "false", Label: "No"},

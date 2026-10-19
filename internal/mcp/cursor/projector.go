@@ -149,6 +149,23 @@ func (p Projector) ApplyMCPProjection(root string, entries []mcp.NativeEntry, ma
 	}
 	doc["mcpServers"] = servers
 
+	// When no servers remain (adapter deselected / all Atlas keys removed and
+	// no user-owned entries), delete the empty Atlas-managed mcp.json rather
+	// than leaving a hollow file that blocks adapter-root cleanup.
+	if len(servers) == 0 && len(entries) == 0 {
+		if !snap.Exists {
+			return nil
+		}
+		full, joinErr := mcp.ContainedJoin(root, ConfigRelPath)
+		if joinErr != nil {
+			return joinErr
+		}
+		if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("cursor: remove empty mcp.json: %w", err)
+		}
+		return nil
+	}
+
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
@@ -162,9 +179,11 @@ func (p Projector) ApplyMCPProjection(root string, entries []mcp.NativeEntry, ma
 }
 
 // RemoveManagedMCPProjection removes only Atlas-managed keys.
+// When managedKeys is empty, still clears a hollow empty mcp.json so a
+// deselected Cursor adapter root can disappear when nothing user-owned remains.
 func (p Projector) RemoveManagedMCPProjection(root string, managedKeys []string) error {
 	if len(managedKeys) == 0 {
-		return nil
+		return p.ApplyMCPProjection(root, nil, nil, nil)
 	}
 	return p.ApplyMCPProjection(root, nil, managedKeys, managedKeys)
 }

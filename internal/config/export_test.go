@@ -102,9 +102,12 @@ func LoadAgentsAssetDefaultForTest(rel string) (string, error) {
 	return loadAgentsAssetDefault(rel)
 }
 
-// MergeAtlasGitignoreBlockForTest exposes managed .gitignore consolidation.
+// MergeAtlasGitignoreBlockForTest exposes managed .gitignore consolidation
+// using the full dual-adapter ownership set.
 func MergeAtlasGitignoreBlockForTest(existing string) (string, error) {
-	return mergeAtlasGitignoreBlock(existing)
+	return mergeAtlasGitignoreBlock(existing, ProjectDocument{
+		Adapters: AdaptersPersist{Selected: []string{"cursor", "opencode"}},
+	})
 }
 
 // SetRenderAtlasAgentReadersForTest installs test-only agent content readers.

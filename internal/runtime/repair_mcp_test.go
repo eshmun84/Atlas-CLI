@@ -26,18 +26,14 @@ func TestApplyRuntimeRepair_PreservesAtlasAndUserMCP(t *testing.T) {
 	})
 	config.ApplyProjectDocument(&cfg, doc)
 	mcpDraft := doc.ToMCPDraft()
-	mcpDraft.EnableBuiltin(config.MCPBuiltinFilesystem)
-	if _, err := mcpDraft.AddCustomRemote("company-http", "https://mcp.example.com/v1", config.MCPAuthEnvironmentReference, "Authorization", "API_TOKEN", "Bearer "); err != nil {
-		t.Fatal(err)
-	}
-	for i := range mcpDraft.CustomServers {
-		mcpDraft.CustomServers[i].Enabled = true
-	}
+	mcpDraft.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	if _, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: cfg, MCP: mcpDraft}); err != nil {
 		t.Fatal(err)
 	}
 
+	// Developer-owned MCP keys (not Atlas DesiredState) must survive Repair.
 	injectUserMCP(t, root, cursor.ConfigRelPath, "mcpServers", "user-cursor")
+	injectUserMCP(t, root, cursor.ConfigRelPath, "mcpServers", "company-http")
 	injectUserOpenCode(t, root, "user-opencode")
 	if err := os.WriteFile(filepath.Join(root, ".cursor", "settings.json"), []byte(`{"editor.fontSize":14}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -48,14 +44,14 @@ func TestApplyRuntimeRepair_PreservesAtlasAndUserMCP(t *testing.T) {
 		return time.Date(2026, 10, 8, 22, 0, 0, 0, time.UTC)
 	})
 
-	assertMCPKey(t, root, cursor.ConfigRelPath, "mcpServers", "filesystem")
+	assertMCPKey(t, root, cursor.ConfigRelPath, "mcpServers", "chrome_devtools")
 	assertMCPKey(t, root, cursor.ConfigRelPath, "mcpServers", "company-http")
 	assertMCPKey(t, root, cursor.ConfigRelPath, "mcpServers", "user-cursor")
 	if _, err := os.Stat(filepath.Join(root, ".cursor", "settings.json")); err != nil {
 		t.Fatal("cursor settings must survive")
 	}
-	if _, err := os.Stat(filepath.Join(root, opencode.ConfigRelPath)); err != nil {
-		t.Fatal("opencode.json must survive")
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(opencode.ConfigRelPath))); err != nil {
+		t.Fatal(".opencode/opencode.json must survive")
 	}
 	assertOpenCodeKey(t, root, "user-opencode")
 }

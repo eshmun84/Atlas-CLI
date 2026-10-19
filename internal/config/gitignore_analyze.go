@@ -81,9 +81,9 @@ func AnalyzeLocalOnlyGitignore(root string, doc ProjectDocument) (GitignoreAnaly
 		out.Reason = fmt.Sprintf("%d Atlas local governance blocks (should consolidate to one)", len(spans))
 	default:
 		body := string(existing[spans[0].begin:spans[0].end])
-		canonical := AtlasLocalGovernanceGitignoreBlock()
+		canonical := AtlasLocalGovernanceGitignoreBlockFor(doc)
 		if normalizeGitignoreBlock(body) == normalizeGitignoreBlock(canonical) {
-			desired, mergeErr := mergeAtlasGitignoreBlock(string(existing))
+			desired, mergeErr := mergeAtlasGitignoreBlock(string(existing), doc)
 			if mergeErr != nil {
 				out.State = GitignoreMalformed
 				out.Reason = mergeErr.Error()

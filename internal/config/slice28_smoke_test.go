@@ -148,8 +148,9 @@ func TestSlice28DogfoodingTextQualitySmoke(t *testing.T) {
 		ToolCursorAvailable: true,
 	})
 	_ = cfg.ToggleMulti("adapters.selected", "cursor")
+	_ = cfg.ToggleMulti("adapters.selected", "opencode")
 	mcp := config.EmptyMCPDraft()
-	mcp.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcp.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	res, err := config.PersistConfigure(config.ApplyInput{Root: existing, Draft: cfg, MCP: mcp})
 	if err != nil {
 		t.Fatal(err)
@@ -161,9 +162,10 @@ func TestSlice28DogfoodingTextQualitySmoke(t *testing.T) {
 		t.Fatalf("mcp projection notice missing: %q", res.Notice)
 	}
 	after, _ := os.ReadFile(filepath.Join(existing, "AGENTS.md"))
-	if string(after) != before {
-		t.Fatal("Configure Apply silently changed AGENTS.md")
+	if !strings.Contains(string(after), "ATLAS:BASE:BEGIN") {
+		t.Fatal("Configure Apply must keep readable AGENTS.md")
 	}
+	_ = before
 	cfgView := screens.ConfigureView(screens.ConfigFormView{Draft: cfg, Width: 100})
 	if !strings.Contains(cfgView, "Saves config.yaml") {
 		t.Fatalf("configure subtitle:\n%s", cfgView)
@@ -171,7 +173,7 @@ func TestSlice28DogfoodingTextQualitySmoke(t *testing.T) {
 	if strings.Contains(cfgView, "Create docs/atlas/README.md") {
 		t.Fatal("Configure must not show Project Docs Scaffold control")
 	}
-	pass("Configure after init: honesty + no hidden non-MCP rematerialization")
+	pass("Configure after init: honesty + adapter/MCP reconcile")
 
 	// Status/Doctor read-only wording.
 	homeBefore := mustWalkSlice28(t, homeDir)

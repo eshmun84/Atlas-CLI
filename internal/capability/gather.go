@@ -93,6 +93,8 @@ func GatherEvidence(in GatherInput) (GatherResult, error) {
 		ev.Workflow = strings.TrimSpace(doc.Governance.Workflow)
 		ev.TestingRequired = doc.Governance.TestingRequired
 		ev.ReviewRequired = doc.Governance.ReviewRequired
+		// Evidence is inherent governance behavior — never opt-out via config.
+		ev.EvidenceRequired = true
 		ev.EnabledPins = doc.SkillPins()
 		if name := strings.TrimSpace(doc.Project.Name); name != "" && homePath != "" {
 			if pid, pidErr := home.ProjectID(absRoot, name); pidErr == nil {

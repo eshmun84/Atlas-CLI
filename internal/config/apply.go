@@ -92,6 +92,9 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 	if err := ValidateProjectDocument(doc); err != nil {
 		return ApplyResult{}, fmt.Errorf("apply config: %w", err)
 	}
+	if err := RequireSupportedAdaptersFromDraft(in.Draft); err != nil {
+		return ApplyResult{}, fmt.Errorf("apply config: %w", err)
+	}
 	now := time.Now().UTC()
 	if in.Now != nil {
 		now = in.Now().UTC()
@@ -174,7 +177,7 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 			}
 		}
 	}
-	if _, err := PlanLocalOnlyGitignore(root, doc); err != nil {
+	if _, err := PlanGovernanceGitignore(root, doc); err != nil {
 		return ApplyResult{HomePath: homePath, ProjectID: projectID},
 			fmt.Errorf("apply config: %w", err)
 	}
@@ -418,7 +421,7 @@ func ApplyConfig(in ApplyInput) (ApplyResult, error) {
 		result.Files = append(result.Files, created...)
 	}
 
-	giResult, giWorkspaceFP, giHomeFP, giErr := ReconcileLocalOnlyGitignore(root, homePath, projectID, doc, now)
+	giResult, giWorkspaceFP, giHomeFP, giErr := ReconcileGovernanceGitignore(root, homePath, projectID, doc, now)
 	baseline.footprint.MergeFootprint(giWorkspaceFP)
 	baseline.homeFootprint.MergeFootprint(giHomeFP)
 	if giErr != nil {
@@ -470,15 +473,14 @@ type PersistConfigureResult struct {
 }
 
 // PersistConfigure writes the current draft/MCP state to .atlas/config.yaml
-// and reconciles Atlas-owned MCP projections when MCP/adapters change.
-// It does not rematerialize general runtime assets (AGENTS.md, rules, agents)
-// and does not store credentials.
+// and reconciles Atlas-owned projections when MCP/adapters/governance storage
+// change. When adapters change it rematerializes AGENTS.md, rules, agents,
+// registries, MCP/skills/hooks for the target set and removes only Atlas-owned
+// projections for deselected adapters (unknown/user-owned content is preserved).
+// It does not store credentials.
 // Optional project docs scaffold may be created once when selected and missing.
-// Config, MCP/skills/hooks projections, docs, and any Configure-driven OpenSpec
-// tool sync/update share one transaction: Atlas snapshots Atlas-managed surfaces
-// and relevant provider-created paths before OpenSpec mutation and restores them
-// on Apply failure where safely possible. External-provider rollback cannot be
-// claimed when the provider mutates outside the captured footprint.
+// Config, runtime/MCP/skills/hooks projections, docs, gitignore, and any
+// Configure-driven OpenSpec tool sync/update share one transaction.
 func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 	root := filepath.Clean(strings.TrimSpace(in.Root))
 	if root == "" || root == "." {
@@ -486,13 +488,13 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 	}
 
 	// Pure input prepare (draft → document); do not load on-disk previous yet.
+	// Fail closed on zero adapters before any lock or mutation.
 	doc := BuildProjectDocument(in.Draft, in.MCP)
 	if err := ValidateProjectDocument(doc); err != nil {
 		return PersistConfigureResult{}, fmt.Errorf("persist configure: %w", err)
 	}
-	data, err := marshalYAML(doc)
-	if err != nil {
-		return PersistConfigureResult{}, fmt.Errorf("persist configure: marshal %s: %w", FileConfig, err)
+	if err := RequireSupportedAdaptersFromDraft(in.Draft); err != nil {
+		return PersistConfigureResult{}, fmt.Errorf("persist configure: %w", err)
 	}
 
 	homePath, err := home.Resolve()
@@ -528,6 +530,15 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 		return PersistConfigureResult{}, fmt.Errorf("persist configure: inspect existing config: %w", prevStatErr)
 	}
 
+	if hadPrevious {
+		PreserveRetiredMCPBuiltins(&previous, &doc)
+		PreserveLegacyMCPCustom(&previous, &doc)
+	}
+	data, err := marshalYAML(doc)
+	if err != nil {
+		return PersistConfigureResult{}, fmt.Errorf("persist configure: marshal %s: %w", FileConfig, err)
+	}
+
 	if err := preflightDocsScaffold(root, doc.Project.DocsScaffold); err != nil {
 		return PersistConfigureResult{}, fmt.Errorf("persist configure: %w", err)
 	}
@@ -547,12 +558,15 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 	}
 
 	mcpChanged := MCPChanged(previous, doc)
-	adaptersChanged := JoinChips(previous.Adapters.Selected) != JoinChips(doc.Adapters.Selected)
+	adaptersChanged := !adaptersEqualSet(previous.Adapters.Selected, doc.Adapters.Selected)
 	skillsChanged := !skillPinsEqual(previous.SkillPins(), doc.SkillPins())
+	govStorageChanged := strings.TrimSpace(previous.SourceControl.GovernanceFiles) != strings.TrimSpace(doc.SourceControl.GovernanceFiles)
 	impact := AnalyzeConfigureImpact(previous, doc, mcpChanged)
 	needMCP := mcpChanged || adaptersChanged || mcpPreferencePresent(doc) || mcpPreferencePresent(previous)
 	needSkills := adaptersChanged || skillsChanged
 	needHooks := adaptersChanged
+	needRuntime := adaptersChanged
+	needGitignore := govStorageChanged || NeedsLocalOnlyGitignore(doc) || NeedsVersionedGitignoreCleanup(doc)
 	// Drafts do not carry openspec_version; never silently wipe an existing project pin.
 	if strings.TrimSpace(doc.Governance.OpenSpecVersion) == "" {
 		doc.Governance.OpenSpecVersion = strings.TrimSpace(previous.Governance.OpenSpecVersion)
@@ -589,8 +603,19 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 		}
 	}
 	needProviderMutation := needOpenSpecToolSync || needOpenSpecUpdate
+	// Snapshot provider-owned files whenever adapters change so stale OpenSpec
+	// tool cleanup (deselected adapters) can roll back exactly — even when
+	// openspec init/update is not invoked.
+	needProviderSnapshot := needProviderMutation || adaptersChanged
 
-	baseline, err := captureConfigureMutationSnapshot(root, homePath, projectID, needProviderMutation)
+	if needGitignore {
+		if _, planErr := PlanGovernanceGitignore(root, doc); planErr != nil {
+			return PersistConfigureResult{}, fmt.Errorf("persist configure: %w", planErr)
+		}
+	}
+
+	extraSnap := ConfigureRuntimeSnapshotPaths(previous, doc)
+	baseline, err := captureConfigureMutationSnapshot(root, homePath, projectID, needProviderSnapshot, extraSnap...)
 	if err != nil {
 		return PersistConfigureResult{}, fmt.Errorf("persist configure: snapshot: %w", err)
 	}
@@ -682,6 +707,9 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 		if _, err := ReconcileMCPProjections(root, doc, in.MCP); err != nil {
 			return rollback(fmt.Errorf("mcp projection: %w", err))
 		}
+		if err := absorbMCPNativeFootprint(&baseline.footprint, root, baseline.files); err != nil {
+			return rollback(fmt.Errorf("mcp footprint: %w", err))
+		}
 		if err := recordOwnershipWriteFootprint(&baseline.footprint, homePath, projectID, !baseline.ownershipExists); err != nil {
 			return rollback(fmt.Errorf("ownership footprint: %w", err))
 		}
@@ -716,6 +744,32 @@ func PersistConfigure(in ApplyInput) (PersistConfigureResult, error) {
 			return rollback(fmt.Errorf("hooks projection blocked: %s", strings.Join(hookRes.Errors, "; ")))
 		} else {
 			baseline.hooksMutation = hookRes.Mutation
+		}
+	}
+
+	if needRuntime {
+		if err := materializeConfigureRuntime(&baseline.footprint, root, previous, doc, homePath); err != nil {
+			return rollback(fmt.Errorf("adapter runtime reconcile: %w", err))
+		}
+		if err := reconcileDeselectedAdapterCleanup(&baseline.footprint, root, previous, doc); err != nil {
+			return rollback(fmt.Errorf("adapter cleanup: %w", err))
+		}
+		impact.RuntimeReconciled = true
+		impact.RuntimeRepairNeeded = false
+	}
+
+	if needGitignore {
+		now := time.Now().UTC()
+		giResult, giWorkspaceFP, giHomeFP, giErr := ReconcileGovernanceGitignore(root, homePath, projectID, doc, now)
+		baseline.footprint.MergeFootprint(giWorkspaceFP)
+		// Home backups for gitignore are not rolled back via configure snapshot;
+		// workspace .gitignore content is covered by the file snapshot.
+		_ = giHomeFP
+		if giErr != nil {
+			return rollback(fmt.Errorf("gitignore: %w", giErr))
+		}
+		if giResult.Changed {
+			impact.GitignoreReconciled = true
 		}
 	}
 
@@ -771,7 +825,7 @@ func marshalYAML(v any) ([]byte, error) {
 func isAllowedRuntimePath(rel string) bool {
 	clean := filepath.ToSlash(filepath.Clean(rel))
 	switch clean {
-	case FileAgentsMD, FileCursorAtlasMDC, FileOpenCodeAtlas:
+	case FileAgentsMD, FileCursorAtlasMDC, FileOpenCodeAtlas, FileOpenCodeMCP:
 		return true
 	default:
 		return IsAtlasAgentRuntimePath(clean)

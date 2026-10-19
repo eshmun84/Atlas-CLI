@@ -17,7 +17,7 @@ func TestReconcile_PreservesOpenSpecSkillsAlongsideAtlas(t *testing.T) {
 	}
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName: "Coexist", ProjectMode: "existing",
+		ProjectName: "Coexist", ProjectMode: "existing", ToolCursorAvailable: true,
 	})
 	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	fixed := time.Date(2026, 10, 14, 23, 0, 0, 0, time.UTC)

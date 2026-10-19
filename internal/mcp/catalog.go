@@ -6,6 +6,9 @@ import (
 )
 
 // Builtin IDs. Stable for persistence and ownership.
+// Managed MCP V1 catalog exposes only Context7 and Chrome DevTools.
+// Retired IDs (filesystem, github, jira) remain as constants for legacy YAML
+// compatibility and must not appear in BuiltinCatalog / UI.
 const (
 	BuiltinFilesystem     = "filesystem"
 	BuiltinGitHub         = "github"
@@ -17,52 +20,18 @@ const (
 // WorkspaceFolderToken is substituted by projectors that support Cursor-style interpolation.
 const WorkspaceFolderToken = "${workspaceFolder}"
 
-// BuiltinCatalog returns declarative built-in MCP definitions (all disabled).
+// BuiltinCatalog returns Atlas Managed MCP V1 definitions (all disabled by default).
 //
-// Verified sources (Slice 32):
-//   - Filesystem: https://github.com/modelcontextprotocol/servers (src/filesystem/README.md)
-//     command npx -y @modelcontextprotocol/server-filesystem <allowed-dirs>
-//   - GitHub remote: https://github.com/github/github-mcp-server/docs/remote-server.md
-//     and GitHub Docs "Setting up the GitHub MCP Server"
-//     URL https://api.githubcopilot.com/mcp/ ; OAuth/PAT via client (Atlas stores no token)
+// V1 managed set:
 //   - Context7: https://opencode.ai/docs/mcp-servers/ example URL https://mcp.context7.com/mcp
 //   - Chrome DevTools: https://github.com/ChromeDevTools/chrome-devtools-mcp
 //     command npx -y chrome-devtools-mcp@latest
-//   - Jira: no verified public Atlassian MCP endpoint hardcoded; selection persists, not materializable.
+//
+// Retired from Atlas Managed MCP (developer-managed or future skill-assisted setup):
+// Filesystem, GitHub, Jira, and arbitrary Custom MCP. Legacy YAML may still carry
+// those keys; Atlas does not offer them in Init/Configure UI.
 func BuiltinCatalog() []Definition {
 	return []Definition{
-		{
-			ID:                  BuiltinFilesystem,
-			DisplayName:         "Filesystem",
-			Source:              SourceBuiltin,
-			Transport:           TransportStdio,
-			Command:             "npx",
-			Args:                []string{"-y", "@modelcontextprotocol/server-filesystem", WorkspaceFolderToken},
-			AuthRequirement:     AuthNone,
-			Materializable:      true,
-			PrerequisiteCommand: "npx",
-		},
-		{
-			ID:              BuiltinGitHub,
-			DisplayName:     "GitHub",
-			Source:          SourceBuiltin,
-			Transport:       TransportStreamableHTTP,
-			Endpoint:        "https://api.githubcopilot.com/mcp/",
-			AuthRequirement: AuthOAuthExternal,
-			Materializable:  true,
-			CompatibilityNote: "Remote Streamable HTTP; authenticate via the agent OAuth/PAT flow. " +
-				"Atlas never stores GitHub tokens.",
-		},
-		{
-			ID:              BuiltinJira,
-			DisplayName:     "Jira",
-			Source:          SourceBuiltin,
-			Transport:       TransportStreamableHTTP,
-			AuthRequirement: AuthOAuthExternal,
-			Materializable:  false,
-			CompatibilityNote: "Selection persisted for compatibility. No verified public Atlassian MCP " +
-				"endpoint is hardcoded in Slice 32; not projected until a verified definition exists.",
-		},
 		{
 			ID:          BuiltinContext7,
 			DisplayName: "Context7",
@@ -74,8 +43,9 @@ func BuiltinCatalog() []Definition {
 			},
 			AuthRequirement: AuthEnvironmentReference,
 			Materializable:  true,
-			CompatibilityNote: "Optional CONTEXT7_API_KEY for Authorization: Bearer <token>. " +
-				"Anonymous use may work with lower rate limits. Atlas stores the env reference only.",
+			CompatibilityNote: "Documentation and library context. Optional CONTEXT7_API_KEY for " +
+				"Authorization: Bearer <token>. Anonymous use may work with lower rate limits. " +
+				"Atlas stores the env reference only.",
 		},
 		{
 			ID:                  BuiltinChromeDevTools,
@@ -87,6 +57,7 @@ func BuiltinCatalog() []Definition {
 			AuthRequirement:     AuthNone,
 			Materializable:      true,
 			PrerequisiteCommand: "npx",
+			CompatibilityNote:   "Browser debugging and web development.",
 		},
 	}
 }
@@ -99,6 +70,12 @@ func BuiltinByID(id string) (Definition, bool) {
 		}
 	}
 	return Definition{}, false
+}
+
+// IsManagedBuiltin reports whether id is part of Atlas Managed MCP V1.
+func IsManagedBuiltin(id string) bool {
+	_, ok := BuiltinByID(id)
+	return ok
 }
 
 // NativeKeyFor returns the stable native config key for a definition.

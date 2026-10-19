@@ -43,12 +43,13 @@ These are not Atlas CLI commands.
   Backup is mandatory. No skip, merge, or silent delete.
 
 ` + helpHead.Render("MCP") + `
-  Built-ins: Jira · Context7 · Chrome DevTools (multi-select).
-  Configure MCP during Init Step 2, or later in Configure after initialization.
-  Add MCP creates custom entries. d removes a custom entry in memory.
-  Init Apply config and Configure Apply changes persist MCP in .atlas/config.yaml.
-  In Configure, [ Close ] discards; [ Apply changes ] saves (visible in every section, including MCP).
-  No connections, credentials, or validation yet.
+  Atlas Managed MCP V1: Context7 · Chrome DevTools (opt-in multi-select).
+  Configure during Init Step 2, or later in Configure after initialization.
+  Other MCPs are developer-managed (or future skill-assisted setup).
+  Init Apply and Configure Apply persist MCP desired state in .atlas/config.yaml
+  and project Atlas-owned entries to selected agents.
+  In Configure, [ Close ] discards; [ Apply changes ] saves.
+  Secrets are never stored.
 
 ` + helpHead.Render("Keyboard") + `
   Tab          toggle sidebar/content focus (Init / Configure)

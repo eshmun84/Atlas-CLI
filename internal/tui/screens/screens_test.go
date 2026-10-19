@@ -309,16 +309,15 @@ func TestConfigFormFinalSections(t *testing.T) {
 		"[x] SDD",
 		"Spec engine",
 		"[x] OpenSpec",
-		"[x] Testing required",
+		"[x] Requires testing",
 		"[x] Review required",
-		"[x] Evidence required",
 		"No files are written until Review → Apply.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
 		}
 	}
-	for _, banned := range []string{"Memory", "Development &", "CodeGraph"} {
+	for _, banned := range []string{"Memory", "Development &", "CodeGraph", "Evidence required", "Filesystem", "Add MCP"} {
 		if strings.Contains(view, banned) {
 			t.Fatalf("unexpected %q:\n%s", banned, view)
 		}
@@ -382,7 +381,7 @@ func TestConfigFormFinalSections(t *testing.T) {
 		ShowNext:     true,
 		Width:        110,
 	})
-	if strings.Contains(gov, "Atlas governance files") || strings.Contains(gov, "Local only") {
+	if strings.Contains(gov, "Atlas governance files") || strings.Contains(gov, "Keep local") {
 		t.Fatalf("governance storage must not appear in Governance:\n%s", gov)
 	}
 
@@ -423,7 +422,7 @@ func TestConfigFormFinalSections(t *testing.T) {
 		"Delivery",
 		"Platform",
 		"[x] None", "[ ] Git local", "[ ] GitHub",
-		"Governance files", "[x] Local only", "[ ] Versioned",
+		"Governance files", "[x] Keep local", "[ ] Version with project",
 		"Require signed commits",
 	} {
 		if !strings.Contains(sc, want) {
@@ -462,7 +461,7 @@ func TestConfigFormFinalSections(t *testing.T) {
 			ContentFocused: true,
 		},
 	})
-	for _, want := range []string{"Built-in MCPs", "[ ] Filesystem", "[ ] GitHub", "[ ] Jira", "[ ] Context7", "[ ] Chrome DevTools", "Custom MCPs", "[ Add MCP ]"} {
+	for _, want := range []string{"MCP integrations", "[ ] Context7", "[ ] Chrome DevTools"} {
 		if !strings.Contains(mcp, want) {
 			t.Fatalf("init mcp section missing %q:\n%s", want, mcp)
 		}
@@ -519,9 +518,9 @@ func TestConfigureViewFinalSections(t *testing.T) {
 		"Delivery",
 		"MCP",
 		"Close discards unsaved changes. Apply saves .atlas/config.yaml.",
-		"Runtime files (AGENTS.md, rules, agents) are not repaired or rematerialized automatically.",
+		"Adapter changes rematerialize Atlas-owned AGENTS.md, rules, and agents for the selected set.",
 		"Context Economy payloads are not updated automatically.",
-		"Runtime Repair and Update Context are separate flows.",
+		"Runtime Repair and Update Context remain available for unrelated drift.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
@@ -571,10 +570,10 @@ func TestConfigureViewDocsScaffoldFooterHonesty(t *testing.T) {
 	for _, want := range []string{
 		"Apply saves .atlas/config.yaml.",
 		"docs/atlas/README.md once",
-		"Runtime files (AGENTS.md, rules, agents) are not repaired or rematerialized automatically.",
+		"Adapter changes rematerialize Atlas-owned AGENTS.md, rules, and agents for the selected set.",
 		"Context Economy payloads are not updated automatically.",
 		"MCP projections for selected adapters are reconciled on Apply",
-		"Runtime Repair and Update Context are separate flows.",
+		"Runtime Repair and Update Context remain available for unrelated drift.",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q:\n%s", want, view)
@@ -598,64 +597,38 @@ func TestRenderMCP(t *testing.T) {
 		Draft: config.DefaultMCPDraft(),
 	})
 	for _, want := range []string{
-		"MCP",
-		"External capabilities projected to selected agents on Apply.",
+		"MCP integrations",
+		"Atlas Managed MCP V1",
 		"Atlas is not initialized yet.",
 		"draft-only until Init Apply",
-		"Built-in MCPs",
-		"[ ] Filesystem",
-		"[ ] GitHub",
-		"[ ] Jira",
 		"[ ] Context7",
 		"[ ] Chrome DevTools",
-		"Custom MCPs",
-		"No custom MCPs configured yet.",
 	} {
 		if !strings.Contains(preview, want) {
 			t.Fatalf("preview missing %q:\n%s", want, preview)
 		}
 	}
-	if strings.Contains(preview, "[ ] Custom") || strings.Contains(preview, "[x] Custom") {
-		t.Fatalf("custom must not be a built-in row:\n%s", preview)
-	}
-
-	add := screens.RenderMCP(screens.MCPView{
-		Mode:              screens.MCPModeAdd,
-		TransportFocus:    0,
-		TransportSelected: config.MCPTransportStdio,
-		AddFocus:          screens.MCPFocusName,
-	})
-	for _, want := range []string{"Add MCP", "Name", "Transport", "[x] stdio", "[ ] streamable_http", "Command", "Arguments", "Environment references"} {
-		if !strings.Contains(add, want) {
-			t.Fatalf("add form missing %q:\n%s", want, add)
-		}
-	}
-	for _, banned := range []string{"Kind", "[ ] Jira", "[ ] Context7", "[ ] Chrome DevTools", "[x] Custom", "[ ] sse"} {
-		if strings.Contains(add, banned) {
-			t.Fatalf("add form unexpected %q:\n%s", banned, add)
+	for _, banned := range []string{"Filesystem", "GitHub", "Jira", "Custom MCPs", "Add MCP"} {
+		if strings.Contains(preview, banned) {
+			t.Fatalf("preview unexpected %q:\n%s", banned, preview)
 		}
 	}
 
 	draft := config.DefaultMCPDraft()
-	draft.EnableBuiltin(config.MCPBuiltinJira)
-	if _, err := draft.AddCustom("My Browser MCP", config.MCPTransportStdio, "npx", "-y demo", ""); err != nil {
-		t.Fatal(err)
-	}
-	draft.ToggleCustom(0)
+	draft.EnableBuiltin(config.MCPBuiltinContext7)
+	draft.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	active := screens.RenderMCP(screens.MCPView{
 		Mode:           screens.MCPModeList,
 		Draft:          draft,
 		ActiveIndex:    0,
 		Initialized:    true,
 		ContentFocused: true,
-		ListFocus:      screens.MCPFocusCustom,
+		ListFocus:      screens.MCPFocusBuiltins,
 	})
 	for _, want := range []string{
-		"[x] Jira",
-		"My Browser MCP",
-		"stdio",
-		"[x]",
-		"configured",
+		"[x] Context7",
+		"[x] Chrome DevTools",
+		"Apply saves .atlas/config.yaml",
 	} {
 		if !strings.Contains(active, want) {
 			t.Fatalf("initialized view missing %q:\n%s", want, active)

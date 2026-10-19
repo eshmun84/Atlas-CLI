@@ -71,9 +71,10 @@ func TestApplyConfig_AdapterAssetFailureBlocks(t *testing.T) {
 	t.Cleanup(func() { config.SetLoadAgentsAssetForTest(nil) })
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:   "asset-fail",
-		ProjectMode:   "new",
-		DefaultRemote: "origin",
+		ProjectName:         "asset-fail",
+		ProjectMode:         "new",
+		DefaultRemote:       "origin",
+		ToolCursorAvailable: true,
 	})
 	if !draft.ToggleMulti("adapters.selected", "cursor") {
 		t.Fatal("toggle cursor")

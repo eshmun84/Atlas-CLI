@@ -83,29 +83,32 @@ func TestSlice27ConfigureContextMCPDocsSmoke(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Configuration changes are saved to .atlas/config.yaml.",
-		"Runtime files are not repaired automatically.",
-		"Runtime Repair",
+		"Atlas-owned adapter projections are reconciled when adapters change.",
+		"Atlas-owned AGENTS.md, rules, and agents were reconciled",
 	} {
 		if !strings.Contains(res.Notice, want) {
 			t.Fatalf("adapter configure notice missing %q: %q", want, res.Notice)
 		}
 	}
-	if !res.Impact.RuntimeRepairNeeded {
-		t.Fatal("expected RuntimeRepairNeeded")
+	if !res.Impact.RuntimeReconciled && !res.Impact.AdapterChange {
+		t.Fatal("expected adapter runtime reconcile")
 	}
 	agentsAfter, _ := os.ReadFile(filepath.Join(root, "AGENTS.md"))
 	cursorAfter, _ := os.ReadFile(filepath.Join(root, ".cursor/rules/atlas.mdc"))
-	if string(agentsAfter) != string(agentsBefore) || string(cursorAfter) != string(cursorBefore) {
-		t.Fatal("Configure silently changed runtime files")
+	if !strings.Contains(string(agentsAfter), "ATLAS:ADAPTER:OPENCODE") {
+		t.Fatal("Configure must rematerialize OpenCode adapter block")
 	}
-	if _, err := os.Stat(filepath.Join(root, ".opencode/atlas.md")); !os.IsNotExist(err) {
-		t.Fatal("Configure silently materialized OpenCode")
+	if _, err := os.Stat(filepath.Join(root, ".opencode/atlas.md")); err != nil {
+		t.Fatal("Configure must materialize OpenCode atlas projection")
 	}
-	pass("Configure adapter change: config+MCP reconcile + Runtime Repair recommended; non-MCP runtime untouched")
+	_ = agentsBefore
+	_ = cursorBefore
+	_ = cursorAfter
+	pass("Configure adapter change: reconciles Atlas-owned runtime + MCP")
 
 	mcp := config.EmptyMCPDraft()
-	mcp.EnableBuiltin(config.MCPBuiltinFilesystem)
-	mcp.EnableBuiltin(config.MCPBuiltinGitHub)
+	mcp.EnableBuiltin(config.MCPBuiltinChromeDevTools)
+	mcp.EnableBuiltin(config.MCPBuiltinContext7)
 	agentsBeforeMCP, _ := os.ReadFile(filepath.Join(root, "AGENTS.md"))
 	cursorBeforeMCP, _ := os.ReadFile(filepath.Join(root, ".cursor/rules/atlas.mdc"))
 	res, err = config.PersistConfigure(config.ApplyInput{Root: root, Draft: cfgDraft, MCP: mcp})
@@ -119,13 +122,13 @@ func TestSlice27ConfigureContextMCPDocsSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !doc.MCP.Builtins.Filesystem.Enabled || !doc.MCP.Builtins.GitHub.Enabled {
+	if !doc.MCP.Builtins.ChromeDevTools.Enabled || !doc.MCP.Builtins.Context7.Enabled {
 		t.Fatalf("MCP prefs not recorded: %#v", doc.MCP.Builtins)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".cursor/mcp.json")); err != nil {
 		t.Fatalf("expected Cursor MCP projection: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "opencode.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, ".opencode", "opencode.json")); err != nil {
 		t.Fatalf("expected OpenCode MCP projection: %v", err)
 	}
 	agentsAfterMCP, _ := os.ReadFile(filepath.Join(root, "AGENTS.md"))

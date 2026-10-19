@@ -55,7 +55,7 @@ func TestInitApply_ExactTreeRollbackFreshProject(t *testing.T) {
 	mcp.RegisterDefaultProjector(boomOpenCode{})
 
 	mcpDraft := config.EmptyMCPDraft()
-	mcpDraft.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcpDraft.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	_, err := config.ApplyConfig(config.ApplyInput{
 		Root: root, Draft: draft, MCP: mcpDraft,
 		Now: func() time.Time { return time.Date(2026, 10, 8, 23, 0, 0, 0, time.UTC) },
@@ -95,7 +95,7 @@ func TestInitApply_ExactTreeRollbackPreservesPreexistingDirs(t *testing.T) {
 	mcp.RegisterDefaultProjector(cursor.New())
 	mcp.RegisterDefaultProjector(boomOpenCode{})
 	mcpDraft := config.EmptyMCPDraft()
-	mcpDraft.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcpDraft.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	_, err := config.ApplyConfig(config.ApplyInput{
 		Root: root, Draft: draft, MCP: mcpDraft,
 		Now: func() time.Time { return time.Date(2026, 10, 8, 23, 5, 0, 0, time.UTC) },
@@ -133,7 +133,7 @@ func TestInitApply_DoesNotBootstrapOrMutateGlobalHomeOnFailure(t *testing.T) {
 	})
 	mcp.RegisterDefaultProjector(boomOpenCode{})
 	mcpDraft := config.EmptyMCPDraft()
-	mcpDraft.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcpDraft.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	_, err := config.ApplyConfig(config.ApplyInput{
 		Root: root, Draft: draft, MCP: mcpDraft,
 		Now: func() time.Time { return time.Date(2026, 10, 8, 23, 10, 0, 0, time.UTC) },

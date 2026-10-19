@@ -49,7 +49,7 @@ func TestInitApply_Ownership0640RestoredOnRollback(t *testing.T) {
 	mcp.RegisterDefaultProjector(boomOpenCode{})
 
 	mcpDraft := config.EmptyMCPDraft()
-	mcpDraft.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcpDraft.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	_, err = config.ApplyConfig(config.ApplyInput{
 		Root: root, Draft: draft, MCP: mcpDraft, AcceptHomeReset: true,
 		Now: func() time.Time { return fixed.Add(time.Minute) },
@@ -165,7 +165,7 @@ func TestPersistConfigure_Ownership0640RestoredOnRollback(t *testing.T) {
 	_ = cfg.ToggleMulti("adapters.selected", "cursor")
 	_ = cfg.ToggleMulti("adapters.selected", "opencode")
 	mcp2 := config.EmptyMCPDraft()
-	mcp2.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcp2.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	_, err = config.PersistConfigure(config.ApplyInput{Root: root, Draft: cfg, MCP: mcp2})
 	if err == nil || !strings.Contains(err.Error(), "rolled back") {
 		t.Fatalf("expected configure rollback, got %v", err)
@@ -224,7 +224,7 @@ func TestPersistConfigure_OwnershipSymlinkAbortsZeroMutation(t *testing.T) {
 	})
 	_ = cfg.ToggleMulti("adapters.selected", "cursor")
 	mcp2 := config.EmptyMCPDraft()
-	mcp2.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcp2.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	_, err = config.PersistConfigure(config.ApplyInput{Root: root, Draft: cfg, MCP: mcp2})
 	if err == nil || !(strings.Contains(err.Error(), "ownership") || strings.Contains(err.Error(), "symlink")) {
 		t.Fatalf("expected ownership symlink snapshot abort, got %v", err)

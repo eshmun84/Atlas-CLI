@@ -11,10 +11,16 @@ import (
 )
 
 const (
-	// ConfigRelPath is the project OpenCode config hosting MCP under `mcp`
-	// (verified against https://opencode.ai/docs/mcp-servers/).
-	ConfigRelPath = "opencode.json"
-	adapterID     = mcp.AdapterOpenCode
+	// ConfigRelPath is the Atlas-owned OpenCode MCP config layer.
+	// OpenCode merges `.opencode/opencode.json` after root `opencode.json`, so
+	// Atlas can project managed MCP without forcing a mixed user/Atlas root
+	// file to become Git-visible under local_only.
+	// See https://opencode.ai/docs/config/ (`.opencode` directory config).
+	ConfigRelPath = ".opencode/opencode.json"
+	// LegacyRootConfigRelPath is the historical shared host file. Atlas no
+	// longer writes managed MCP here; reconcile strips Atlas-owned keys only.
+	LegacyRootConfigRelPath = "opencode.json"
+	adapterID               = mcp.AdapterOpenCode
 )
 
 // Projector implements mcp.Projector for OpenCode.
@@ -27,7 +33,7 @@ func (Projector) ID() mcp.AdapterID     { return adapterID }
 func (Projector) SupportsMCP() bool     { return true }
 func (Projector) ConfigRelPath() string { return ConfigRelPath }
 
-// InspectMCPProjection reads `opencode.json` without mutation.
+// InspectMCPProjection reads Atlas-owned `.opencode/opencode.json` without mutation.
 func (Projector) InspectMCPProjection(root string) (mcp.NativeSnapshot, error) {
 	snap := mcp.NativeSnapshot{
 		Adapter:       adapterID,
@@ -51,13 +57,13 @@ func (Projector) InspectMCPProjection(root string) (mcp.NativeSnapshot, error) {
 	if info.Mode()&os.ModeSymlink != 0 {
 		snap.Exists = true
 		snap.Malformed = true
-		snap.MalformError = "opencode.json is a symlink"
+		snap.MalformError = ".opencode/opencode.json is a symlink"
 		return snap, nil
 	}
 	if info.IsDir() {
 		snap.Exists = true
 		snap.Malformed = true
-		snap.MalformError = "opencode.json is a directory"
+		snap.MalformError = ".opencode/opencode.json is a directory"
 		return snap, nil
 	}
 	data, err := os.ReadFile(full)
@@ -134,7 +140,8 @@ func (Projector) BuildMCPProjection(root string, def mcp.Definition) (mcp.Native
 	return mcp.NativeEntry{Key: key, Payload: payload}, nil
 }
 
-// ApplyMCPProjection merges Atlas-managed MCP entries, preserving flat or nested shape.
+// ApplyMCPProjection merges Atlas-managed MCP entries into `.opencode/opencode.json`
+// and strips the same managed keys from legacy root `opencode.json` when present.
 func (p Projector) ApplyMCPProjection(root string, entries []mcp.NativeEntry, managedKeys []string, removeKeys []string) error {
 	snap, err := p.InspectMCPProjection(root)
 	if err != nil {
@@ -178,6 +185,22 @@ func (p Projector) ApplyMCPProjection(root string, entries []mcp.NativeEntry, ma
 		servers[entry.Key] = entry.Payload
 	}
 
+	// Atlas-owned layer: when no MCP servers remain, remove the file so a
+	// deselected OpenCode adapter can be pruned cleanly. Legacy root keys are
+	// still stripped below.
+	if len(servers) == 0 && len(entries) == 0 {
+		if snap.Exists {
+			full, joinErr := mcp.ContainedJoin(root, ConfigRelPath)
+			if joinErr != nil {
+				return joinErr
+			}
+			if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("opencode: remove empty MCP layer: %w", err)
+			}
+		}
+		return stripLegacyRootManagedKeys(root, managedKeys)
+	}
+
 	switch shape {
 	case mcp.OpenCodeShapeNested:
 		doc["mcp"] = map[string]any{"servers": servers}
@@ -197,15 +220,88 @@ func (p Projector) ApplyMCPProjection(root string, entries []mcp.NativeEntry, ma
 	if snap.Exists && snap.Mode != 0 {
 		perm = snap.Mode
 	}
-	return mcp.AtomicWriteContained(root, ConfigRelPath, data, perm)
+	if err := mcp.AtomicWriteContained(root, ConfigRelPath, data, perm); err != nil {
+		return err
+	}
+	return stripLegacyRootManagedKeys(root, managedKeys)
 }
 
 // RemoveManagedMCPProjection removes only Atlas-managed keys.
+// When managedKeys is empty, still clears a hollow empty Atlas MCP layer.
 func (p Projector) RemoveManagedMCPProjection(root string, managedKeys []string) error {
+	if len(managedKeys) == 0 {
+		return p.ApplyMCPProjection(root, nil, nil, nil)
+	}
+	return p.ApplyMCPProjection(root, nil, managedKeys, managedKeys)
+}
+
+// stripLegacyRootManagedKeys removes Atlas-managed MCP keys from root
+// opencode.json when present, preserving user-owned keys and non-mcp settings.
+// Missing/malformed/symlink root files are left untouched (fail-open preserve).
+func stripLegacyRootManagedKeys(root string, managedKeys []string) error {
 	if len(managedKeys) == 0 {
 		return nil
 	}
-	return p.ApplyMCPProjection(root, nil, managedKeys, managedKeys)
+	full, err := mcp.ContainedJoin(root, LegacyRootConfigRelPath)
+	if err != nil {
+		return nil
+	}
+	info, err := os.Lstat(full)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil
+	}
+	data, err := os.ReadFile(full)
+	if err != nil || len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
+	servers, shape, malform, _ := parseOpenCodeMCP(data)
+	if malform || shape == mcp.OpenCodeShapeAmbiguous {
+		return nil
+	}
+	changed := false
+	managed := setOf(managedKeys)
+	for key := range managed {
+		if _, ok := servers[key]; ok {
+			delete(servers, key)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	switch shape {
+	case mcp.OpenCodeShapeNested:
+		doc["mcp"] = map[string]any{"servers": asAnyMap(servers)}
+	case mcp.OpenCodeShapeFlat:
+		doc["mcp"] = asAnyMap(servers)
+	case mcp.OpenCodeShapeEmpty:
+		// No mcp section originally with servers — nothing to rewrite.
+		return nil
+	default:
+		doc["mcp"] = asAnyMap(servers)
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return nil
+	}
+	out = append(out, '\n')
+	return mcp.AtomicWriteContained(root, LegacyRootConfigRelPath, out, info.Mode().Perm())
+}
+
+func asAnyMap(servers map[string]map[string]any) map[string]any {
+	out := make(map[string]any, len(servers))
+	for k, v := range servers {
+		out[k] = v
+	}
+	return out
 }
 
 func parseOpenCodeMCP(data []byte) (map[string]map[string]any, mcp.OpenCodeShape, bool, string) {

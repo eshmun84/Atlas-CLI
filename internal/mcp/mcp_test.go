@@ -45,20 +45,17 @@ func TestNormalizeTransport(t *testing.T) {
 func TestBuiltinCatalog(t *testing.T) {
 	t.Parallel()
 	cat := mcp.BuiltinCatalog()
-	if len(cat) < 5 {
-		t.Fatalf("catalog size = %d", len(cat))
+	if len(cat) != 2 {
+		t.Fatalf("managed MCP V1 catalog size = %d, want 2", len(cat))
 	}
-	fs, ok := mcp.BuiltinByID(mcp.BuiltinFilesystem)
-	if !ok || fs.Transport != mcp.TransportStdio || fs.Command != "npx" {
-		t.Fatalf("filesystem = %#v", fs)
+	if _, ok := mcp.BuiltinByID(mcp.BuiltinFilesystem); ok {
+		t.Fatal("filesystem must not be in managed catalog")
 	}
-	gh, ok := mcp.BuiltinByID(mcp.BuiltinGitHub)
-	if !ok || gh.Endpoint != "https://api.githubcopilot.com/mcp/" || gh.AuthRequirement != mcp.AuthOAuthExternal {
-		t.Fatalf("github = %#v", gh)
+	if _, ok := mcp.BuiltinByID(mcp.BuiltinGitHub); ok {
+		t.Fatal("github must not be in managed catalog")
 	}
-	jira, ok := mcp.BuiltinByID(mcp.BuiltinJira)
-	if !ok || jira.Materializable {
-		t.Fatalf("jira must not be materializable without verified endpoint: %#v", jira)
+	if _, ok := mcp.BuiltinByID(mcp.BuiltinJira); ok {
+		t.Fatal("jira must not be in managed catalog")
 	}
 	c7, ok := mcp.BuiltinByID(mcp.BuiltinContext7)
 	if !ok || c7.Endpoint != "https://mcp.context7.com/mcp" {
@@ -68,8 +65,9 @@ func TestBuiltinCatalog(t *testing.T) {
 	if !ok || ref.Env != "CONTEXT7_API_KEY" || ref.Prefix != "Bearer " {
 		t.Fatalf("context7 Authorization header ref = %#v", c7.HeaderRefs)
 	}
-	if _, has := c7.HeaderRefs["CONTEXT7_API_KEY"]; has {
-		t.Fatal("CONTEXT7_API_KEY must not be a header name")
+	chrome, ok := mcp.BuiltinByID(mcp.BuiltinChromeDevTools)
+	if !ok || chrome.Transport != mcp.TransportStdio || chrome.Command != "npx" {
+		t.Fatalf("chrome_devtools = %#v", chrome)
 	}
 }
 
@@ -136,7 +134,7 @@ func TestValidateDefinitionAndSecrets(t *testing.T) {
 func TestBuildDesiredStateCustom(t *testing.T) {
 	t.Parallel()
 	state, err := mcp.BuildDesiredState(mcp.Selection{
-		BuiltinEnabled: map[string]bool{mcp.BuiltinFilesystem: true},
+		BuiltinEnabled: map[string]bool{mcp.BuiltinChromeDevTools: true},
 		Custom: []mcp.CustomSpec{{
 			ID: "custom-1", Name: "Company", Transport: "streamable_http",
 			CommandOrURL: "https://mcp.example.com/v1", EnvRefs: []string{"COMPANY_TOKEN"},
@@ -146,44 +144,46 @@ func TestBuildDesiredStateCustom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.SelectedMaterializable()) != 2 {
-		t.Fatalf("materializable = %#v", state.SelectedMaterializable())
+	// Managed catalog (Context7 + Chrome) + custom; only enabled materializable count.
+	mats := state.SelectedMaterializable()
+	if len(mats) != 2 {
+		t.Fatalf("materializable = %#v", mats)
 	}
 }
 
 func TestPlanCreateUpdateNoopRemoveBlock(t *testing.T) {
 	t.Parallel()
-	def := mustBuiltin(t, mcp.BuiltinFilesystem)
+	def := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	def.Enabled = true
 	snap := mcp.NativeSnapshot{Servers: map[string]map[string]any{}}
 	plan := mcp.BuildPlan(mcp.AdapterCursor, []mcp.Definition{def}, snap, nil)
 	built := map[string]mcp.NativeEntry{
-		"filesystem": {Key: "filesystem", Payload: map[string]any{"command": "npx"}},
+		"chrome_devtools": {Key: "chrome_devtools", Payload: map[string]any{"command": "npx"}},
 	}
 	plan = mcp.RefinePlanWithPayloads(plan, built, snap)
 	if !plan.HasKind(mcp.ActionCreate) {
 		t.Fatalf("want create: %#v", plan.Actions)
 	}
 
-	snap.Servers["filesystem"] = map[string]any{"command": "npx"}
+	snap.Servers["chrome_devtools"] = map[string]any{"command": "npx"}
 	plan = mcp.RefinePlanWithPayloads(
-		mcp.BuildPlan(mcp.AdapterCursor, []mcp.Definition{def}, snap, []mcp.OwnedEntry{{DefinitionID: "filesystem", NativeKey: "filesystem"}}),
+		mcp.BuildPlan(mcp.AdapterCursor, []mcp.Definition{def}, snap, []mcp.OwnedEntry{{DefinitionID: "chrome_devtools", NativeKey: "chrome_devtools"}}),
 		built, snap,
 	)
 	if !plan.HasKind(mcp.ActionUnchanged) {
 		t.Fatalf("want unchanged: %#v", plan.Actions)
 	}
 
-	snap.Servers["filesystem"] = map[string]any{"command": "other"}
+	snap.Servers["chrome_devtools"] = map[string]any{"command": "other"}
 	plan = mcp.RefinePlanWithPayloads(
-		mcp.BuildPlan(mcp.AdapterCursor, []mcp.Definition{def}, snap, []mcp.OwnedEntry{{DefinitionID: "filesystem", NativeKey: "filesystem"}}),
+		mcp.BuildPlan(mcp.AdapterCursor, []mcp.Definition{def}, snap, []mcp.OwnedEntry{{DefinitionID: "chrome_devtools", NativeKey: "chrome_devtools"}}),
 		built, snap,
 	)
 	if !plan.HasKind(mcp.ActionUpdate) {
 		t.Fatalf("want update: %#v", plan.Actions)
 	}
 
-	plan = mcp.BuildPlan(mcp.AdapterCursor, nil, snap, []mcp.OwnedEntry{{DefinitionID: "filesystem", NativeKey: "filesystem"}})
+	plan = mcp.BuildPlan(mcp.AdapterCursor, nil, snap, []mcp.OwnedEntry{{DefinitionID: "chrome_devtools", NativeKey: "chrome_devtools"}})
 	if !plan.HasKind(mcp.ActionRemove) {
 		t.Fatalf("want remove: %#v", plan.Actions)
 	}
@@ -210,7 +210,7 @@ func TestCursorSafeMergeAndIdempotence(t *testing.T) {
 	}
 	writeJSON(t, filepath.Join(root, cursor.ConfigRelPath), userCfg)
 
-	def := mustBuiltin(t, mcp.BuiltinFilesystem)
+	def := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	def.Enabled = true
 	home := t.TempDir()
 	pid := "proj-test"
@@ -233,7 +233,7 @@ func TestCursorSafeMergeAndIdempotence(t *testing.T) {
 	if _, ok := snap.Servers["personal-db"]; !ok {
 		t.Fatal("user entry not preserved")
 	}
-	if _, ok := snap.Servers["filesystem"]; !ok {
+	if _, ok := snap.Servers["chrome_devtools"]; !ok {
 		t.Fatal("atlas entry missing")
 	}
 
@@ -282,9 +282,9 @@ func TestOpenCodeProjectionAndAdapterSwitch(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
 	pid := "proj-oc"
-	fs := mustBuiltin(t, mcp.BuiltinFilesystem)
+	fs := mustBuiltin(t, mcp.BuiltinChromeDevTools)
 	fs.Enabled = true
-	gh := mustBuiltin(t, mcp.BuiltinGitHub)
+	gh := mustBuiltin(t, mcp.BuiltinContext7)
 	gh.Enabled = true
 
 	cProj := cursor.New()
@@ -328,23 +328,26 @@ func TestOpenCodeProjectionAndAdapterSwitch(t *testing.T) {
 	if _, ok := cSnap.Servers["private-tool"]; !ok {
 		t.Fatal("developer cursor MCP removed")
 	}
-	if _, ok := cSnap.Servers["filesystem"]; ok {
+	if _, ok := cSnap.Servers["chrome_devtools"]; ok {
 		t.Fatal("atlas filesystem should be removed from cursor")
 	}
-	if _, ok := cSnap.Servers["github"]; ok {
+	if _, ok := cSnap.Servers["context7"]; ok {
 		t.Fatal("atlas github should be removed from cursor")
 	}
 	oSnap, _ := oProj.InspectMCPProjection(root)
-	if _, ok := oSnap.Servers["filesystem"]; !ok {
+	if _, ok := oSnap.Servers["chrome_devtools"]; !ok {
 		t.Fatal("opencode filesystem missing")
 	}
-	if _, ok := oSnap.Servers["github"]; !ok {
+	if _, ok := oSnap.Servers["context7"]; !ok {
 		t.Fatal("opencode github missing")
 	}
-	// No raw credential in github projection.
+	// Env reference only — no raw token material.
 	raw, _ := os.ReadFile(filepath.Join(root, opencode.ConfigRelPath))
-	if strings.Contains(string(raw), "ghp_") || strings.Contains(strings.ToLower(string(raw)), "bearer ") {
+	if strings.Contains(string(raw), "ghp_") || strings.Contains(string(raw), "sk-") {
 		t.Fatalf("raw credential leaked: %s", raw)
+	}
+	if !strings.Contains(string(raw), "CONTEXT7_API_KEY") {
+		t.Fatalf("expected env reference, got: %s", raw)
 	}
 }
 
@@ -363,7 +366,7 @@ func TestHealthReadOnly(t *testing.T) {
 	before := info.ModTime()
 	beforeBytes, _ := os.ReadFile(path)
 
-	def := mustBuiltin(t, mcp.BuiltinGitHub)
+	def := mustBuiltin(t, mcp.BuiltinContext7)
 	def.Enabled = true
 	h := mcp.EvaluateHealth(root, home, "p", mcp.DesiredState{Definitions: []mcp.Definition{def}},
 		[]mcp.AdapterID{mcp.AdapterCursor},
@@ -389,6 +392,9 @@ func mustBuiltin(t *testing.T, id string) mcp.Definition {
 
 func writeJSON(t *testing.T, path string, v any) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		t.Fatal(err)

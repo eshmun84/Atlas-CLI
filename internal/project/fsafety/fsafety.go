@@ -134,7 +134,13 @@ func EnsureContainedDirCreated(root, relFile string, dirPerm os.FileMode) (strin
 		info, err := os.Lstat(cur)
 		if os.IsNotExist(err) {
 			if err := mkdirFn(cur, dirPerm); err != nil {
-				return "", created, fmt.Errorf("fsafety: mkdir %s: %w", cur, err)
+				// Concurrent creators may win the Lstat→Mkdir race (EEXIST).
+				info, lerr := os.Lstat(cur)
+				if lerr != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+					return "", created, fmt.Errorf("fsafety: mkdir %s: %w", cur, err)
+				}
+				// Dir exists and is safe — continue without claiming CreatedDir.
+				continue
 			}
 			info, err = os.Lstat(cur)
 			if err != nil {

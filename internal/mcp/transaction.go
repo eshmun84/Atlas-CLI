@@ -65,27 +65,60 @@ func CaptureSnapshots(root, homePath, projectID string, ownership OwnershipDocum
 		}
 		fs := FileSnapshot{Adapter: adapter, RelPath: rel}
 		info, err := os.Lstat(full)
-		if os.IsNotExist(err) {
+		switch {
+		case os.IsNotExist(err):
 			fs.Exists = false
-			snap.Files = append(snap.Files, fs)
-			continue
-		}
-		if err != nil {
+		case err != nil:
 			return TransactionSnapshot{}, fmt.Errorf("mcp snapshot %s: %w", adapter, err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
+		case info.Mode()&os.ModeSymlink != 0:
 			return TransactionSnapshot{}, fmt.Errorf("mcp snapshot %s: refusing symlink %s", adapter, rel)
+		default:
+			data, readErr := os.ReadFile(full)
+			if readErr != nil {
+				return TransactionSnapshot{}, fmt.Errorf("mcp snapshot %s: %w", adapter, readErr)
+			}
+			fs.Exists = true
+			fs.Raw = append([]byte(nil), data...)
+			fs.Mode = info.Mode().Perm()
 		}
-		data, err := os.ReadFile(full)
-		if err != nil {
-			return TransactionSnapshot{}, fmt.Errorf("mcp snapshot %s: %w", adapter, err)
-		}
-		fs.Exists = true
-		fs.Raw = append([]byte(nil), data...)
-		fs.Mode = info.Mode().Perm()
 		snap.Files = append(snap.Files, fs)
+
+		// OpenCode also may strip Atlas-managed keys from legacy root opencode.json.
+		if adapter == AdapterOpenCode {
+			legacy, lerr := snapshotNativeFile(root, adapter, "opencode.json")
+			if lerr != nil {
+				return TransactionSnapshot{}, lerr
+			}
+			snap.Files = append(snap.Files, legacy)
+		}
 	}
 	return snap, nil
+}
+
+func snapshotNativeFile(root string, adapter AdapterID, rel string) (FileSnapshot, error) {
+	fs := FileSnapshot{Adapter: adapter, RelPath: rel}
+	full, err := ContainedJoin(root, rel)
+	if err != nil {
+		return FileSnapshot{}, fmt.Errorf("mcp snapshot %s: %w", adapter, err)
+	}
+	info, err := os.Lstat(full)
+	if os.IsNotExist(err) {
+		return fs, nil
+	}
+	if err != nil {
+		return FileSnapshot{}, fmt.Errorf("mcp snapshot %s: %w", adapter, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return FileSnapshot{}, fmt.Errorf("mcp snapshot %s: refusing symlink %s", adapter, rel)
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return FileSnapshot{}, fmt.Errorf("mcp snapshot %s: %w", adapter, err)
+	}
+	fs.Exists = true
+	fs.Raw = append([]byte(nil), data...)
+	fs.Mode = info.Mode().Perm()
+	return fs, nil
 }
 
 // RestoreSnapshots restores native configs and ownership from a snapshot using

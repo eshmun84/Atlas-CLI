@@ -21,7 +21,7 @@ func TestConfigureApply_MCPOnlyAndAgentSwitch(t *testing.T) {
 	})
 	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	mcp := config.EmptyMCPDraft()
-	mcp.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcp.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	fixed := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 	if _, err := config.ApplyConfig(config.ApplyInput{Root: root, Draft: draft, MCP: mcp, Now: func() time.Time { return fixed }}); err != nil {
 		t.Fatalf("init: %v", err)
@@ -60,8 +60,8 @@ func TestConfigureApply_MCPOnlyAndAgentSwitch(t *testing.T) {
 	})
 	_ = cfg.ToggleMulti("adapters.selected", "cursor")
 	mcp2 := config.EmptyMCPDraft()
-	mcp2.EnableBuiltin(config.MCPBuiltinFilesystem)
-	mcp2.EnableBuiltin(config.MCPBuiltinGitHub)
+	mcp2.EnableBuiltin(config.MCPBuiltinChromeDevTools)
+	mcp2.EnableBuiltin(config.MCPBuiltinContext7)
 	res, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: cfg, MCP: mcp2})
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestConfigureApply_MCPOnlyAndAgentSwitch(t *testing.T) {
 		t.Fatal("non-MCP runtime rematerialized")
 	}
 	raw, _ = os.ReadFile(mcpPath)
-	if !strings.Contains(string(raw), "personal-db") || !strings.Contains(string(raw), `"filesystem"`) || !strings.Contains(string(raw), `"github"`) {
+	if !strings.Contains(string(raw), "personal-db") || !strings.Contains(string(raw), `"chrome_devtools"`) || !strings.Contains(string(raw), `"context7"`) {
 		t.Fatalf("cursor mcp merge failed: %s", raw)
 	}
 	if strings.Contains(strings.ToLower(string(raw)), "ghp_") {
@@ -94,15 +94,15 @@ func TestConfigureApply_MCPOnlyAndAgentSwitch(t *testing.T) {
 
 	// Disable filesystem only.
 	mcp3 := config.EmptyMCPDraft()
-	mcp3.EnableBuiltin(config.MCPBuiltinGitHub)
+	mcp3.EnableBuiltin(config.MCPBuiltinContext7)
 	if _, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: cfg, MCP: mcp3}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ = os.ReadFile(mcpPath)
-	if strings.Contains(string(raw), `"filesystem"`) {
+	if strings.Contains(string(raw), `"chrome_devtools"`) {
 		t.Fatal("filesystem should be removed")
 	}
-	if !strings.Contains(string(raw), "personal-db") || !strings.Contains(string(raw), `"github"`) {
+	if !strings.Contains(string(raw), "personal-db") || !strings.Contains(string(raw), `"context7"`) {
 		t.Fatalf("unexpected after disable: %s", raw)
 	}
 
@@ -117,30 +117,31 @@ func TestConfigureApply_MCPOnlyAndAgentSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ = os.ReadFile(mcpPath)
-	if strings.Contains(string(raw), `"github"`) {
+	if strings.Contains(string(raw), `"context7"`) {
 		t.Fatal("atlas github should be removed from cursor")
 	}
 	if !strings.Contains(string(raw), "personal-db") {
 		t.Fatal("developer cursor mcp removed")
 	}
-	ocRaw, err := os.ReadFile(filepath.Join(root, "opencode.json"))
+	ocPath := filepath.Join(root, ".opencode", "opencode.json")
+	ocRaw, err := os.ReadFile(ocPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ocRaw), `"github"`) {
-		t.Fatalf("opencode missing github: %s", ocRaw)
+	if !strings.Contains(string(ocRaw), `"context7"`) {
+		t.Fatalf("opencode missing context7: %s", ocRaw)
 	}
 
-	// Corrupt native config blocks.
-	if err := os.WriteFile(filepath.Join(root, "opencode.json"), []byte("{bad"), 0o644); err != nil {
+	// Corrupt Atlas OpenCode MCP layer blocks.
+	if err := os.WriteFile(ocPath, []byte("{bad"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	beforeCorrupt, _ := os.ReadFile(filepath.Join(root, "opencode.json"))
+	beforeCorrupt, _ := os.ReadFile(ocPath)
 	_, err = config.PersistConfigure(config.ApplyInput{Root: root, Draft: cfgOC, MCP: mcp3})
 	if err == nil {
 		t.Fatal("expected block")
 	}
-	afterCorrupt, _ := os.ReadFile(filepath.Join(root, "opencode.json"))
+	afterCorrupt, _ := os.ReadFile(ocPath)
 	if string(beforeCorrupt) != string(afterCorrupt) {
 		t.Fatal("corrupt file overwritten")
 	}

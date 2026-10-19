@@ -55,9 +55,8 @@ func RenderReview(view ReviewView) string {
 	fmt.Fprintln(&b, initLabel.Render("Governance:"))
 	fmt.Fprintf(&b, "  - Workflow: %s\n", plan.Workflow)
 	fmt.Fprintf(&b, "  - Spec engine: %s\n", plan.SpecEngine)
-	fmt.Fprintf(&b, "  - Testing required: %s\n", plan.TestingRequired)
+	fmt.Fprintf(&b, "  - Requires testing: %s\n", plan.TestingRequired)
 	fmt.Fprintf(&b, "  - Review required: %s\n", plan.ReviewRequired)
-	fmt.Fprintf(&b, "  - Evidence required: %s\n", plan.EvidenceRequired)
 	fmt.Fprintln(&b, initLabel.Render("Adapters:"))
 	fmt.Fprintf(&b, "  - Selected: %s\n", plan.Adapters)
 	fmt.Fprintln(&b, initLabel.Render("Delivery:"))
@@ -177,9 +176,6 @@ func RenderReview(view ReviewView) string {
 		for _, entry := range plan.MCPEntries {
 			fmt.Fprintf(&b, "  - %s\n", entry.Name)
 			fmt.Fprintf(&b, "    kind: %s\n", entry.Kind)
-			if entry.Kind == "custom" && entry.Transport != "" {
-				fmt.Fprintf(&b, "    transport: %s\n", entry.Transport)
-			}
 			fmt.Fprintf(&b, "    enabled: %t\n", entry.Enabled)
 			fmt.Fprintf(&b, "    status: %s\n", entry.Status)
 		}

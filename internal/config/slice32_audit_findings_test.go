@@ -62,7 +62,7 @@ func TestInitApply_HomeResetMCPFailureRestoresPreexistingHomeTree(t *testing.T) 
 	mcp.RegisterDefaultProjector(boomOpenCode{})
 
 	mcpDraft := config.EmptyMCPDraft()
-	mcpDraft.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcpDraft.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	_, err = config.ApplyConfig(config.ApplyInput{
 		Root: root, Draft: draft, MCP: mcpDraft, AcceptHomeReset: true,
 		Now: func() time.Time { return fixed.Add(time.Minute) },
@@ -90,7 +90,7 @@ func TestInitApply_HomeResetMCPFailureRestoresPreexistingHomeTree(t *testing.T) 
 	if _, err := os.Stat(filepath.Join(root, ".atlas", "state.yaml")); err == nil {
 		// Pre-existing successful init may still have state; ensure no filesystem MCP claim leaked into new ownership after rollback.
 		own, _ := os.ReadFile(filepath.Join(proj, "mcp", "ownership.yaml"))
-		if strings.Contains(string(own), "filesystem") && !strings.Contains(string(markers[filepath.Join("mcp", "ownership.yaml")]), "filesystem") {
+		if strings.Contains(string(own), "chrome_devtools") && !strings.Contains(string(markers[filepath.Join("mcp", "ownership.yaml")]), "chrome_devtools") {
 			t.Fatalf("ownership mutated after rollback: %s", own)
 		}
 	}
@@ -112,7 +112,7 @@ func TestInitApply_DocsFailureRollsBack(t *testing.T) {
 	})
 	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	mcpDraft := config.EmptyMCPDraft()
-	mcpDraft.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcpDraft.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 
 	// Preflight should catch this before mutation.
 	_, err := config.ApplyConfig(config.ApplyInput{Root: root, Draft: draft, MCP: mcpDraft})
@@ -133,7 +133,7 @@ func TestPersistConfigure_DocsFailureRollsBackConfigAndMCP(t *testing.T) {
 	})
 	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	mcp0 := config.EmptyMCPDraft()
-	mcp0.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcp0.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	fixed := time.Date(2026, 10, 8, 22, 30, 0, 0, time.UTC)
 	if _, err := config.ApplyConfig(config.ApplyInput{
 		Root: root, Draft: draft, MCP: mcp0, Now: func() time.Time { return fixed },
@@ -161,8 +161,8 @@ func TestPersistConfigure_DocsFailureRollsBackConfigAndMCP(t *testing.T) {
 	_ = cfg.ToggleMulti("adapters.selected", "cursor")
 	_ = cfg.SetValue("project.docs_scaffold", "true")
 	mcp1 := config.EmptyMCPDraft()
-	mcp1.EnableBuiltin(config.MCPBuiltinFilesystem)
-	mcp1.EnableBuiltin(config.MCPBuiltinGitHub)
+	mcp1.EnableBuiltin(config.MCPBuiltinChromeDevTools)
+	mcp1.EnableBuiltin(config.MCPBuiltinContext7)
 
 	_, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: cfg, MCP: mcp1})
 	if err == nil {
@@ -180,7 +180,7 @@ func TestPersistConfigure_DocsFailureRollsBackConfigAndMCP(t *testing.T) {
 	if string(afterOwn) != string(beforeOwn) {
 		t.Fatalf("ownership not restored:\n%s", afterOwn)
 	}
-	if strings.Contains(string(afterCursor), `"github"`) {
+	if strings.Contains(string(afterCursor), `"context7"`) {
 		t.Fatal("github must not remain after docs/configure failure")
 	}
 }
@@ -231,8 +231,9 @@ func TestApplyConfig_HomeResetGateBeforeEnsureAndMirror(t *testing.T) {
 	t.Setenv("ATLAS_HOME", homeDir)
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName: "gate", ProjectMode: "new",
+		ProjectName: "gate", ProjectMode: "new", ToolCursorAvailable: true,
 	})
+	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	pid, err := home.ProjectID(root, "gate")
 	if err != nil {
 		t.Fatal(err)

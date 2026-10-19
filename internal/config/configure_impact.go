@@ -12,12 +12,14 @@ import (
 // Configure impact / honesty copy shared by Configure Apply and Review.
 const (
 	ConfigureApplySuccessTitle = "Configuration changes are saved to .atlas/config.yaml."
-	ConfigureApplySuccessBody  = "Runtime files are not repaired automatically."
+	ConfigureApplySuccessBody  = "Atlas-owned adapter projections are reconciled when adapters change."
 
-	ConfigureRepairHint  = "Run Runtime Repair when adapter/runtime assets need to be updated."
-	ConfigureContextHint = "Run Update Context when project context should be refreshed."
-	ConfigureMCPHint     = "MCP selections were reconciled into selected agent MCP projections (Atlas-owned entries only)."
-	ConfigureMCPSkipHint = "No MCP projection changes were required."
+	ConfigureRepairHint    = "Run Runtime Repair when unrelated runtime drift remains."
+	ConfigureRuntimeHint   = "Atlas-owned AGENTS.md, rules, and agents were reconciled for the selected adapters."
+	ConfigureContextHint   = "Run Update Context when project context should be refreshed."
+	ConfigureMCPHint       = "MCP selections were reconciled into selected agent MCP projections (Atlas-owned entries only)."
+	ConfigureMCPSkipHint   = "No MCP projection changes were required."
+	ConfigureGitignoreHint = "Governance file ignore policy was reconciled in .gitignore."
 
 	configureFooterDocsScaffold = "Project docs scaffold is selected: Apply may also create docs/atlas/README.md once if missing."
 )
@@ -44,10 +46,12 @@ func formatConfigureFooterNote(docsScaffoldSelected bool) string {
 		lines = append(lines, configureFooterDocsScaffold)
 	}
 	lines = append(lines,
-		"Runtime files (AGENTS.md, rules, agents) are not repaired or rematerialized automatically.",
+		"Adapter changes rematerialize Atlas-owned AGENTS.md, rules, and agents for the selected set.",
+		"Unknown/user-owned adapter content is preserved.",
 		"Context Economy payloads are not updated automatically.",
 		"MCP projections for selected adapters are reconciled on Apply (Atlas-owned entries only).",
-		"Runtime Repair and Update Context are separate flows.",
+		"At least one supported agent is required.",
+		"Runtime Repair and Update Context remain available for unrelated drift.",
 	)
 	return strings.Join(lines, "\n")
 }
@@ -71,6 +75,8 @@ Atlas framework docs stay in the Atlas CLI repository — they are not dumped in
 type ConfigureImpact struct {
 	ConfigOnly           bool
 	RuntimeRepairNeeded  bool
+	RuntimeReconciled    bool
+	GitignoreReconciled  bool
 	ContextUpdateHint    bool
 	MCPPreferenceOnly    bool // retained for compatibility; false when MCPProjected
 	MCPProjected         bool
@@ -92,7 +98,9 @@ func AnalyzeConfigureImpact(previous, next ProjectDocument, mcpChanged bool) Con
 	nextAdapters := JoinChips(next.Adapters.Selected)
 	if prevAdapters != nextAdapters {
 		impact.AdapterChange = true
-		impact.RuntimeRepairNeeded = true
+		// Runtime reconcile runs inside PersistConfigure; Repair is not required
+		// solely for adapter selection changes.
+		impact.RuntimeRepairNeeded = false
 	}
 
 	// Context Economy payload is not written by Configure; remind when graph preference flips
@@ -118,8 +126,14 @@ func (i ConfigureImpact) NoticeLines() []string {
 		ConfigureApplySuccessTitle,
 		ConfigureApplySuccessBody,
 	}
-	if i.RuntimeRepairNeeded || i.AdapterChange {
+	if i.RuntimeReconciled || i.AdapterChange {
+		lines = append(lines, ConfigureRuntimeHint)
+	}
+	if i.RuntimeRepairNeeded {
 		lines = append(lines, ConfigureRepairHint)
+	}
+	if i.GitignoreReconciled {
+		lines = append(lines, ConfigureGitignoreHint)
 	}
 	if i.ContextUpdateHint {
 		lines = append(lines, ConfigureContextHint)

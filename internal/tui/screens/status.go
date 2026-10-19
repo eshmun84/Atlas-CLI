@@ -219,7 +219,7 @@ func writeStatusGovernance(b *strings.Builder, result inspect.Inspection) {
 	fmt.Fprintf(b, "  Spec engine: %s\n", engine)
 	fmt.Fprintf(b, "  Testing required: %s\n", yesNo(gov.TestingRequired))
 	fmt.Fprintf(b, "  Review required: %s\n", yesNo(gov.ReviewRequired))
-	fmt.Fprintf(b, "  Evidence required: %s\n", yesNo(gov.EvidenceRequired))
+	fmt.Fprintf(b, "  Evidence: required (inherent)\n")
 	if rt.DependsOnSDDContract {
 		writeStatusOpenSpecProvider(b, result)
 	}

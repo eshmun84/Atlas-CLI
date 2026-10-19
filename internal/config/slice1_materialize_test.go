@@ -50,7 +50,10 @@ func TestApplyConfig_Slice1_GreenfieldMaterialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantBlock := config.AtlasLocalGovernanceGitignoreBlock()
+	wantDoc := config.ProjectDocument{
+		Adapters: config.AdaptersPersist{Selected: []string{"cursor"}},
+	}
+	wantBlock := config.AtlasLocalGovernanceGitignoreBlockFor(wantDoc)
 	if string(ignore) != wantBlock {
 		t.Fatalf("gitignore =\n%s\nwant\n%s", ignore, wantBlock)
 	}
@@ -162,7 +165,10 @@ func TestApplyConfig_Slice1_BrownfieldPreserves(t *testing.T) {
 	if !strings.HasPrefix(string(ignore), userIgnore) {
 		t.Fatalf("project rules lost: %s", ignore)
 	}
-	if !strings.Contains(string(ignore), config.AtlasLocalGovernanceGitignoreBlock()) {
+	wantCursorBlock := config.AtlasLocalGovernanceGitignoreBlockFor(config.ProjectDocument{
+		Adapters: config.AdaptersPersist{Selected: []string{"cursor"}},
+	})
+	if !strings.Contains(string(ignore), wantCursorBlock) {
 		t.Fatalf("missing atlas block: %s", ignore)
 	}
 	if result.BackupDir == "" {

@@ -13,19 +13,21 @@ func TestBuildProjectDocument_FromDraftAndMCP(t *testing.T) {
 	t.Parallel()
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:      "Atlas-CLI",
-		ProjectMode:      "new",
-		DefaultRemote:    "origin",
-		CursorDetected:   true,
-		OpenCodeDetected: true,
+		ProjectName:           "Atlas-CLI",
+		ProjectMode:           "new",
+		DefaultRemote:         "origin",
+		CursorDetected:        true,
+		OpenCodeDetected:      true,
+		ToolCursorAvailable:   true,
+		ToolOpenCodeAvailable: true,
 	})
 	if !draft.SelectOption("source_control.mode", "git_github") {
 		t.Fatal("source control")
 	}
 	// Branch strategy is not an Init setup decision; persist defaults to manual.
 	mcp := config.EmptyMCPDraft()
-	if !mcp.EnableBuiltin(config.MCPBuiltinJira) {
-		t.Fatal("jira")
+	if !mcp.EnableBuiltin(config.MCPBuiltinContext7) {
+		t.Fatal("context7")
 	}
 	if !mcp.EnableBuiltin(config.MCPBuiltinChromeDevTools) {
 		t.Fatal("chrome")
@@ -66,7 +68,7 @@ func TestBuildProjectDocument_FromDraftAndMCP(t *testing.T) {
 	if !doc.ContextGraphEnabled() {
 		t.Fatalf("context graph default enabled = %#v", doc.Context)
 	}
-	if !doc.MCP.Builtins.Jira.Enabled || doc.MCP.Builtins.Context7.Enabled || !doc.MCP.Builtins.ChromeDevTools.Enabled {
+	if doc.MCP.Builtins.Jira.Enabled || !doc.MCP.Builtins.Context7.Enabled || !doc.MCP.Builtins.ChromeDevTools.Enabled {
 		t.Fatalf("builtins = %#v", doc.MCP.Builtins)
 	}
 	if len(doc.MCP.Custom) != 1 || doc.MCP.Custom[0].Name != "Internal Docs" || doc.MCP.Custom[0].Transport != "streamable_http" {
@@ -86,7 +88,7 @@ func TestBuildProjectDocument_FromDraftAndMCP(t *testing.T) {
 	if !cfg.Adapters.Cursor || !cfg.Adapters.OpenCode {
 		t.Fatalf("mapped adapters = %#v", cfg.Adapters)
 	}
-	if !cfg.ExternalContextProviders.MCPEnabled || !cfg.ExternalContextProviders.JiraEnabled {
+	if !cfg.ExternalContextProviders.MCPEnabled {
 		t.Fatalf("mapped mcp flags = %#v", cfg.ExternalContextProviders)
 	}
 }
@@ -294,8 +296,8 @@ func TestProjectDocument_ToMCPDraftAndApply(t *testing.T) {
 		ProjectMode: "new",
 	})
 	mcp := config.EmptyMCPDraft()
-	mcp.EnableBuiltin(config.MCPBuiltinFilesystem)
-	mcp.EnableBuiltin(config.MCPBuiltinGitHub)
+	mcp.EnableBuiltin(config.MCPBuiltinChromeDevTools)
+	mcp.EnableBuiltin(config.MCPBuiltinContext7)
 	if _, err := mcp.AddCustom("Docs", config.MCPTransportStreamableHTTP, "https://example.local/mcp", "", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -303,9 +305,8 @@ func TestProjectDocument_ToMCPDraftAndApply(t *testing.T) {
 	doc := config.BuildProjectDocument(draft, mcp)
 
 	loaded := doc.ToMCPDraft()
-	if !loaded.Builtins[loaded.BuiltinIndex(config.MCPBuiltinFilesystem)].Enabled ||
-		!loaded.Builtins[loaded.BuiltinIndex(config.MCPBuiltinGitHub)].Enabled ||
-		loaded.Builtins[loaded.BuiltinIndex(config.MCPBuiltinJira)].Enabled {
+	if !loaded.Builtins[loaded.BuiltinIndex(config.MCPBuiltinChromeDevTools)].Enabled ||
+		!loaded.Builtins[loaded.BuiltinIndex(config.MCPBuiltinContext7)].Enabled {
 		t.Fatalf("builtins = %#v", loaded.Builtins)
 	}
 	if len(loaded.CustomServers) != 1 || loaded.CustomServers[0].Name != "Docs" || loaded.CustomServers[0].Transport != config.MCPTransportStreamableHTTP {

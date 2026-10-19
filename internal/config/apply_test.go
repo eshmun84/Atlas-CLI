@@ -38,23 +38,21 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	}
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:      "Atlas-CLI",
-		ProjectMode:      "new",
-		DefaultRemote:    "origin",
-		CursorDetected:   true,
-		OpenCodeDetected: true,
+		ProjectName:           "Atlas-CLI",
+		ProjectMode:           "new",
+		DefaultRemote:         "origin",
+		CursorDetected:        true,
+		OpenCodeDetected:      true,
+		ToolCursorAvailable:   true,
+		ToolOpenCodeAvailable: true,
 	})
 	if !draft.SelectOption("source_control.mode", "git_github") {
 		t.Fatal("source control")
 	}
 	mcp := config.EmptyMCPDraft()
-	if !mcp.EnableBuiltin(config.MCPBuiltinFilesystem) {
-		t.Fatal("filesystem")
+	if !mcp.EnableBuiltin(config.MCPBuiltinChromeDevTools) {
+		t.Fatal("chrome_devtools")
 	}
-	if _, err := mcp.AddCustom("Internal Docs", config.MCPTransportStreamableHTTP, "https://example.local/mcp", "", ""); err != nil {
-		t.Fatalf("custom: %v", err)
-	}
-	mcp.ToggleCustom(0)
 
 	fixed := time.Date(2026, 10, 4, 19, 35, 0, 0, time.UTC)
 	result, err := config.ApplyConfig(config.ApplyInput{
@@ -100,14 +98,16 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 		"mode: new",
 		"workflow: sdd",
 		"spec_engine: openspec",
-		"jira:",
+		"chrome_devtools:",
 		"enabled: true",
-		"Internal Docs",
 		"governance_files: local_only",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("config.yaml missing %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "Internal Docs") {
+		t.Fatalf("custom MCP must not appear without intentional legacy YAML:\n%s", text)
 	}
 	for _, banned := range []string{"password", "token", "secret", "api_key"} {
 		if strings.Contains(strings.ToLower(text), banned) {
@@ -259,7 +259,7 @@ func TestApplyConfig_WritesAtlasAndRuntime(t *testing.T) {
 	}
 }
 
-func TestApplyConfig_AgentsOnlyWithoutAdapters(t *testing.T) {
+func TestApplyConfig_RejectsZeroAdapters(t *testing.T) {
 	withTempAtlasHome(t)
 
 	root := t.TempDir()
@@ -267,19 +267,16 @@ func TestApplyConfig_AgentsOnlyWithoutAdapters(t *testing.T) {
 		ProjectName: "solo",
 		ProjectMode: "new",
 	})
-	result, err := config.ApplyConfig(config.ApplyInput{
+	_, err := config.ApplyConfig(config.ApplyInput{
 		Root:  root,
 		Draft: draft,
 		MCP:   config.EmptyMCPDraft(),
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), config.ErrAdaptersRequired) {
+		t.Fatalf("expected adapters required, got %v", err)
 	}
-	if len(result.RuntimeFiles) != 1 || result.RuntimeFiles[0] != "AGENTS.md" {
-		t.Fatalf("runtime = %#v", result.RuntimeFiles)
-	}
-	assertMissing(t, root, ".cursor")
-	assertMissing(t, root, ".opencode")
+	assertMissing(t, root, ".atlas/config.yaml")
+	assertMissing(t, root, "AGENTS.md")
 }
 
 func TestApplyConfig_BacksUpExistingTargets(t *testing.T) {
@@ -300,9 +297,10 @@ func TestApplyConfig_BacksUpExistingTargets(t *testing.T) {
 	}
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:    "demo",
-		ProjectMode:    "existing",
-		CursorDetected: true,
+		ProjectName:         "demo",
+		ProjectMode:         "existing",
+		CursorDetected:      true,
+		ToolCursorAvailable: true,
 	})
 	fixed := time.Date(2026, 10, 4, 20, 0, 0, 0, time.UTC)
 	result, err := config.ApplyConfig(config.ApplyInput{
@@ -376,9 +374,11 @@ func TestApplyConfig_PreservesUserSection(t *testing.T) {
 		t.Fatal(err)
 	}
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName: "demo",
-		ProjectMode: "existing",
+		ProjectName:         "demo",
+		ProjectMode:         "existing",
+		ToolCursorAvailable: true,
 	})
+	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	if _, err := config.ApplyConfig(config.ApplyInput{Root: root, Draft: draft, MCP: config.EmptyMCPDraft()}); err != nil {
 		t.Fatal(err)
 	}
@@ -399,9 +399,11 @@ func TestApplyConfig_BlocksDirectoryTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName: "demo",
-		ProjectMode: "new",
+		ProjectName:         "demo",
+		ProjectMode:         "new",
+		ToolCursorAvailable: true,
 	})
+	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	_, err := config.ApplyConfig(config.ApplyInput{Root: root, Draft: draft, MCP: config.EmptyMCPDraft()})
 	if err == nil || !strings.Contains(err.Error(), "directory") {
 		t.Fatalf("err = %v", err)
@@ -423,9 +425,11 @@ func TestApplyConfig_RequiresHomeResetWhenProjectDataExists(t *testing.T) {
 
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName: "demo",
-		ProjectMode: "new",
+		ProjectName:         "demo",
+		ProjectMode:         "new",
+		ToolCursorAvailable: true,
 	})
+	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	if _, err := config.ApplyConfig(config.ApplyInput{
 		Root: root, Draft: draft, MCP: config.EmptyMCPDraft(),
 	}); err != nil {
@@ -470,15 +474,19 @@ func TestApplyConfig_RequiresHomeResetWhenProjectDataExists(t *testing.T) {
 	}
 }
 
-func TestPersistConfigure_WritesConfigOnly(t *testing.T) {
+func TestPersistConfigure_WritesConfigAndMCP(t *testing.T) {
 	withTempAtlasHome(t)
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
-		ProjectName: "demo",
-		ProjectMode: "existing",
+		ProjectName:         "demo",
+		ProjectMode:         "existing",
+		ToolCursorAvailable: true,
 	})
+	if !draft.ToggleMulti("adapters.selected", "cursor") {
+		t.Fatal("toggle cursor")
+	}
 	mcp := config.EmptyMCPDraft()
-	mcp.EnableBuiltin(config.MCPBuiltinJira)
+	mcp.EnableBuiltin(config.MCPBuiltinContext7)
 	if _, err := mcp.AddCustom("Docs", config.MCPTransportStreamableHTTP, "https://docs.local/mcp", "", "HOME"); err != nil {
 		t.Fatal(err)
 	}
@@ -491,9 +499,6 @@ func TestPersistConfigure_WritesConfigOnly(t *testing.T) {
 	if !strings.Contains(result.Notice, "Configuration changes are saved to .atlas/config.yaml.") {
 		t.Fatalf("notice = %q", result.Notice)
 	}
-	if !strings.Contains(result.Notice, "Runtime files are not repaired automatically.") {
-		t.Fatalf("missing runtime repair honesty: %q", result.Notice)
-	}
 	if !strings.Contains(result.Notice, "MCP selections were reconciled") {
 		t.Fatalf("missing MCP projection notice: %q", result.Notice)
 	}
@@ -501,46 +506,43 @@ func TestPersistConfigure_WritesConfigOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !doc.MCP.Builtins.Jira.Enabled || len(doc.MCP.Custom) != 1 || doc.MCP.Custom[0].Transport != "streamable_http" {
+	if !doc.MCP.Builtins.Context7.Enabled || len(doc.MCP.Custom) != 1 || doc.MCP.Custom[0].Transport != "streamable_http" {
 		t.Fatalf("doc mcp = %#v", doc.MCP)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".atlas", "local.yaml")); !os.IsNotExist(err) {
 		t.Fatal("persist configure must not write local.yaml")
 	}
-	assertMissing(t, root, "AGENTS.md")
-	// No adapters selected => no native MCP projection files.
-	assertMissing(t, root, ".cursor")
-	assertMissing(t, root, "opencode.json")
 	assertMissing(t, root, ".atlas/state.yaml")
-	assertMissing(t, root, "skills")
-	assertMissing(t, root, ".agents")
 	assertMissing(t, root, config.FileProjectDocsREADME)
 }
 
-func TestPersistConfigure_AdapterChangeRecommendsRepair(t *testing.T) {
+func TestPersistConfigure_AdapterChangeReconcilesRuntime(t *testing.T) {
 	withTempAtlasHome(t)
 	root := t.TempDir()
 	base := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
-		ProjectName: "demo", ProjectMode: "existing",
+		ProjectName: "demo", ProjectMode: "existing", ToolCursorAvailable: true,
 	})
+	if !base.ToggleMulti("adapters.selected", "cursor") {
+		t.Fatal("toggle cursor")
+	}
 	if _, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: base, MCP: config.EmptyMCPDraft()}); err != nil {
 		t.Fatal(err)
 	}
-	changed := config.BuildConfigDraft(config.ConfigModeConfigure, config.ProjectSetupInput{
-		ProjectName: "demo", ProjectMode: "existing", ToolCursorAvailable: true,
-	})
-	if !changed.ToggleMulti("adapters.selected", "cursor") {
-		t.Fatal("toggle cursor")
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatalf("expected AGENTS.md after adapter add: %v", err)
 	}
-	result, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: changed, MCP: config.EmptyMCPDraft()})
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(root, ".cursor/rules/atlas.mdc")); err != nil {
+		t.Fatalf("expected cursor atlas rule: %v", err)
 	}
-	if !result.Impact.RuntimeRepairNeeded || !strings.Contains(result.Notice, "Runtime Repair") {
-		t.Fatalf("expected repair recommendation: %#v notice=%q", result.Impact, result.Notice)
+	// Zero adapters must fail before mutation.
+	cleared := base
+	_ = cleared.ToggleMulti("adapters.selected", "cursor")
+	if _, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: cleared, MCP: config.EmptyMCPDraft()}); err == nil || !strings.Contains(err.Error(), config.ErrAdaptersRequired) {
+		t.Fatalf("expected adapters required, got %v", err)
 	}
-	assertMissing(t, root, "AGENTS.md")
-	assertMissing(t, root, ".cursor/rules/atlas.mdc")
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal("zero-adapter apply must not remove runtime")
+	}
 }
 
 func TestFormatConfigureFooterNote_DefaultConfigOnly(t *testing.T) {
@@ -553,10 +555,10 @@ func TestFormatConfigureFooterNote_DefaultConfigOnly(t *testing.T) {
 	note := config.FormatConfigureFooterNote(draft)
 	for _, want := range []string{
 		"Apply saves .atlas/config.yaml.",
-		"Runtime files (AGENTS.md, rules, agents) are not repaired or rematerialized automatically.",
+		"Adapter changes rematerialize Atlas-owned AGENTS.md, rules, and agents",
 		"Context Economy payloads are not updated automatically.",
 		"MCP projections for selected adapters are reconciled on Apply",
-		"Runtime Repair and Update Context are separate flows.",
+		"At least one supported agent is required.",
 	} {
 		if !strings.Contains(note, want) {
 			t.Fatalf("default footer missing %q:\n%s", want, note)
@@ -592,10 +594,10 @@ func TestFormatConfigureFooterNote_DocsScaffoldSelected(t *testing.T) {
 	for _, want := range []string{
 		"Apply saves .atlas/config.yaml.",
 		"docs/atlas/README.md once",
-		"Runtime files (AGENTS.md, rules, agents) are not repaired or rematerialized automatically.",
+		"Adapter changes rematerialize Atlas-owned AGENTS.md, rules, and agents",
 		"Context Economy payloads are not updated automatically.",
 		"MCP projections for selected adapters are reconciled on Apply",
-		"Runtime Repair and Update Context are separate flows.",
+		"At least one supported agent is required.",
 	} {
 		if !strings.Contains(note, want) {
 			t.Fatalf("scaffold footer missing %q:\n%s", want, note)

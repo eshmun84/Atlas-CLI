@@ -33,7 +33,7 @@ func TestPersistConfigure_MCPFailureRestoresConfig(t *testing.T) {
 	})
 	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	mcpDraft := config.EmptyMCPDraft()
-	mcpDraft.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcpDraft.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	fixed := time.Date(2026, 10, 8, 20, 0, 0, 0, time.UTC)
 	if _, err := config.ApplyConfig(config.ApplyInput{
 		Root: root, Draft: draft, MCP: mcpDraft, Now: func() time.Time { return fixed },
@@ -68,8 +68,8 @@ func TestPersistConfigure_MCPFailureRestoresConfig(t *testing.T) {
 	_ = cfg.ToggleMulti("adapters.selected", "cursor")
 	_ = cfg.ToggleMulti("adapters.selected", "opencode")
 	mcp2 := config.EmptyMCPDraft()
-	mcp2.EnableBuiltin(config.MCPBuiltinFilesystem)
-	mcp2.EnableBuiltin(config.MCPBuiltinGitHub)
+	mcp2.EnableBuiltin(config.MCPBuiltinChromeDevTools)
+	mcp2.EnableBuiltin(config.MCPBuiltinContext7)
 
 	_, err = config.PersistConfigure(config.ApplyInput{Root: root, Draft: cfg, MCP: mcp2})
 	if err == nil || !strings.Contains(err.Error(), "rolled back to baseline") {
@@ -85,12 +85,12 @@ func TestPersistConfigure_MCPFailureRestoresConfig(t *testing.T) {
 		t.Fatalf("cursor mcp not restored:\n%s", afterCursor)
 	}
 	// GitHub must not remain projected; filesystem from prior init may remain as before.
-	if strings.Contains(string(afterCursor), `"github"`) {
+	if strings.Contains(string(afterCursor), `"context7"`) {
 		t.Fatal("github leaked after failed configure")
 	}
 	if _, err := os.Stat(filepath.Join(root, opencode.ConfigRelPath)); err == nil {
 		raw, _ := os.ReadFile(filepath.Join(root, opencode.ConfigRelPath))
-		if strings.Contains(string(raw), `"filesystem"`) || strings.Contains(string(raw), `"github"`) {
+		if strings.Contains(string(raw), `"chrome_devtools"`) || strings.Contains(string(raw), `"context7"`) {
 			t.Fatalf("opencode atlas entries after failed configure: %s", raw)
 		}
 	}
@@ -105,9 +105,9 @@ func TestPersistConfigure_MCPFailureRestoresConfig(t *testing.T) {
 
 func TestNativeKeyCollisionRejectedOnConfigure(t *testing.T) {
 	t.Parallel()
-	// Display name differs from builtin "GitHub" but sanitizes to the same native key.
+	// Display name differs from builtin "Context7" but sanitizes to the same native key.
 	draft := config.EmptyMCPDraft()
-	_, err := draft.AddCustom("GitHub!!!", config.MCPTransportStreamableHTTP, "https://example.com/mcp", "", "")
+	_, err := draft.AddCustom("Context7!!!", config.MCPTransportStreamableHTTP, "https://example.com/mcp", "", "")
 	if err == nil || !strings.Contains(err.Error(), "native key collision") {
 		t.Fatalf("expected collision on add, got %v", err)
 	}
@@ -141,7 +141,7 @@ func TestOpenCodeNestedConfigurePreserved(t *testing.T) {
 	})
 	_ = cfg.ToggleMulti("adapters.selected", "opencode")
 	mcpDraft := config.EmptyMCPDraft()
-	mcpDraft.EnableBuiltin(config.MCPBuiltinGitHub)
+	mcpDraft.EnableBuiltin(config.MCPBuiltinContext7)
 	if _, err := config.PersistConfigure(config.ApplyInput{Root: root, Draft: cfg, MCP: mcpDraft}); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestOpenCodeNestedConfigurePreserved(t *testing.T) {
 	if _, ok := servers["personal"]; !ok {
 		t.Fatal("user entry lost")
 	}
-	if _, ok := servers["github"]; !ok {
+	if _, ok := servers["context7"]; !ok {
 		t.Fatal("github missing")
 	}
 }

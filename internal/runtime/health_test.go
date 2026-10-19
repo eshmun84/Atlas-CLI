@@ -162,10 +162,15 @@ func materializeProject(t *testing.T, adapters []string, contextGraph bool) stri
 	}
 	root := t.TempDir()
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
-		ProjectName:   "demo",
-		ProjectMode:   "existing",
-		DefaultRemote: "origin",
+		ProjectName:           "demo",
+		ProjectMode:           "existing",
+		DefaultRemote:         "origin",
+		ToolCursorAvailable:   true,
+		ToolOpenCodeAvailable: true,
 	})
+	if len(adapters) == 0 {
+		adapters = []string{"cursor"}
+	}
 	for _, adapter := range adapters {
 		if !draft.ToggleMulti("adapters.selected", adapter) {
 			t.Fatalf("toggle %s", adapter)

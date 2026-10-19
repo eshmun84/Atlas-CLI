@@ -142,7 +142,7 @@ func TestInitApply_MCPFailureRollsBackBaseline(t *testing.T) {
 	})
 	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	mcpDraft := config.EmptyMCPDraft()
-	mcpDraft.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcpDraft.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 
 	_, err := config.ApplyConfig(config.ApplyInput{
 		Root: root, Draft: draft, MCP: mcpDraft,

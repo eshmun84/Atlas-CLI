@@ -10,14 +10,11 @@ func TestDefaultMCPDraftBuiltinsAndCustomAdd(t *testing.T) {
 	t.Parallel()
 
 	draft := config.DefaultMCPDraft()
-	if len(draft.Builtins) != 5 {
-		t.Fatalf("builtins = %d, want 5", len(draft.Builtins))
+	if len(draft.Builtins) != 2 {
+		t.Fatalf("builtins = %d, want 2", len(draft.Builtins))
 	}
-	if draft.Builtins[0].ID != config.MCPBuiltinFilesystem ||
-		draft.Builtins[1].ID != config.MCPBuiltinGitHub ||
-		draft.Builtins[2].ID != config.MCPBuiltinJira ||
-		draft.Builtins[3].ID != config.MCPBuiltinContext7 ||
-		draft.Builtins[4].ID != config.MCPBuiltinChromeDevTools {
+	if draft.Builtins[0].ID != config.MCPBuiltinContext7 ||
+		draft.Builtins[1].ID != config.MCPBuiltinChromeDevTools {
 		t.Fatalf("unexpected builtins: %#v", draft.Builtins)
 	}
 	for _, item := range draft.Builtins {
@@ -29,14 +26,14 @@ func TestDefaultMCPDraftBuiltinsAndCustomAdd(t *testing.T) {
 		t.Fatalf("custom/configured = %d/%d", len(draft.CustomServers), draft.ConfiguredCount())
 	}
 
-	if !draft.EnableBuiltin(config.MCPBuiltinJira) || !draft.Builtins[draft.BuiltinIndex(config.MCPBuiltinJira)].Enabled {
-		t.Fatal("toggle jira")
+	if !draft.EnableBuiltin(config.MCPBuiltinContext7) || !draft.Builtins[draft.BuiltinIndex(config.MCPBuiltinContext7)].Enabled {
+		t.Fatal("toggle context7")
 	}
 	if !draft.EnableBuiltin(config.MCPBuiltinChromeDevTools) {
 		t.Fatal("chrome toggle")
 	}
-	if !draft.Builtins[draft.BuiltinIndex(config.MCPBuiltinJira)].Enabled {
-		t.Fatal("chrome toggle must not unset jira")
+	if !draft.Builtins[draft.BuiltinIndex(config.MCPBuiltinContext7)].Enabled {
+		t.Fatal("chrome toggle must not unset context7")
 	}
 	if draft.ToggleBuiltin(99) {
 		t.Fatal("out of range builtin toggle")
@@ -70,7 +67,7 @@ func TestDefaultMCPDraftBuiltinsAndCustomAdd(t *testing.T) {
 	if _, err := draft.AddCustom("my browser mcp", config.MCPTransportStreamableHTTP, "https://example.com/mcp", "", ""); err == nil {
 		t.Fatal("duplicate name must fail")
 	}
-	if _, err := draft.AddCustom("Jira", config.MCPTransportStdio, "npx", "", ""); err == nil {
+	if _, err := draft.AddCustom("Context7", config.MCPTransportStdio, "npx", "", ""); err == nil {
 		t.Fatal("builtin name must be rejected")
 	}
 	if _, err := draft.AddCustom("Legacy SSE", config.MCPTransportSSE, "https://example.com/mcp", "", ""); err == nil {

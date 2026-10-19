@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/eshmun84/Atlas-CLI/internal/codeintel"
 	"github.com/eshmun84/Atlas-CLI/internal/codeintel/codegraph"
@@ -43,7 +44,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		// While a blocking Apply is running, only allow quit; ignore duplicate Apply.
+		if m.opActive {
+			if msg.String() == "ctrl+c" || msg.Type == tea.KeyCtrlC {
+				return m.quit()
+			}
+			return m, nil
+		}
 		return m.handleKey(msg)
+
+	case spinner.TickMsg:
+		if !m.opActive {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
+	case operationDoneMsg:
+		return m.handleOperationDone(msg)
 
 	case loadedMsg:
 		if msg.err != nil {
@@ -198,9 +217,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleInitContentKey(msg)
 	}
 	if m.focus == FocusContent && m.route == RouteConfigure {
-		if m.mcpMode == screens.MCPModeAdd {
-			return m.handleMCPAddKey(msg)
-		}
 		return m.handleConfigFormKey(msg)
 	}
 	if m.focus == FocusContent && m.route == RouteRuntimeRepair {
@@ -235,9 +251,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleInitContentKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.initWizardStep == screens.InitWizardStepConfig {
-		if m.mcpMode == screens.MCPModeAdd {
-			return m.handleMCPAddKey(msg)
-		}
 		return m.handleConfigFormKey(msg)
 	}
 	if m.initWizardStep == screens.InitWizardStepReview {
@@ -562,8 +575,10 @@ func (m Model) moveConfigFocus(delta int) Model {
 		if delta < 0 {
 			m.configPanel = screens.ConfigPanelFields
 			if m.mcpSectionActive() {
-				m.mcpListFocus = screens.MCPFocusAddBtn
-				m.mcpFooterIdx = 0
+				m.mcpListFocus = screens.MCPFocusBuiltins
+				if n := len(m.mcpDraft.Builtins); n > 0 {
+					m.mcpIndex = n - 1
+				}
 				return m
 			}
 			rows := screens.FocusRows(m.configDraft, m.configSectionIdx)
@@ -651,6 +666,10 @@ func (m Model) activateConfigFooter() (tea.Model, tea.Cmd) {
 		if m.route == RouteConfigure {
 			return m.applyConfigureChanges()
 		}
+		if !config.DraftHasSupportedAdapter(m.configDraft) {
+			m.configureNotice = config.ErrAdaptersRequired
+			return m, nil
+		}
 		if m.hasRuntimeArtifacts() {
 			m.initWizardStep = screens.InitWizardStepConflict
 			m.initField = screens.InitFieldConflictRefresh
@@ -665,21 +684,15 @@ func (m Model) activateConfigFooter() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) applyConfigureChanges() (tea.Model, tea.Cmd) {
-	result, err := config.PersistConfigure(config.ApplyInput{
-		Root:  m.discovery.RootPath,
-		Draft: m.configDraft,
-		MCP:   m.mcpDraft,
-	})
-	if err != nil {
-		m.configureNotice = err.Error()
+	if m.opActive {
 		return m, nil
 	}
-	m.configureNotice = result.Notice
-	if refreshed, discErr := m.discover(m.discovery.RootPath); discErr == nil {
-		m.discovery = refreshed
-		m.report = doctor.Evaluate(refreshed)
+	if !config.DraftHasSupportedAdapter(m.configDraft) {
+		m.configureNotice = config.ErrAdaptersRequired
+		return m, nil
 	}
-	return m, nil
+	m.configureNotice = ""
+	return m.beginOperation(opConfigureApply, "Applying configuration...", "Reconciling adapters...")
 }
 
 func (m Model) configFooterAction() string {
@@ -804,38 +817,11 @@ func (m Model) handleRuntimeRepairKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) applyRuntimeRepair() (tea.Model, tea.Cmd) {
-	root := m.discovery.RootPath
-	result, err := runtime.ApplyRuntimeRepair(root, m.repairSignature, nil)
-	if err != nil {
-		m.repairMessage = err.Error()
-		m.repairResult = result
-		if result.Blocked {
-			m.repairPlan = result.Plan
-			m.repairSignature = result.Plan.Signature()
-		}
+	if m.opActive {
 		return m, nil
 	}
-	if result.Stale {
-		m.repairApplied = false
-		m.repairResult = result
-		m.repairPlan = result.Plan
-		m.repairSignature = result.Plan.Signature()
-		m.repairMessage = runtime.RepairStaleMessage
-		m.repairFooterIdx = 0
-		return m, nil
-	}
-	m.repairApplied = true
-	m.repairResult = result
-	m.repairPlan = result.Plan
-	m.repairMessage = result.MessageTitle
-	m.repairFooterIdx = 0
-	if refreshed, discErr := m.discover(root); discErr == nil {
-		m.discovery = refreshed
-		m.repairPlan = runtime.BuildRuntimeRepairPlan(root, refreshed.Runtime)
-		m.repairSignature = m.repairPlan.Signature()
-		m.report = doctor.Evaluate(refreshed)
-	}
-	return m, nil
+	m.repairMessage = ""
+	return m.beginOperation(opRuntimeRepair, "Applying runtime repair...", "Rematerializing Atlas-owned runtime...")
 }
 
 func (m Model) handleContextEconomyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -921,27 +907,76 @@ func (m Model) activateInitReviewFooter() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) applyInitConfig() (tea.Model, tea.Cmd) {
-	root := m.discovery.RootPath
+	if m.opActive {
+		return m, nil
+	}
 	m.refreshInitReviewPlan()
 	if len(m.initReviewPlan.Blockers) > 0 {
 		m.initReviewMessage = m.initReviewPlan.Blockers[0].Message
 		return m, nil
 	}
-	if _, err := config.ApplyConfig(config.ApplyInput{
-		Root:            root,
-		Draft:           m.configDraft,
-		MCP:             m.mcpDraft,
-		AcceptHomeReset: m.initAcceptHomeReset,
-	}); err != nil {
-		m.initReviewMessage = err.Error()
+	m.initReviewMessage = ""
+	return m.beginOperation(opInitApply, "Applying initialization...", "Materializing Atlas project runtime...")
+}
+
+func (m Model) handleOperationDone(msg operationDoneMsg) (tea.Model, tea.Cmd) {
+	m = m.clearOperation()
+	root := m.discovery.RootPath
+	switch msg.Kind {
+	case opConfigureApply:
+		if msg.Err != nil {
+			m.configureNotice = formatOpFailure(msg.Kind, msg.Err, msg.Duration)
+			return m, nil
+		}
+		m.configureNotice = msg.ConfigureNotice
+		if refreshed, discErr := m.discover(root); discErr == nil {
+			m.discovery = refreshed
+			m.report = doctor.Evaluate(refreshed)
+		}
+		return m, nil
+	case opInitApply:
+		if msg.Err != nil {
+			m.initReviewMessage = formatOpFailure(msg.Kind, msg.Err, msg.Duration)
+			return m, nil
+		}
+		m.initApplied = true
+		m.initReviewMessage = msg.InitNotice
+		m.initReviewFooterIdx = 0
+		m.configFooterIdx = 0
+		m.configPanel = screens.ConfigPanelFooter
+		return m, nil
+	case opRuntimeRepair:
+		m.repairResult = msg.RepairResult
+		if msg.Err != nil {
+			m.repairMessage = formatOpFailure(msg.Kind, msg.Err, msg.Duration)
+			if msg.RepairBlocked {
+				m.repairPlan = msg.RepairResult.Plan
+				m.repairSignature = msg.RepairResult.Plan.Signature()
+			}
+			return m, nil
+		}
+		if msg.RepairStale {
+			m.repairApplied = false
+			m.repairPlan = msg.RepairResult.Plan
+			m.repairSignature = msg.RepairResult.Plan.Signature()
+			m.repairMessage = msg.RepairMessage
+			m.repairFooterIdx = 0
+			return m, nil
+		}
+		m.repairApplied = true
+		m.repairPlan = msg.RepairResult.Plan
+		m.repairMessage = msg.RepairMessage
+		m.repairFooterIdx = 0
+		if refreshed, discErr := m.discover(root); discErr == nil {
+			m.discovery = refreshed
+			m.repairPlan = runtime.BuildRuntimeRepairPlan(root, refreshed.Runtime)
+			m.repairSignature = m.repairPlan.Signature()
+			m.report = doctor.Evaluate(refreshed)
+		}
+		return m, nil
+	default:
 		return m, nil
 	}
-	m.initApplied = true
-	m.initReviewMessage = config.ApplySuccessTitle
-	m.initReviewFooterIdx = 0
-	m.configFooterIdx = 0
-	m.configPanel = screens.ConfigPanelFooter
-	return m, nil
 }
 
 func (m Model) activateInitField() (tea.Model, tea.Cmd) {
@@ -1017,8 +1052,8 @@ func (m Model) setRoute(route Route) (Model, tea.Cmd) {
 		m.sidebarIndex = indexForRoute(m.Sidebar(), route)
 	}
 	m.focus = FocusSidebar
-	m.mcpMode = screens.MCPModeList
-	m.mcpAddError = ""
+	m.mcpListFocus = screens.MCPFocusBuiltins
+	m.mcpIndex = 0
 	m.mcpNotice = ""
 	if route == RouteInitPlan {
 		m.initReviewMessage = ""

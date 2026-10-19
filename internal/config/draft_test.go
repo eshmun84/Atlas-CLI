@@ -72,8 +72,8 @@ func TestBuildConfigDraft_VisibleSectionsAndDefaults(t *testing.T) {
 	if len(govStorage.Options) != 2 {
 		t.Fatalf("governance options = %#v", govStorage.Options)
 	}
-	if !govStorage.OptionDisabled("versioned") {
-		t.Fatal("versioned must be disabled without GitHub")
+	if govStorage.OptionDisabled("versioned") {
+		t.Fatal("versioned must remain available without GitHub (provider-neutral)")
 	}
 
 	if _, ok := draft.FieldByKey("governance.enabled"); ok {
@@ -187,42 +187,34 @@ func TestBuildConfigDraft_GitDetectDoesNotEnableAssistedOps(t *testing.T) {
 	assertField(t, draft, "source_control.delivery_assist", "false", config.FieldReadonly, config.FieldReadonly)
 }
 
-func TestConfigDraft_DeliveryPlatformUnlocksVersioned(t *testing.T) {
+func TestConfigDraft_GovernanceStorageProviderNeutral(t *testing.T) {
 	t.Parallel()
 
 	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
 		ProjectName: "demo",
 		ProjectMode: "existing",
 	})
-	if draft.SelectOption("source_control.governance_storage", "versioned") {
-		field, _ := draft.FieldByKey("source_control.governance_storage")
-		if field.Value == "versioned" {
-			t.Fatal("versioned must stay unavailable without GitHub")
-		}
-	}
-	if !draft.SelectOption("source_control.mode", "git_github") {
-		t.Fatal("expected delivery platform change")
+	// versioned must work with git_local / none — not gated on GitHub.
+	if !draft.SelectOption("source_control.mode", "git_local") {
+		t.Fatal("expected git_local")
 	}
 	field, _ := draft.FieldByKey("source_control.governance_storage")
-	if len(field.Options) != 2 || field.OptionDisabled("versioned") {
-		t.Fatalf("governance options with GitHub = %#v disabled=%v", field.Options, field.DisabledValues)
+	if field.OptionDisabled("versioned") {
+		t.Fatal("versioned must be available with git_local")
 	}
 	if !draft.SelectOption("source_control.governance_storage", "versioned") {
-		t.Fatal("expected governance files change")
+		t.Fatal("expected versioned selection with git_local")
 	}
 	field, _ = draft.FieldByKey("source_control.governance_storage")
 	if field.Value != "versioned" {
 		t.Fatalf("governance = %q", field.Value)
 	}
 	if !draft.SelectOption("source_control.mode", "none") {
-		t.Fatal("expected delivery platform reset")
+		t.Fatal("expected mode none")
 	}
 	field, _ = draft.FieldByKey("source_control.governance_storage")
-	if field.Value != "local_only" {
-		t.Fatalf("governance after platform clear = %q", field.Value)
-	}
-	if !field.OptionDisabled("versioned") {
-		t.Fatal("versioned should be disabled again after leaving GitHub")
+	if field.Value != "versioned" || field.OptionDisabled("versioned") {
+		t.Fatalf("versioned must remain after platform change: %#v", field)
 	}
 }
 

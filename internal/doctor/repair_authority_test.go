@@ -227,11 +227,20 @@ func materializeDoctorProject(t *testing.T, adapters []string) string {
 		t.Fatalf("home: %v", err)
 	}
 	root := t.TempDir()
-	draft := config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+	in := config.ProjectSetupInput{
 		ProjectName:   "demo",
 		ProjectMode:   "existing",
 		DefaultRemote: "origin",
-	})
+	}
+	for _, adapter := range adapters {
+		switch adapter {
+		case "cursor":
+			in.ToolCursorAvailable = true
+		case "opencode":
+			in.ToolOpenCodeAvailable = true
+		}
+	}
+	draft := config.BuildConfigDraft(config.ConfigModeInit, in)
 	for _, adapter := range adapters {
 		if !draft.ToggleMulti("adapters.selected", adapter) {
 			t.Fatalf("toggle %s", adapter)

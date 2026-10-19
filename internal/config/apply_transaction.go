@@ -126,6 +126,7 @@ func captureInitMutationSnapshot(root, homePath, projectID string, targets []str
 		".cursor/hooks.json",
 		".cursor/hooks/atlas/dispatch",
 		".opencode/plugins/atlas-hooks/index.ts",
+		FileOpenCodeMCP,
 		"opencode.json",
 		FileProjectDocsREADME,
 		FileREADME,
@@ -255,7 +256,7 @@ type configureMutationSnapshot struct {
 	hooksMutation   hookproj.MutationState
 }
 
-func captureConfigureMutationSnapshot(root, homePath, projectID string, includeProvider bool) (configureMutationSnapshot, error) {
+func captureConfigureMutationSnapshot(root, homePath, projectID string, includeProvider bool, extraRels ...string) (configureMutationSnapshot, error) {
 	snap := configureMutationSnapshot{
 		homePath:  homePath,
 		projectID: projectID,
@@ -289,13 +290,24 @@ func captureConfigureMutationSnapshot(root, homePath, projectID string, includeP
 	for _, rel := range []string{
 		FileConfig,
 		FileSkillRegistry,
+		FileAgentRegistry,
+		FileRuntimeManifest,
+		FileAssetsLock,
+		FileAgentsMD,
+		FileGitignore,
 		".cursor/mcp.json",
 		".cursor/hooks.json",
 		".cursor/hooks/atlas/dispatch",
 		".opencode/plugins/atlas-hooks/index.ts",
+		FileOpenCodeMCP,
 		"opencode.json",
 		FileProjectDocsREADME,
 	} {
+		if err := add(rel); err != nil {
+			return snap, err
+		}
+	}
+	for _, rel := range extraRels {
 		if err := add(rel); err != nil {
 			return snap, err
 		}
@@ -449,6 +461,59 @@ func recordTrackedWrite(fp *fsafety.TransactionFootprint, root, rel string, data
 		return err
 	}
 	fp.AddFile(w)
+	return nil
+}
+
+// absorbMCPNativeFootprint records post-reconcile MCP native file identity on the
+// Configure footprint so later Configure rollback can restore modified or deleted
+// mcp.json / OpenCode MCP layers (MCP reconcile uses its own inner transaction).
+func absorbMCPNativeFootprint(fp *fsafety.TransactionFootprint, root string, baseline []fsafety.FileSnapshot) error {
+	if fp == nil {
+		return nil
+	}
+	rels := []string{".cursor/mcp.json", FileOpenCodeMCP, "opencode.json"}
+	baseByRel := map[string]fsafety.FileSnapshot{}
+	for _, fs := range baseline {
+		baseByRel[filepath.ToSlash(fs.Rel)] = fs
+	}
+	for _, rel := range rels {
+		rel = filepath.ToSlash(rel)
+		base, hadBase := baseByRel[rel]
+		info, err := fsafety.LstatContained(root, rel)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return fmt.Errorf("mcp footprint %s: %w", rel, err)
+			}
+			if hadBase && base.Exists && base.WasFile {
+				fp.AddDeleted(fsafety.DeletedFile{
+					Rel:      rel,
+					Expected: append([]byte(nil), base.Data...),
+					Mode:     base.Mode,
+					Info:     base.Info,
+				})
+			}
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("mcp footprint %s: unexpected type", rel)
+		}
+		cur, err := fsafety.ReadFileContained(root, rel)
+		if err != nil {
+			return fmt.Errorf("mcp footprint read %s: %w", rel, err)
+		}
+		mode := info.Mode().Perm()
+		if hadBase && base.Exists && base.WasFile &&
+			string(cur) == string(base.Data) && mode == base.Mode {
+			continue
+		}
+		fp.AddFile(fsafety.WrittenFile{
+			Rel:      rel,
+			Created:  !hadBase || !base.Exists,
+			Expected: append([]byte(nil), cur...),
+			Mode:     mode,
+			Info:     info,
+		})
+	}
 	return nil
 }
 

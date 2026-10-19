@@ -42,7 +42,7 @@ func TestEvaluateHealth_UnownedEqualPayload_NotMaterialized(t *testing.T) {
 			root := t.TempDir()
 			homePath := t.TempDir()
 			pid := "health-own"
-			def, ok := mcp.BuiltinByID(mcp.BuiltinGitHub)
+			def, ok := mcp.BuiltinByID(mcp.BuiltinContext7)
 			if !ok {
 				t.Fatal("github missing")
 			}
@@ -104,7 +104,7 @@ func TestDoctor_OwnershipConflictFailsWithoutMaterializedPass(t *testing.T) {
 	})
 	_ = draft.ToggleMulti("adapters.selected", "cursor")
 	mcpDraft := config.EmptyMCPDraft()
-	mcpDraft.EnableBuiltin(config.MCPBuiltinFilesystem)
+	mcpDraft.EnableBuiltin(config.MCPBuiltinChromeDevTools)
 	if _, err := config.ApplyConfig(config.ApplyInput{
 		Root: root, Draft: draft, MCP: mcpDraft,
 		Now: func() time.Time { return time.Date(2026, 10, 8, 21, 30, 0, 0, time.UTC) },
@@ -113,7 +113,7 @@ func TestDoctor_OwnershipConflictFailsWithoutMaterializedPass(t *testing.T) {
 	}
 
 	// Replace Atlas-owned projection with equal payload but wipe ownership.
-	def, _ := mcp.BuiltinByID(mcp.BuiltinFilesystem)
+	def, _ := mcp.BuiltinByID(mcp.BuiltinChromeDevTools)
 	def.Enabled = true
 	proj := cursor.New()
 	entry, err := proj.BuildMCPProjection(root, def)

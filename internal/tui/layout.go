@@ -133,9 +133,13 @@ func (m Model) rawContent() string {
 		return screens.Help()
 	case RouteInitPlan:
 		if m.initWizardStep == screens.InitWizardStepReview {
+			applyMsg := m.initReviewMessage
+			if m.opActive && m.opKind == opInitApply {
+				applyMsg = m.operationStatusView()
+			}
 			return screens.RenderReview(screens.ReviewView{
 				Plan:           m.initReviewPlan,
-				ApplyMessage:   m.initReviewMessage,
+				ApplyMessage:   applyMsg,
 				Applied:        m.initApplied,
 				ContentFocused: m.focus == FocusContent,
 			})
@@ -185,7 +189,9 @@ func (m Model) rawContent() string {
 			return screens.ConfigureFallback(m.discovery.Atlas.State, m.discovery.Atlas.ConfigPath)
 		}
 		note := config.FormatConfigureFooterNote(m.configDraft)
-		if m.configureNotice != "" {
+		if m.opActive {
+			note = m.operationStatusView()
+		} else if m.configureNotice != "" {
 			note = m.configureNotice
 		}
 		return screens.ConfigureView(screens.ConfigFormView{
@@ -210,10 +216,14 @@ func (m Model) rawContent() string {
 	case RouteDoctor:
 		return screens.Doctor(m.report, m.discovery)
 	case RouteRuntimeRepair:
+		repairMsg := m.repairMessage
+		if m.opActive && m.opKind == opRuntimeRepair {
+			repairMsg = m.operationStatusView()
+		}
 		return screens.RenderRuntimeRepair(screens.RepairView{
 			Plan:           m.repairPlan,
 			Applied:        m.repairApplied,
-			ApplyMessage:   m.repairMessage,
+			ApplyMessage:   repairMsg,
 			ContentFocused: m.focus == FocusContent,
 		})
 	case RouteContextEconomy:
@@ -289,21 +299,6 @@ func (m Model) renderActionRow() (string, bool) {
 			FooterIndex:    0,
 			Width:          width,
 		}), true
-	case m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepConfig && m.mcpMode == screens.MCPModeAdd:
-		panel := ""
-		if m.focus == FocusContent && (m.mcpAddFocus == screens.MCPFocusCancel || m.mcpAddFocus == screens.MCPFocusSubmit) {
-			panel = screens.ConfigPanelFooter
-		}
-		return screens.RenderActionFooter(screens.ActionFooterView{
-			ShowBack:       true,
-			ShowNext:       true,
-			BackLabel:      "Cancel",
-			NextLabel:      "Add",
-			ContentFocused: m.focus == FocusContent,
-			PanelFocus:     panel,
-			FooterIndex:    m.mcpFooterIdx,
-			Width:          width,
-		}), true
 	case m.route == RouteInitPlan && m.initWizardStep == screens.InitWizardStepConfig:
 		return screens.RenderActionFooter(screens.ActionFooterView{
 			ShowBack:       true,
@@ -336,25 +331,10 @@ func (m Model) renderActionRow() (string, bool) {
 			ShowNext:       true,
 			BackLabel:      "Back",
 			NextLabel:      "Apply config",
-			NextDisabled:   false,
+			NextDisabled:   m.opActive,
 			ContentFocused: m.focus == FocusContent,
 			PanelFocus:     panel,
 			FooterIndex:    m.initReviewFooterIdx,
-			Width:          width,
-		}), true
-	case m.route == RouteConfigure && m.mcpMode == screens.MCPModeAdd:
-		panel := ""
-		if m.focus == FocusContent && (m.mcpAddFocus == screens.MCPFocusCancel || m.mcpAddFocus == screens.MCPFocusSubmit) {
-			panel = screens.ConfigPanelFooter
-		}
-		return screens.RenderActionFooter(screens.ActionFooterView{
-			ShowBack:       true,
-			ShowNext:       true,
-			BackLabel:      "Cancel",
-			NextLabel:      "Add",
-			ContentFocused: m.focus == FocusContent,
-			PanelFocus:     panel,
-			FooterIndex:    m.mcpFooterIdx,
 			Width:          width,
 		}), true
 	case m.route == RouteConfigure && len(m.configDraft.Sections) > 0:
@@ -363,6 +343,7 @@ func (m Model) renderActionRow() (string, bool) {
 			ShowNext:       true,
 			BackLabel:      "Close",
 			NextLabel:      "Apply changes",
+			NextDisabled:   m.opActive,
 			ContentFocused: m.focus == FocusContent,
 			PanelFocus:     m.configPanel,
 			FooterIndex:    m.configFooterIdx,
@@ -373,7 +354,8 @@ func (m Model) renderActionRow() (string, bool) {
 		if m.focus == FocusContent {
 			panel = screens.ConfigPanelFooter
 		}
-		if m.repairApplied || m.repairPlan.Blocked || !m.repairPlan.NeedsApply() {
+		canRepair := !m.repairApplied && !m.repairPlan.Blocked && m.repairPlan.NeedsApply()
+		if !canRepair && !m.opActive {
 			return screens.RenderActionFooter(screens.ActionFooterView{
 				ShowBack:       true,
 				ShowNext:       false,
@@ -389,6 +371,7 @@ func (m Model) renderActionRow() (string, bool) {
 			ShowNext:       true,
 			BackLabel:      "Close",
 			NextLabel:      "Apply repair",
+			NextDisabled:   m.opActive,
 			ContentFocused: m.focus == FocusContent,
 			PanelFocus:     panel,
 			FooterIndex:    m.repairFooterIdx,
@@ -465,10 +448,8 @@ func (m Model) renderFooter() string {
 				text = "Tab focus  Continue to Setup  Exit / Back  b status  q quit"
 			}
 		case screens.InitWizardStepConfig:
-			if m.mcpMode == screens.MCPModeAdd {
-				text = "Tab focus  ↑/↓  Space/Enter  Add MCP  b status  q quit"
-			} else if m.mcpSectionActive() {
-				text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter  d remove custom  b status  q quit"
+			if m.mcpSectionActive() {
+				text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter  b status  q quit"
 			} else {
 				text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter select  b status  q quit"
 			}
@@ -484,10 +465,8 @@ func (m Model) renderFooter() string {
 			text = "Tab focus  ↑/↓ fields  ←/→ mode  Space/Enter select  r reset  b status  q quit"
 		}
 	case RouteConfigure:
-		if m.mcpMode == screens.MCPModeAdd {
-			text = "Tab focus  ↑/↓  Space/Enter  Add MCP  b status  q quit"
-		} else if m.mcpSectionActive() {
-			text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter  d remove custom  Apply changes  b status  q quit"
+		if m.mcpSectionActive() {
+			text = "Tab focus  ↑/↓ rows  ←/→ sections  Space/Enter  Apply changes  b status  q quit"
 		} else {
 			text = "Tab focus  ↑/↓ rows  Space/Enter select  Close  Apply changes  b status  q quit"
 		}
