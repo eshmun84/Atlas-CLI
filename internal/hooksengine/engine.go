@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/adapters"
+	"github.com/eshmun84/Atlas-CLI/internal/hookactions"
 	"github.com/eshmun84/Atlas-CLI/internal/hooks"
 )
 
@@ -51,12 +52,26 @@ func (e Engine) Dispatch(ctx context.Context, req Request) Response {
 		return resp
 	}
 
+	// Attach resolved project for maintenance Actions (Home + root from Env).
+	// Failures to load state are non-fatal here: Actions that need state surface
+	// their own structured outcomes when TriggersEnabled.
+	if maint, maintErr := hookactions.ResolveAt(ref.Root, ref.Home); maintErr == nil {
+		ctx = hookactions.WithProject(ctx, maint)
+	}
+
 	cap := e.capabilityFor(adapterID)
 	dispatcher := hooks.Dispatcher{
 		Registry:   e.Registry,
 		Capability: cap,
 	}
 	report := dispatcher.Dispatch(ctx, ev)
+
+	// Phase B.8: Cursor beforeSubmitPrompt → task.start fallback.
+	// Evaluated after Action dispatch so maintenance never alters governance,
+	// denials, security outcomes, or Cursor/OpenCode JSON responses.
+	// Cursor-only; does not subscribe Actions to task.start.
+	hookactions.MaybeAdmitCursorSessionFallback(ctx, adapterID, ev)
+
 	return responseFromReport(ref.ProjectID, adapterID, report)
 }
 

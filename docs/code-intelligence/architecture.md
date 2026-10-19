@@ -72,7 +72,21 @@ Atlas degrades cleanly when no provider is present: Code Intelligence stays off;
 
 None of the above may build or refresh a provider index.
 
-Graph/index **refresh** is an explicit mutation under Atlas control. No silent rebuilds. No hidden mutations during diagnostics. Refresh modes include initial, incremental, noop, and full when policy requires it.
+Graph/index **refresh** is an Atlas-controlled mutation. Refresh modes include
+initial, incremental, noop, and full when policy requires it.
+
+**Phase B (Automatic Context Lifecycle):** an internal hooks Action
+(`codeintel.refresh.maintain` in `internal/hookactions`) reuses
+`codeintel.Service.Refresh` for Home-only maintenance. On `session.start`,
+admission spawns a detached worker so adapter hook subprocesses are not
+blocked by fingerprint/refresh cost. Phase B.8 adds a Cursor-only
+`beforeSubmitPrompt` fallback when `sessionStart` is absent (per-session
+dedupe; Actions still subscribe only to `session.start`).
+`TriggersEnabled` defaults to true. Status/Doctor never trigger refresh.
+TUI Review → Apply remains available for explicit/full refresh.
+See [automatic-context-lifecycle.md](../automatic-context-lifecycle.md).
+
+No silent rebuilds during Status/Doctor/diagnostics. No daemon.
 
 ## Storage policy
 
@@ -112,7 +126,9 @@ Task
   → agent
 ```
 
-Context Economy remains the explicit file-based update surface. Code Intelligence may inform what is relevant; packing and Home-backed context artifacts stay under Context Economy policy.
+Context Economy remains the file-based Home surface (TUI Update + Phase A
+maintenance Action). Code Intelligence may inform what is relevant; packing and
+Home-backed context artifacts stay under Context Economy policy.
 
 ## Atlas Context Graph relationship
 

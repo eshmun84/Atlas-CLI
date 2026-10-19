@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/eshmun84/Atlas-CLI/internal/hookactions"
 	"github.com/eshmun84/Atlas-CLI/internal/tui"
 	"github.com/eshmun84/Atlas-CLI/internal/version"
 )
@@ -17,8 +18,19 @@ var RunTUI = tui.Run
 // capability plan --json write console/JSON output without opening the TUI.
 // Unsupported commands still open the TUI error dialog, then return a non-nil
 // error so the process exits non-zero.
+//
+// When ATLAS_INTERNAL_MAINTAIN=1, Execute runs the detached session-maintenance
+// worker and returns without public command routing (not a public CLI verb).
 func Execute(stdout, stderr io.Writer, args []string) error {
-	_ = stderr
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	if handled, err := hookactions.MaybeRunInternalMaintain(stdout, stderr); handled {
+		return err
+	}
 
 	action := Resolve(args)
 	switch action.Mode {

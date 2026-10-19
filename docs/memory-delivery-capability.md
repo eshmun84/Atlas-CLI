@@ -57,7 +57,9 @@ plugin does **not** register this hook today. Prefer this over mutating
 5. Injected text is bounded and framed as observations (not executable policy).
 
 Until those pass, production `hooksengine.DefaultRegistry()` must remain free of
-Memory Actions that claim delivery.
+Memory Actions that claim delivery. (Phase A may register Context Economy /
+Code Intelligence *maintenance* Actions with triggers disabled; that does not
+authorize Memory inject Actions.)
 
 ## Security and budget constraints
 

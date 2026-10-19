@@ -40,6 +40,12 @@ func TestReconcile_OpenCodePluginMaterializeIdempotent(t *testing.T) {
 		"parseAtlasResponse",
 		"SUBPROCESS_TIMEOUT_MS",
 		"utf8ByteLength",
+		"isSessionCreatedEvent",
+		"handleSessionCreatedEvent",
+		"processSubscribeEvent",
+		`["data", "properties", "payload"]`,
+		"session.created.1",
+		"ATLAS_OPENCODE_HOOKS_TRACE",
 	} {
 		if !strings.Contains(body, part) {
 			t.Fatalf("plugin missing %q", part)

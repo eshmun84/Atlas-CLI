@@ -1,17 +1,23 @@
 package hooksengine
 
-import "github.com/eshmun84/Atlas-CLI/internal/hooks"
+import (
+	"github.com/eshmun84/Atlas-CLI/internal/hookactions"
+	"github.com/eshmun84/Atlas-CLI/internal/hooks"
+)
 
 // DefaultRegistry returns the Atlas-owned action registry for the engine.
 //
-// Slice 36B.2 ships an empty registry on purpose: no Memory, Governance, or
-// Testing actions are registered yet, and no placeholder production actions
-// are invented to manufacture successful side effects. Callers (tests) may
-// supply a custom Registry via Engine.Registry.
+// Phase B registers Context Economy and Code Intelligence maintenance Actions.
+// session.start admits Home maintenance via a detached worker (see hookactions).
+// Phase B.8 adds a Cursor-only beforeSubmitPrompt fallback evaluated in Engine
+// (not via Action subscription to task.start). Memory / Governance / Testing
+// automatic Actions are still not registered.
+//
+// Callers (tests) may supply a custom Registry via Engine.Registry.
 func DefaultRegistry() hooks.Registry {
-	reg, err := hooks.NewRegistry(nil)
+	reg, err := hooks.NewRegistry(hookactions.Registrations())
 	if err != nil {
-		// NewRegistry(nil) cannot fail with the current foundation.
+		// Registrations are static and must validate; fail closed to empty.
 		return hooks.Registry{}
 	}
 	return reg

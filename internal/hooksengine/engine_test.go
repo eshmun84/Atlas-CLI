@@ -38,15 +38,24 @@ func (a stubAction) Run(ctx context.Context, ev hooks.Event) (hooks.Result, erro
 	return hooks.Result{Outcome: hooks.OutcomeOK}, nil
 }
 
-func TestDispatch_ProductionCursorHooksEnabledEmptyRegistry(t *testing.T) {
+func TestDispatch_ProductionCursorHooksEnabledMaintenanceRegistry(t *testing.T) {
 	eng, projectID := seedEngine(t, hooksengine.DefaultRegistry(), nil)
 	req := validSessionRequest(projectID)
 	resp := eng.Dispatch(context.Background(), req)
 	if resp.Status != hooksengine.StatusSuccess {
 		t.Fatalf("status=%q want success with Cursor Hooks+bridge: %#v", resp.Status, resp)
 	}
-	if resp.Count != 0 || len(resp.Results) != 0 || resp.Aborted {
-		t.Fatalf("empty registry must succeed without actions: %#v", resp)
+	// seedEngine has config but no state.yaml → admission fail-opens to skipped.
+	if resp.Aborted {
+		t.Fatalf("maintenance dispatch must not abort: %#v", resp)
+	}
+	if resp.Count != 2 {
+		t.Fatalf("want 2 maintenance actions, got %#v", resp)
+	}
+	for _, r := range resp.Results {
+		if r.Outcome != string(hooks.OutcomeSkipped) {
+			t.Fatalf("uninitialized-for-maintain project: want skipped, got %#v", r)
+		}
 	}
 }
 
@@ -61,15 +70,15 @@ func TestDispatch_ProductionOpenCodeWithoutBridgeUnsupported(t *testing.T) {
 	}
 }
 
-func TestDispatch_ValidWithOverrideEmptyRegistry(t *testing.T) {
+func TestDispatch_ValidWithOverrideMaintenanceRegistry(t *testing.T) {
 	cap := capable(adapters.Cursor, hooks.EventSessionStart)
 	eng, projectID := seedEngine(t, hooksengine.DefaultRegistry(), &cap)
 	resp := eng.Dispatch(context.Background(), validSessionRequest(projectID))
 	if resp.Status != hooksengine.StatusSuccess {
 		t.Fatalf("status=%q %#v", resp.Status, resp)
 	}
-	if resp.Count != 0 || resp.Aborted {
-		t.Fatalf("empty registry dispatch: %#v", resp)
+	if resp.Aborted || resp.Count != 2 {
+		t.Fatalf("maintenance registry dispatch: %#v", resp)
 	}
 	if resp.ProjectID != projectID || resp.Adapter != string(adapters.Cursor) {
 		t.Fatalf("identity %#v", resp)
@@ -354,7 +363,11 @@ func TestDispatch_Cancellation(t *testing.T) {
 
 func TestDispatch_NoRegisteredActions(t *testing.T) {
 	cap := capable(adapters.Cursor, hooks.EventSessionStart)
-	eng, projectID := seedEngine(t, hooksengine.DefaultRegistry(), &cap)
+	empty, err := hooks.NewRegistry(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, projectID := seedEngine(t, empty, &cap)
 	resp := eng.Dispatch(context.Background(), validSessionRequest(projectID))
 	if resp.Status != hooksengine.StatusSuccess || resp.Count != 0 {
 		t.Fatalf("%#v", resp)
@@ -412,17 +425,24 @@ func TestDispatch_RejectedInputNoFilesystemMutation(t *testing.T) {
 	}
 }
 
-func TestDefaultRegistryEmpty(t *testing.T) {
+func TestDefaultRegistryMaintenancePhaseA(t *testing.T) {
 	reg := hooksengine.DefaultRegistry()
-	if reg.Len() != 0 {
-		t.Fatal("default registry must remain empty until production Actions register")
+	if reg.Len() != 2 {
+		t.Fatalf("Phase A DefaultRegistry len=%d want 2 maintenance Actions", reg.Len())
 	}
-	// Slice 36B.5 ships Memory Skill + CLI only — no production Memory Hooks Actions.
+	// Memory automatic injection Actions remain deferred.
 	for _, regn := range reg.All() {
 		id := regn.Action.ID()
 		if strings.HasPrefix(id, "memory.") {
 			t.Fatalf("production registry must not register Memory Actions, got %s", id)
 		}
+	}
+	ids := map[string]bool{}
+	for _, regn := range reg.All() {
+		ids[regn.Action.ID()] = true
+	}
+	if !ids["context.economy.maintain"] || !ids["codeintel.refresh.maintain"] {
+		t.Fatalf("missing maintenance ids: %v", ids)
 	}
 }
 
@@ -523,7 +543,7 @@ func TestCapability_PartialBridgeDeclarations(t *testing.T) {
 	if resp.Status != hooksengine.StatusUnsupportedEvent {
 		t.Fatalf("undeclared event status=%q", resp.Status)
 	}
-	// Declared event succeeds with empty registry.
+	// Declared event succeeds (Phase A maintenance Actions skip when triggers disabled).
 	resp = eng.Dispatch(context.Background(), validSessionRequest(projectID))
 	if resp.Status != hooksengine.StatusSuccess {
 		t.Fatalf("declared event status=%q", resp.Status)

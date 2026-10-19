@@ -3,7 +3,15 @@
  * Exercises real subprocess behavior via PATH-shadowed mock `atlas` binaries.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -12,14 +20,23 @@ const {
   MAX_BYTES,
   MAX_STDERR_BYTES,
   MAX_STDOUT_BYTES,
+  TRACE_ENV,
   allowDecision,
   dispatchAtlas,
+  handleSessionCreatedEvent,
+  isSessionCreatedEvent,
+  isValidSessionID,
   parseAtlasResponse,
+  processSubscribeEvent,
+  sessionIDFrom,
   shouldDenyToolExecution,
+  traceHooks,
   utf8ByteLength,
 } = mod
 
 const originalPath = process.env.PATH ?? ""
+const originalTrace = process.env[TRACE_ENV]
+const originalAtlasHome = process.env.ATLAS_HOME
 let sandbox = ""
 
 function writeMockAtlas(script: string): void {
@@ -34,11 +51,19 @@ function writeMockAtlas(script: string): void {
 beforeEach(() => {
   sandbox = mkdtempSync(join(tmpdir(), "atlas-hooks-plugin-"))
   process.env.PATH = originalPath
+  if (originalTrace === undefined) delete process.env[TRACE_ENV]
+  else process.env[TRACE_ENV] = originalTrace
+  if (originalAtlasHome === undefined) delete process.env.ATLAS_HOME
+  else process.env.ATLAS_HOME = originalAtlasHome
   mod.setTestTimeoutOverrideMs(undefined)
 })
 
 afterEach(() => {
   process.env.PATH = originalPath
+  if (originalTrace === undefined) delete process.env[TRACE_ENV]
+  else process.env[TRACE_ENV] = originalTrace
+  if (originalAtlasHome === undefined) delete process.env.ATLAS_HOME
+  else process.env.ATLAS_HOME = originalAtlasHome
   mod.setTestTimeoutOverrideMs(undefined)
   if (sandbox) {
     rmSync(sandbox, { recursive: true, force: true })
@@ -372,5 +397,276 @@ exit 0
 `)
     const deny = await dispatchAtlas({ hook_event_name: "tool.execute.before", tool_name: "bash" })
     expect(shouldDenyToolExecution(deny)).toBe(true)
+  })
+})
+
+/** Fixtures mirror OpenCode 2.0.20 contracts (binary + SDK types.gen.ts). */
+const REAL_SESSION_ID = "ses_14f5inventoryQA3158da2a"
+
+describe("plugin discovery contract", () => {
+  test("default export has id and setup (OpenCode V2 load shape)", () => {
+    const def = mod.default
+    expect(def).toBeTruthy()
+    expect(def.id).toBe("atlas.hooks")
+    expect(typeof def.setup).toBe("function")
+    expect(Object.prototype.hasOwnProperty.call(def, "effect")).toBe(false)
+  })
+
+  test("setup registers subscribe + hooks and cleanup aborts", async () => {
+    const hooks: string[] = []
+    let subscribed = false
+    let aborted = false
+    const events: unknown[] = []
+
+    const cleanup = await mod.default.setup({
+      event: {
+        subscribe: ({ signal }: { signal?: AbortSignal }) => {
+          subscribed = true
+          signal?.addEventListener("abort", () => {
+            aborted = true
+          })
+          return {
+            async *[Symbol.asyncIterator]() {
+              for (const ev of events) yield ev
+            },
+          }
+        },
+      },
+      session: {
+        hook: async (name: string) => {
+          hooks.push(`session:${name}`)
+          return { dispose: async () => {} }
+        },
+      },
+      tool: {
+        hook: async (name: string) => {
+          hooks.push(`tool:${name}`)
+          return { dispose: async () => {} }
+        },
+      },
+    })
+
+    expect(subscribed).toBe(true)
+    expect(hooks).toContain("session:prompt")
+    expect(hooks).toContain("session:compaction")
+    expect(hooks).toContain("tool:execute.before")
+    expect(hooks).toContain("tool:execute.after")
+    expect(typeof cleanup).toBe("function")
+    cleanup?.()
+    expect(aborted).toBe(true)
+  })
+})
+
+describe("sessionIDFrom / OpenCode 2.0.20 payloads", () => {
+  test("V2 live bus data.sessionID (OpenCode 2.0.20 binary consumers)", () => {
+    const event = {
+      id: "evt_14f533005001GXL38sAVtifuxl",
+      type: "session.created",
+      data: {
+        sessionID: REAL_SESSION_ID,
+        info: { id: REAL_SESSION_ID, title: "QA" },
+      },
+    }
+    expect(sessionIDFrom(event)).toBe(REAL_SESSION_ID)
+    // Must not prefer envelope evt_* id over data.sessionID
+    expect(sessionIDFrom(event)).not.toBe(event.id)
+  })
+
+  test("SDK EventSessionCreated properties.sessionID", () => {
+    expect(
+      sessionIDFrom({
+        id: "evt_sdk",
+        type: "session.created",
+        properties: { sessionID: REAL_SESSION_ID, info: { id: REAL_SESSION_ID } },
+      }),
+    ).toBe(REAL_SESSION_ID)
+  })
+
+  test("SyncEventSessionCreated data.sessionID", () => {
+    expect(
+      sessionIDFrom({
+        type: "sync",
+        name: "session.created.1",
+        id: "sync_1",
+        seq: 1,
+        aggregateID: "sessionID",
+        data: { sessionID: REAL_SESSION_ID, info: { id: REAL_SESSION_ID } },
+      }),
+    ).toBe(REAL_SESSION_ID)
+  })
+
+  test("wrapped payload envelope", () => {
+    expect(
+      sessionIDFrom({
+        directory: "/tmp/project",
+        payload: {
+          type: "session.created",
+          data: { sessionID: REAL_SESSION_ID },
+        },
+      }),
+    ).toBe(REAL_SESSION_ID)
+  })
+
+  test("missing / empty / malformed / path rejected", () => {
+    expect(sessionIDFrom(null)).toBe("")
+    expect(sessionIDFrom(undefined)).toBe("")
+    expect(sessionIDFrom("ses_x")).toBe("")
+    expect(sessionIDFrom({ type: "session.created", data: {} })).toBe("")
+    expect(sessionIDFrom({ type: "session.created", data: { sessionID: "  " } })).toBe("")
+    expect(sessionIDFrom({ sessionID: "/tmp/atlas-project" })).toBe("")
+    expect(sessionIDFrom({ id: "C:\\Users\\x" })).toBe("")
+    expect(isValidSessionID("")).toBe(false)
+    expect(isValidSessionID("/abs/path")).toBe(false)
+    expect(isValidSessionID(REAL_SESSION_ID)).toBe(true)
+  })
+
+  test("hook shapes still resolve sessionID", () => {
+    expect(sessionIDFrom({ sessionID: "s_prompt" })).toBe("s_prompt")
+    expect(sessionIDFrom({ session_id: "s_snake" })).toBe("s_snake")
+    expect(sessionIDFrom({ sessionId: "s_camel" })).toBe("s_camel")
+  })
+})
+
+describe("isSessionCreatedEvent / handleSessionCreatedEvent", () => {
+  test("accepts confirmed session.created variants", () => {
+    expect(isSessionCreatedEvent({ type: "session.created", data: { sessionID: "s1" } })).toBe(true)
+    expect(
+      isSessionCreatedEvent({
+        type: "session.created",
+        properties: { sessionID: "s1" },
+      }),
+    ).toBe(true)
+    expect(
+      isSessionCreatedEvent({
+        type: "sync",
+        name: "session.created.1",
+        data: { sessionID: "s1" },
+      }),
+    ).toBe(true)
+    expect(
+      isSessionCreatedEvent({
+        payload: { type: "session.created", data: { sessionID: "s1" } },
+      }),
+    ).toBe(true)
+  })
+
+  test("rejects prompts, tools, and unrelated session events", () => {
+    expect(isSessionCreatedEvent({ type: "session.prompt", sessionID: "s1" })).toBe(false)
+    expect(isSessionCreatedEvent({ type: "session.updated", data: { sessionID: "s1" } })).toBe(false)
+    expect(isSessionCreatedEvent({ type: "session.execution.started", data: { sessionID: "s1" } })).toBe(
+      false,
+    )
+    expect(isSessionCreatedEvent({ type: "tool.execute.before", sessionID: "s1" })).toBe(false)
+    expect(isSessionCreatedEvent({ type: "provider.updated", data: {} })).toBe(false)
+    expect(isSessionCreatedEvent({ type: "sync", name: "session.updated.1", data: { sessionID: "s1" } })).toBe(
+      false,
+    )
+  })
+
+  test("missing session id rejects; duplicates rejected once seen", () => {
+    expect(handleSessionCreatedEvent({ type: "session.created", data: {} })).toEqual({
+      kind: "reject",
+      reason: "missing_session_id",
+    })
+    const seen = new Set<string>()
+    expect(handleSessionCreatedEvent({ type: "session.created", data: { sessionID: "s1" } }, seen)).toEqual({
+      kind: "dispatch",
+      session_id: "s1",
+    })
+    expect(handleSessionCreatedEvent({ type: "session.created", data: { sessionID: "s1" } }, seen)).toEqual({
+      kind: "reject",
+      reason: "duplicate",
+    })
+    expect(handleSessionCreatedEvent({ type: "session.prompt", sessionID: "s1" }, seen)).toEqual({
+      kind: "reject",
+      reason: "not_session_created",
+    })
+  })
+})
+
+describe("processSubscribeEvent integration", () => {
+  test("data-shaped session.created dispatches once; prompt does not", async () => {
+    const calls: Record<string, string>[] = []
+    const seen = new Set<string>()
+    const dispatch = async (payload: Record<string, string>) => {
+      calls.push(payload)
+      return allowDecision()
+    }
+
+    const first = await processSubscribeEvent(
+      {
+        id: "evt_1",
+        type: "session.created",
+        data: { sessionID: REAL_SESSION_ID, info: { id: REAL_SESSION_ID } },
+      },
+      seen,
+      dispatch,
+    )
+    expect(first).toEqual({ kind: "dispatch", session_id: REAL_SESSION_ID })
+    expect(calls).toEqual([
+      { hook_event_name: "session.created", session_id: REAL_SESSION_ID },
+    ])
+
+    const dup = await processSubscribeEvent(
+      {
+        id: "evt_2",
+        type: "session.created",
+        data: { sessionID: REAL_SESSION_ID },
+      },
+      seen,
+      dispatch,
+    )
+    expect(dup.kind).toBe("reject")
+    expect(calls).toHaveLength(1)
+
+    const prompt = await processSubscribeEvent(
+      { type: "session.prompt", sessionID: REAL_SESSION_ID },
+      seen,
+      dispatch,
+    )
+    expect(prompt.kind).toBe("reject")
+    expect(calls).toHaveLength(1)
+  })
+
+  test("end-to-end: real-shaped event → mock atlas spawn", async () => {
+    writeMockAtlas(`#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+printf '%s\\n' '{"schema_version":1,"status":"success","decision":"allow"}'
+exit 0
+`)
+    const seen = new Set<string>()
+    const res = await processSubscribeEvent(
+      {
+        id: "evt_live",
+        type: "session.created",
+        data: { sessionID: REAL_SESSION_ID, info: { id: REAL_SESSION_ID } },
+      },
+      seen,
+    )
+    expect(res).toEqual({ kind: "dispatch", session_id: REAL_SESSION_ID })
+  })
+})
+
+describe("QA diagnostics trace", () => {
+  test("disabled by default; writes allowlisted phases when enabled", () => {
+    delete process.env[TRACE_ENV]
+    process.env.ATLAS_HOME = join(sandbox, "atlas-home")
+    traceHooks({ phase: "setup_enter" })
+    expect(existsSync(join(sandbox, "atlas-home", "diagnostics", "opencode-hooks.jsonl"))).toBe(false)
+
+    process.env[TRACE_ENV] = "1"
+    traceHooks({ phase: "setup_enter" })
+    traceHooks({
+      phase: "event_received",
+      event_type: "session.created",
+      has_session_id: true,
+    })
+    const logPath = join(sandbox, "atlas-home", "diagnostics", "opencode-hooks.jsonl")
+    expect(existsSync(logPath)).toBe(true)
+    const body = readFileSync(logPath, "utf8")
+    expect(body).toContain('"phase":"setup_enter"')
+    expect(body).toContain('"event_type":"session.created"')
+    expect(body).not.toContain("SECRET")
   })
 })

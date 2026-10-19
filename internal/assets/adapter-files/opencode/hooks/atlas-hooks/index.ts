@@ -1,3 +1,7 @@
+import { appendFileSync, mkdirSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
+
 /**
  * Atlas-owned OpenCode V2 hooks plugin.
  * Do not edit — managed by Atlas CLI projection.
@@ -13,9 +17,20 @@
  * Plugin.define below is therefore a local identity matching the V2 default
  * export shape { id, setup } validated by OpenCode at load time — same
  * surface as Plugin.define from @opencode/plugin, without a package download.
+ *
+ * Event contract (OpenCode 2.0.20):
+ * - Plugin stream (V2EventEncoded / live bus): type "session.created" with
+ *   body under `data.sessionID` (confirmed by installed binary consumers and
+ *   server INFO logs that emit event.data, not event.properties).
+ * - SDK HTTP EventSessionCreated may still use `properties.sessionID`.
+ * - Sync bus SyncEventSessionCreated: type "sync", name "session.created.1",
+ *   body under `data.sessionID`.
  */
 
 export const DENY_MESSAGE = "blocked by atlas hooks"
+
+/** QA-only: set ATLAS_OPENCODE_HOOKS_TRACE=1 to append diagnostic lines. */
+export const TRACE_ENV = "ATLAS_OPENCODE_HOOKS_TRACE"
 
 type PluginDefinition = {
   id: string
@@ -172,16 +187,144 @@ export function shouldDenyToolExecution(res: AtlasDecision): boolean {
   return res.decision === "deny" && res.status === "denied"
 }
 
-export function sessionIDFrom(value: unknown): string {
-  if (!value || typeof value !== "object") return ""
+/**
+ * True when value is a non-empty session identifier string that is not a path.
+ * Rejects empty/whitespace and filesystem-looking values (never invent IDs).
+ */
+export function isValidSessionID(value: unknown): value is string {
+  if (typeof value !== "string") return false
+  const t = value.trim()
+  if (!t) return false
+  // Paths must never be used as session identifiers.
+  if (t.includes("/") || t.includes("\\")) return false
+  if (t === "." || t === "..") return false
+  return true
+}
+
+/**
+ * Extract a session ID from OpenCode event / hook payloads.
+ *
+ * Confirmed OpenCode 2.0.20 shapes (in priority order for nested walk):
+ * - data.sessionID          (live V2 bus / binary consumers)
+ * - properties.sessionID    (SDK EventSessionCreated)
+ * - payload…                (wrapped GlobalEvent-like envelopes)
+ * - sessionID / sessionId / session_id at the current object
+ * - bare `id` only AFTER nested containers (event envelopes also have `id`)
+ */
+export function sessionIDFrom(value: unknown, depth = 0): string {
+  if (!value || typeof value !== "object" || depth > 5) return ""
   const v = value as Record<string, unknown>
-  for (const key of ["sessionID", "sessionId", "session_id", "id"]) {
-    const cur = v[key]
-    if (typeof cur === "string" && cur.trim()) return cur.trim()
+
+  for (const key of ["sessionID", "sessionId", "session_id"]) {
+    if (isValidSessionID(v[key])) return (v[key] as string).trim()
   }
-  const properties = v.properties
-  if (properties && typeof properties === "object") {
-    return sessionIDFrom(properties)
+
+  // Nested containers before bare `id` — event envelopes carry evt_* in `id`.
+  for (const nest of ["data", "properties", "payload"]) {
+    const nested = v[nest]
+    if (nested && typeof nested === "object") {
+      const sid = sessionIDFrom(nested, depth + 1)
+      if (sid) return sid
+    }
+  }
+
+  if (isValidSessionID(v.id)) return (v.id as string).trim()
+  return ""
+}
+
+/**
+ * True for native session-created events on confirmed OpenCode 2.0.20 buses.
+ * Does not treat prompts, tool hooks, or unrelated session.* events as new sessions.
+ */
+export function isSessionCreatedEvent(event: unknown): boolean {
+  if (!event || typeof event !== "object") return false
+  const e = event as Record<string, unknown>
+
+  if (e.type === "session.created") return true
+
+  // SDK SyncEventSessionCreated: { type: "sync", name: "session.created.1", data }
+  if (e.type === "sync" && e.name === "session.created.1") return true
+
+  // Wrapped envelope: { directory?, payload: Event }
+  if (e.payload && typeof e.payload === "object") {
+    return isSessionCreatedEvent(e.payload)
+  }
+  return false
+}
+
+export type SessionCreatedHandle =
+  | { kind: "dispatch"; session_id: string }
+  | { kind: "reject"; reason: "not_session_created" | "missing_session_id" | "duplicate" }
+
+/**
+ * Normalize a subscribe-loop event into a session.created dispatch decision.
+ * Dedupes by session_id within one plugin instance (lease absorbs cross-process).
+ */
+export function handleSessionCreatedEvent(
+  event: unknown,
+  seenSessionIDs?: Set<string>,
+): SessionCreatedHandle {
+  if (!isSessionCreatedEvent(event)) {
+    return { kind: "reject", reason: "not_session_created" }
+  }
+  const sid = sessionIDFrom(event)
+  if (!sid) {
+    return { kind: "reject", reason: "missing_session_id" }
+  }
+  if (seenSessionIDs) {
+    if (seenSessionIDs.has(sid)) {
+      return { kind: "reject", reason: "duplicate" }
+    }
+    seenSessionIDs.add(sid)
+  }
+  return { kind: "dispatch", session_id: sid }
+}
+
+type TraceFields = {
+  phase: string
+  event_type?: string
+  has_session_id?: boolean
+  reason?: string
+  status?: string
+  decision?: string
+}
+
+/**
+ * Minimal QA diagnostics. Disabled unless ATLAS_OPENCODE_HOOKS_TRACE=1.
+ * Never records prompts, tool args, transcripts, paths as secrets, or code.
+ */
+export function traceHooks(fields: TraceFields): void {
+  if (process.env[TRACE_ENV] !== "1") return
+  try {
+    const home =
+      typeof process.env.ATLAS_HOME === "string" && process.env.ATLAS_HOME.trim()
+        ? process.env.ATLAS_HOME.trim()
+        : join(homedir(), ".atlas")
+    if (!home) return
+    const dir = join(home, "diagnostics")
+    const line = JSON.stringify({
+      ts: new Date().toISOString(),
+      component: "opencode-hooks",
+      phase: fields.phase,
+      ...(fields.event_type !== undefined ? { event_type: fields.event_type } : {}),
+      ...(fields.has_session_id !== undefined ? { has_session_id: fields.has_session_id } : {}),
+      ...(fields.reason !== undefined ? { reason: fields.reason } : {}),
+      ...(fields.status !== undefined ? { status: fields.status } : {}),
+      ...(fields.decision !== undefined ? { decision: fields.decision } : {}),
+    })
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(join(dir, "opencode-hooks.jsonl"), line + "\n", { encoding: "utf8" })
+  } catch {
+    // Diagnostics must never affect the agent session.
+  }
+}
+
+function eventTypeOf(event: unknown): string {
+  if (!event || typeof event !== "object") return ""
+  const e = event as Record<string, unknown>
+  if (typeof e.type === "string") {
+    if (e.type === "sync" && typeof e.name === "string") return `${e.type}:${e.name}`
+    return e.type
   }
   return ""
 }
@@ -268,13 +411,16 @@ type ChildOutcome =
  * transport/validation failure. Valid deny preserved.
  */
 export async function dispatchAtlas(payload: Record<string, string>): Promise<AtlasDecision> {
+  const hookName = payload.hook_event_name ?? ""
   let body: string
   try {
     body = JSON.stringify(payload)
   } catch {
+    traceHooks({ phase: "dispatch_failed", reason: "stringify", event_type: hookName })
     return allowDecision()
   }
   if (utf8ByteLength(body) > MAX_BYTES) {
+    traceHooks({ phase: "dispatch_failed", reason: "oversized", event_type: hookName })
     return allowDecision()
   }
 
@@ -288,6 +434,7 @@ export async function dispatchAtlas(payload: Record<string, string>): Promise<At
       env: { ...process.env },
     })
   } catch {
+    traceHooks({ phase: "dispatch_failed", reason: "spawn", event_type: hookName })
     return allowDecision()
   }
 
@@ -337,61 +484,117 @@ export async function dispatchAtlas(payload: Record<string, string>): Promise<At
       } catch {
         // ignore post-kill drain errors
       }
+      traceHooks({ phase: "dispatch_failed", reason: "timeout", event_type: hookName })
       return allowDecision()
     }
 
     if (outcome.kind === "fail") {
+      traceHooks({ phase: "dispatch_failed", reason: "io", event_type: hookName })
       return allowDecision()
     }
 
     if (outcome.stdout.truncated || outcome.stderr.truncated) {
       killProc(proc)
+      traceHooks({ phase: "dispatch_failed", reason: "truncated", event_type: hookName })
       return allowDecision()
     }
 
     // Never trust stdout when the process failed.
     if (outcome.code !== 0) {
+      traceHooks({ phase: "dispatch_failed", reason: "exit_nonzero", event_type: hookName })
       return allowDecision()
     }
 
     const text = decodeUTF8(outcome.stdout.bytes)
     if (text === null) {
+      traceHooks({ phase: "dispatch_failed", reason: "utf8", event_type: hookName })
       return allowDecision()
     }
 
     const parsed = parseAtlasResponse(text)
     if (!parsed) {
+      traceHooks({ phase: "dispatch_failed", reason: "invalid_json", event_type: hookName })
       return allowDecision()
     }
+    traceHooks({
+      phase: "dispatch_completed",
+      event_type: hookName,
+      status: parsed.status,
+      decision: parsed.decision,
+    })
     return parsed
   } catch {
     killProc(proc)
+    traceHooks({ phase: "dispatch_failed", reason: "exception", event_type: hookName })
     return allowDecision()
   } finally {
     if (timer !== undefined) clearTimeout(timer)
   }
 }
 
+/**
+ * Process one subscribe-loop event: normalize, dedupe, and optionally dispatch.
+ * Exported for contract tests (fixtures mirror OpenCode 2.0.20 payloads).
+ */
+export async function processSubscribeEvent(
+  event: unknown,
+  seenSessionIDs: Set<string>,
+  dispatch: (payload: Record<string, string>) => Promise<AtlasDecision> = dispatchAtlas,
+): Promise<SessionCreatedHandle> {
+  const eventType = eventTypeOf(event)
+  if (eventType) {
+    traceHooks({ phase: "event_received", event_type: eventType })
+  }
+
+  const handled = handleSessionCreatedEvent(event, seenSessionIDs)
+  if (handled.kind === "reject") {
+    if (handled.reason === "missing_session_id") {
+      traceHooks({
+        phase: "event_rejected",
+        event_type: eventType || "session.created",
+        has_session_id: false,
+        reason: handled.reason,
+      })
+    } else if (handled.reason === "duplicate") {
+      traceHooks({
+        phase: "event_rejected",
+        event_type: eventType || "session.created",
+        has_session_id: true,
+        reason: handled.reason,
+      })
+    }
+    // not_session_created: silent at default; type already traced as event_received
+    return handled
+  }
+
+  traceHooks({
+    phase: "dispatch_attempted",
+    event_type: "session.created",
+    has_session_id: true,
+  })
+  await dispatch({
+    hook_event_name: "session.created",
+    session_id: handled.session_id,
+  })
+  return handled
+}
+
 export default Plugin.define({
   id: "atlas.hooks",
   async setup(ctx) {
+    traceHooks({ phase: "setup_enter" })
     const controller = new AbortController()
+    const seenSessionIDs = new Set<string>()
 
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
           if (!event || typeof event !== "object") continue
-          const typed = event as { type?: string; properties?: unknown }
-          if (typed.type !== "session.created") continue
-          const sid = sessionIDFrom(typed.properties) || sessionIDFrom(typed)
-          if (!sid) continue
-          await dispatchAtlas({
-            hook_event_name: "session.created",
-            session_id: sid,
-          })
+          await processSubscribeEvent(event, seenSessionIDs)
         }
       } catch {
         // Subscription aborted on unload — fail open.
+        traceHooks({ phase: "subscribe_ended", reason: "aborted_or_error" })
       }
     })()
 
@@ -402,6 +605,7 @@ export default Plugin.define({
         session_id: sid,
       })
       // Observational only — OpenCode V2 prompt hooks have no typed rejection API.
+      // Does NOT trigger session.start maintenance (session.created only).
     })
 
     await ctx.tool.hook("execute.before", async (event) => {
@@ -445,6 +649,10 @@ export default Plugin.define({
       })
     })
 
-    return () => controller.abort()
+    traceHooks({ phase: "setup_complete" })
+    return () => {
+      controller.abort()
+      traceHooks({ phase: "cleanup" })
+    }
   },
 })
