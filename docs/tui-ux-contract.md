@@ -3,14 +3,14 @@
 This document defines the product UX contract for the Atlas CLI interactive shell.
 It governs navigation, Status, and Doctor. It does not authorize new product capabilities.
 
-**Baseline stance:** Current development/dogfooding baseline (source version `0.1.0`; not production-ready / not final V1). Cursor and OpenCode are the supported materialized runtimes. Status/Doctor stay read-only; Runtime Repair is the explicit path for non-MCP Atlas-owned runtime mutation (plan-scoped Apply; does not bootstrap OpenSpec); Configure Apply reconciles Atlas-owned MCP and Skills projections; Context Economy v0 is file-based and explicit-update; CodeGraph is an optional externally installed Code Intelligence provider (not MCP). Skills v1, Task Capability Discovery (`atlas capability plan`), real OpenSpec provider integration, Memory surfaces, and Hooks projections are implemented capabilities (production hooks action registry has no automatic Memory injection). Atlas Context Graph, MCP auth/connection/verification, skills marketplace/remote install, Framework Skill Acquisition, Skill Creator, Core Git remote/push/PR/merge/tag automation, and Claude/Codex activation remain out of scope. See [release-readiness.md](release-readiness.md).
+**Baseline stance:** Current development/dogfooding baseline (source version `0.1.0`; not production-ready / not final V1). Cursor and OpenCode are the supported materialized runtimes — **at least one supported agent adapter is required** to complete Init or Apply Configure. Status/Doctor stay read-only; Runtime Repair remains for unrelated Atlas-owned drift; Configure Apply reconciles Atlas-owned adapter runtime (AGENTS.md, rules, agents), MCP, Skills, and Hooks projections when adapters/MCP change; Context Economy v0 is file-based (TUI explicit Update remains; Phase B auto-maintains on `session.start` via detached Home workers, with Cursor `beforeSubmitPrompt` fallback in B.8 — see [automatic-context-lifecycle.md](automatic-context-lifecycle.md)); CodeGraph is an optional externally installed Code Intelligence provider (not MCP). Skills v1, Task Capability Discovery (`atlas capability plan`), real OpenSpec provider integration, Memory surfaces, and Hooks projections are implemented capabilities (production hooks registry registers CE/CodeIntel maintenance Actions; session.start/resume admission enabled; no automatic Memory injection). Atlas Managed MCP V1 is **Context7 + Chrome DevTools** only (opt-in). Verification evidence is inherent governance behavior (not a user toggle). Governance file storage (`Keep local` / `Version with project`) is provider-neutral. Atlas Context Graph, generic MCP registry/auth, skills marketplace/remote install, Framework Skill Acquisition, Skill Creator, Core Git remote/push/PR/merge/tag automation, and Claude/Codex activation remain out of scope. See [release-readiness.md](release-readiness.md).
 
 ## Principles
 
 1. **Honest over complete** — show what Atlas knows; label gaps as `NOT IMPLEMENTED`, `NOT SELECTED`, or `missing`.
 2. **Executive Status, deep Doctor** — Status is the landing overview; Doctor is the diagnostic drill-down.
 3. **Read-only surfaces stay read-only** — Status, Doctor, discovery, and startup never init, repair, update context, create Atlas Home, rematerialize runtime, or run Git/remote actions.
-4. **Mutations stay explicit** — Init Apply, Configure Apply, Runtime Repair Apply, and Context Economy Apply remain Review → Apply flows on their own screens.
+4. **Operator mutations stay explicit** — Init Apply, Configure Apply, Runtime Repair Apply, and Context Economy / Code Intelligence Apply remain Review → Apply flows. Phase B may auto-maintain CE/CodeIntel under Atlas Home on `session.start` (detached worker); Cursor may also admit once per conversation on the first `beforeSubmitPrompt` when `sessionStart` is missing (B.8). Status/Doctor never trigger maintenance.
 
 ## Navigation
 
@@ -97,16 +97,17 @@ Doctor remains read-only and never repairs.
 
 ## Configure
 
-- Configure / Init Step 2 sections: Governance, Adapters, Source control / Delivery preference, MCP (no standalone Project screen; no Skills UI; no Context Graph checkbox).
+- Configure / Init Step 2 sections: Governance, Adapters, Delivery, MCP integrations (no standalone Project screen; no Skills UI; no Context Graph checkbox; no Evidence Required toggle).
 - Optional **Project Docs Scaffold** is chosen on Init Project Setup only (not repeated on Configure).
 - Configure subtitle: saves `config.yaml` — Runtime Repair / Context Economy are separate.
 - Configure Apply saves `.atlas/config.yaml` (and may create optional `docs/atlas/README.md` once when selected and missing).
-- Configure Apply does **not** rematerialize general runtime assets (`AGENTS.md`, rules, agents).
-- Configure Apply **does** reconcile Atlas-owned MCP projections when MCP/adapters change.
+- Init Apply, Configure Apply, and Runtime Repair Apply are asynchronous: show a spinner + current-operation label while running, disable Apply (ignore duplicate Enter/shortcuts), then show an explicit success/failure result with real elapsed time. On confirmed rollback, failure copy may state rollback completed; never claim rollback success without confirmation.
+- Atlas is agent-agnostic at the canonical state level (`.atlas/config.yaml`). Supported adapters are full projections of Atlas-managed project state. Changing adapters triggers full reprojection of Atlas-owned surfaces from that state (not adapter-to-adapter translation). Unknown/user-owned adapter content is preserved. Removing the final usable adapter is rejected before mutation. Deselected adapters also drop OpenSpec provider-owned tool projections (`opsx-*` / `openspec-*`) and hollow Atlas MCP files; empty adapter roots are pruned only when nothing user-owned remains. Configure Apply regenerates `.atlas/assets.lock.yaml` with the runtime rematerialization.
+- Governance files (`Keep local` / `Version with project`) are provider-neutral and apply to all Atlas-managed project artifacts, including managed MCP projections. Secrets are never versioned.
+- `Keep local` ignore policy is ownership-based: shared Atlas surfaces always; coarse `.cursor/` when Cursor is selected; Atlas-owned OpenCode paths only (`.opencode/atlas.md`, agents, hooks plugin, skill pins, OpenSpec tool projections, `.opencode/opencode.json`) — never blanket `.opencode/` and never root `opencode.json`. Atlas MCP for OpenCode is projected into `.opencode/opencode.json` (OpenCode config layer) so local_only can hide it while user root `opencode.json` stays versionable.
 - When adapter selection requires OpenSpec tool projections, Configure may invoke `openspec init --tools` / `openspec update` inside the same Apply transaction: Atlas snapshots Atlas-managed and relevant provider-created surfaces first and restores them on Apply failure where safely possible. Atlas does not claim perfect rollback for arbitrary external-provider side effects outside the captured footprint. First-time OpenSpec project bootstrap remains Init-owned.
-- Adapter/runtime impact for non-MCP artifacts requires explicit **Runtime Repair**.
 - Context payload refresh requires explicit **Context Economy** Update.
-- MCP desired state is stored in Atlas config; Atlas-owned projections materialize to selected agents; auth/connection/verification may still depend on the provider or agent; secrets are not stored.
+- Atlas Managed MCP V1: Context7 + Chrome DevTools only (opt-in). No Filesystem/GitHub/Jira/Custom MCP UI. Legacy custom YAML may load/preserve; other MCPs are developer-managed.
 - Optional project docs scaffold is developer-owned, off by default, never overwritten by Runtime Repair.
 - Context Economy v0 ≠ CodeGraph ≠ Atlas Context Graph.
 - `delivery_assist` is a **legacy/deferred** config key: preserved on load/persist for compatibility, hidden from Init/Configure selectors, **not** an editable product control, and **not** an Atlas Core remote delivery engine. Future version-control assistance belongs to governed skills, not Core automation.
@@ -117,8 +118,10 @@ Init configures governed runtime, adapters, governance, and source-control prefe
 
 - Project Setup: Project Name + New vs Existing (no Recommended mode); Project Mode uses `[x]` / `[ ]` markers like the rest of Init; optional Project Docs Scaffold (`[ ] Create docs/atlas/README.md`) below Project Mode.
 - Runtime conflicts (AGENTS.md, AGENT.md, CLAUDE.md, GEMINI.md, `.cursor/`, `.opencode/`, `.claude/`, `.agents/`, `.codex/`) show a blocking preflight before Project Setup. Refresh / Re-check is read-only rescan only. While conflicts remain, Exit / Back is the other action. After a clean re-check, Continue to Setup enters Project Setup — no silent overwrite or Init-time backup/quarantine.
-- Adapters: Cursor and OpenCode only; Available when the runtime tool is on PATH; unavailable rows are visible but disabled.
-- Source control: Platform, Governance files, signing policy. (`delivery_assist` is legacy/hidden — not an Init control.) Versioned governance files unlock when GitHub platform is selected. No tools diagnostics or Git remote ops on this screen.
+- Adapters: Cursor and OpenCode only; Available when the runtime tool is on PATH; unavailable rows are visible but disabled. **At least one supported agent is required** to Continue/Apply.
+- Governance: Workflow, Spec engine, Requires testing, Review required. Evidence of verification is inherent (not editable).
+- Delivery: Platform, Governance files (`Keep local` / `Version with project`, provider-neutral), signing policy. (`delivery_assist` is legacy/hidden — not an Init control.) No tools diagnostics or Git remote ops on this screen.
+- MCP integrations: Context7 and Chrome DevTools only (opt-in).
 - Memory is not an Init choice (always-on Atlas-managed memory).
 - Context is not an Init choice: Code Intelligence / CodeGraph is a separate surface; no Atlas Context Graph setup/checkbox; Context Economy remains a separate explicit flow.
 - Review → Apply summarizes Project writes, Atlas Home writes, Atlas Home reset, and Git operations. When source control requires Git and no repository exists, Review may show Git bootstrap (initialize local repo with initial branch `main`). Apply never performs commit, remote, push, pull request, merge, or tag. Status and Doctor remain read-only.

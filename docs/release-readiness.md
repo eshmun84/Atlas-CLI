@@ -33,7 +33,7 @@ No git tag / GitHub release / publish unless a human explicitly approves later.
 - [x] Doctor read-only
 - [x] Runtime Repair
 - [x] Context Economy update / read-only / stale detection
-- [x] Configure Apply (config.yaml + MCP reconcile; no silent non-MCP rematerialize)
+- [x] Configure Apply (config.yaml + adapter/MCP reconcile; unknown adapter content preserved)
 - [x] Init Home reset gate
 - [x] `ATLAS_HOME` project isolation (default `~/.atlas` untouched)
 - [x] same-name different-root isolation
@@ -170,7 +170,7 @@ Gate label when passing: **ready for resumed physical dogfooding** (not a produc
 
 - Status / Doctor / discovery / startup do not mutate
 - Runtime Repair remains the explicit mutation path for non-MCP runtime artifacts (Review → Apply)
-- Configure Apply saves config.yaml and reconciles Atlas-owned MCP/skills/hooks projections; it does not silently rematerialize AGENTS/rules/agents
+- Configure Apply saves config.yaml and, on adapter/MCP/skills change, fully reprojects Atlas-owned adapter runtime (AGENTS/rules/agents) plus MCP/skills/hooks from Atlas canonical state (never adapter-to-adapter translation)
 - Configure + OpenSpec tool sync/update: snapshots Atlas-managed and relevant provider-created project surfaces before provider mutation; restores them on Apply failure where safely possible (not a claim of perfect transactionality across arbitrary external processes)
 - Context update remains explicit
 - Init Home reset requires explicit acceptance and deletes only `$ATLAS_HOME/projects/<project-id>/`
@@ -185,19 +185,22 @@ Gate label when passing: **ready for resumed physical dogfooding** (not a produc
 
 | Area | Current dogfooding stance |
 | --- | --- |
-| Materialized runtimes | Cursor + OpenCode only |
+| Materialized runtimes | Cursor + OpenCode only; ≥1 required for Init/Configure Apply |
 | Status / Doctor | Read-only |
-| Runtime Repair | Explicit mutation path; idempotent for healthy surfaces |
-| Context Economy v0 | File-based, explicit update |
-| CodeGraph | Optional Code Intelligence provider (externally installed; not MCP; may be unavailable) |
+| Runtime Repair | Explicit path for unrelated Atlas-owned drift; idempotent for healthy surfaces |
+| Configure Apply | Reconciles Atlas-owned adapter runtime + MCP/Skills/Hooks; preserves unknown adapter content |
+| Evidence | Inherent when verification gates apply; not a user-editable opt-out |
+| Governance storage | `Keep local` / `Version with project`; provider-neutral (not GitHub-gated) |
+| Context Economy v0 | File-based; TUI explicit Update; Phase B session.start auto-maintain (Home worker); Cursor beforeSubmitPrompt fallback (B.8) |
+| CodeGraph | Optional Code Intelligence provider (externally installed; not MCP; may be unavailable); Phase B session.start auto-refresh when available; Cursor prompt fallback (B.8) |
 | Atlas Context Graph | Preference/compat only; NOT IMPLEMENTED; no Init/Configure checkbox |
-| MCP | Desired state + Atlas-owned projections; no auth/connection/verification; secrets not stored |
+| MCP | Managed V1 = Context7 + Chrome DevTools (opt-in); Atlas-owned projections; no auth/connection/verification; secrets not stored; other MCPs developer-managed |
 | OpenSpec | Real CLI provider required for governed SDD; exact project pin; Init runs `openspec init`; Configure may run `openspec init --tools` / `openspec update` for adapter projection sync inside the Configure transaction (with provider footprint snapshot/rollback); Repair refuses provider bootstrap; no emulation/mkdir substitute |
 | Home/project schema | `schema_version` on `$ATLAS_HOME/state/home.yaml` and `.atlas/config.yaml`; current = 1; mutation blocked on newer/unsupported older; legacy config missing marker treated as current; `atlas_version` is provenance only |
 | Git / source control | Discovery + explicit Init local bootstrap + policy/diagnostics; no Core remote create/push/PR/merge/tag/repo-release automation |
 | Skills v1 | Local Home catalog + exact pins + digests + Cursor/OpenCode projections (no marketplace UI) |
 | Task Capability Discovery | Implemented (`atlas capability plan`); task-active skills + retrieval planning; technology = evidence only |
-| Hooks | Engine + Cursor/OpenCode native projections; Doctor reports projection health (repairability aligned with Repair); production action registry has no automatic Memory injection |
+| Hooks | Engine + Cursor/OpenCode native projections; Doctor reports projection health; production registry includes CE/CodeIntel maintenance Actions; Phase B session.start admission + detached worker (`TriggersEnabled=true`); Phase B.8 Cursor-only beforeSubmitPrompt fallback with per-session dedupe; no automatic Memory injection; see [automatic-context-lifecycle.md](automatic-context-lifecycle.md) |
 | OpenSpec tool projections | Missing opsx/tool markers when provider project is Ready → Doctor FAIL `manual` with Configure/Init guidance; Runtime Repair does not invent provider projections |
 | `delivery_assist` | Legacy/deferred config key; load/persist preserved; not an editable Init/Configure control; no Core delivery engine |
 | Install / uninstall | `make install` → `$PREFIX/bin` (default `~/.local/bin`); PATH not modified; uninstall/purge docs-only (binary vs Home purge vs project removal); Home purge is destructive |
@@ -206,8 +209,12 @@ Gate label when passing: **ready for resumed physical dogfooding** (not a produc
 | Claude / Codex | Not activated |
 | Tag / release / publish | Human approval required; no Atlas Core release publisher |
 
+## Pre-release configuration reconciliation
+
+After Block D / D7 PASS, manual product review found Init/Configure UX and configuration inconsistencies (agent optional, Evidence Required editable, governance storage coupled to GitHub, oversized MCP catalog, incomplete adapter swap reconciliation). A focused pre-release configuration reconciliation slice was applied **before** version decision. Historical D7 evidence remains valid for Block D architecture; this slice is additional product truth alignment, not a D7 reopen.
+
 ## Out of scope for this dogfooding baseline
 
-Final V1 / production-ready claims, Atlas Context Graph engine, MCP authentication/connection/verification orchestration, secret manager, marketplace/community registry / remote skill install, Framework Skill Acquisition, Skill Creator, Atlas Native Spec Engine, additional Spec Engines, Claude/Codex activation, Core Git remote/push/PR/merge/tag/repo-release automation, embeddings, daemon/background service, Config History, generic provider plugin platform, native automatic Memory injection, new CLI commands, tag/release/publish without human approval.
+Final V1 / production-ready claims, Atlas Context Graph engine, MCP authentication/connection/verification orchestration, secret manager, generic MCP registry, `atlas-mcp-setup` skill, marketplace/community registry / remote skill install, Framework Skill Acquisition, Skill Creator, Atlas Native Spec Engine, additional Spec Engines, Claude/Codex activation, Core Git remote/push/PR/merge/tag/repo-release automation, embeddings, daemon/background service, Config History, generic provider plugin platform, native automatic Memory injection, new CLI commands, tag/release/publish without human approval.
 
 **Implemented and in scope for dogfooding (do not list as missing):** Real OpenSpec provider integration, Task Capability Discovery, Hooks engine + native projections, Skills v1, MCP projections, CodeGraph provider, Memory surfaces listed above.

@@ -17,16 +17,18 @@ No git tag, GitHub release, or publish without explicit human approval.
 - Skills v1: local Home catalog, exact pins, deterministic digests, metadata resolver, progressive loading, Cursor/OpenCode projections, ownership/conflict handling, Repair integration (no marketplace UI)
 - Task Capability Discovery (Block C; resolves DOGFOOD-015): `atlas capability plan`; bounded evidence; task-active skill selection; proactive governed retrieval planning; technology signals remain evidence helpers, not permanent stack→skill configuration
 - Memory Core, governed retrieval, governed persistence, Memory diagnostics, Memory Skill, Context Composition integration; proactive path = capability plan → explicit retrieval → agent invokes Memory/context compose (native automatic injection deferred)
-- Context Economy **v0**: file-based, explicit Update (index / capsule / pack under Atlas Home)
-- Code Intelligence with optional externally installed **CodeGraph** provider (`internal/codeintel`; not MCP; may be unavailable)
-- MCP foundation: desired state in Atlas config + **Atlas-owned projections** to Cursor/OpenCode (no secret storage; no live auth/connection verification)
-- Neutral Hooks engine + Cursor native hooks + OpenCode native hooks. Production hooks **action registry has no automatic Memory injection / side-effect actions** yet
-- Source-control policy: local Git bootstrap when required, signing policy visibility, local-only `.gitignore` Atlas block management
+- Context Economy **v0**: file-based Home artifacts; TUI explicit Update; Phase B auto-maintain on `session.start` (detached worker); Cursor `beforeSubmitPrompt` fallback (B.8)
+- Code Intelligence with optional externally installed **CodeGraph** provider (`internal/codeintel`; not MCP; may be unavailable); Phase B session auto-refresh when provider available; Cursor prompt fallback (B.8) — see [automatic-context-lifecycle.md](automatic-context-lifecycle.md)
+- MCP foundation: Atlas Managed MCP V1 = **Context7 + Chrome DevTools** (opt-in); Atlas-owned projections to selected Cursor/OpenCode adapters (no secret storage; no live auth/connection verification; no Filesystem/GitHub/Jira/Custom MCP UI)
+- Neutral Hooks engine + Cursor native hooks + OpenCode native hooks. Production registry includes CE/CodeIntel **maintenance** Actions (Phase B session admission + detached worker); **no** automatic Memory injection
+- Source-control policy: local Git bootstrap when required, signing policy visibility, provider-neutral governance storage (`Keep local` / `Version with project`) with managed `.gitignore` upsert/cleanup
+- ≥1 supported agent adapter required for Init/Configure Apply; evidence of verification is inherent (not user-editable)
 - Slice 3 diagnostics: Doctor repairability (`atlas-repair` / `confirm-repair` / `diagnostic-only` / `manual`); config-aware Git; Status compact readiness; A–N regression matrix
 - Block D / D6 polish: project-only Runtime Repair no longer silently remirrors Atlas Home; Hooks Doctor health; OpenSpec tool-projection diagnostics (Configure/Init, not Repair); one OpenSpec provider probe per Inspect; `delivery_assist` legacy/hidden; install PATH + safe uninstall/purge docs
+- Pre-release configuration reconciliation (after D7): agent-required + available invariant; evidence inherent; governance storage provider-neutral for all Atlas-managed artifacts (including managed MCP); adapter add/remove/swap performs full reprojection from Atlas canonical state (not adapter-to-adapter); OpenCode Atlas MCP lives at `.opencode/opencode.json` so `local_only` can hide it without ignoring user root `opencode.json`
 - Status and Doctor are **read-only**
-- Runtime Repair is the **explicit** runtime mutation path (Review → Apply); Home remirror only when the reviewed plan includes an explicit Home target
-- Configure Apply saves `.atlas/config.yaml` and reconciles Atlas-owned MCP projections; does not silently rematerialize non-MCP runtime
+- Runtime Repair remains for unrelated Atlas-owned drift (Review → Apply); Home remirror only when the reviewed plan includes an explicit Home target
+- Configure Apply saves `.atlas/config.yaml` and fully reprojects Atlas-owned adapter runtime + MCP/Skills/Hooks when adapters/MCP change
 - Configure OpenSpec tool sync/update participates in the Configure transaction (provider footprint snapshot + rollback on Apply failure where safely possible; not perfect external-process atomicity)
 - Home/project `schema_version` compatibility gates mutation (fail closed on newer/unsupported older); product `atlas_version` is provenance only; no general migration/`atlas upgrade` command
 - `atlas --version` as the only normal console output
@@ -43,7 +45,8 @@ No git tag, GitHub release, or publish without explicit human approval.
 - Generic provider plugin platform (**removed** from current V1 plan; keep domain boundaries only)
 - Atlas Core repository-release publisher (**removed**); Core does not automate remote create / push / PR / merge / tag / repo release publish
 - Claude / Codex activation
-- MCP secret manager / OAuth client / live connection verification
+- MCP secret manager / OAuth client / live connection verification / generic MCP registry
+- Future `atlas-mcp-setup` skill (deferred; not stubbed)
 - Daily workflow commands (`atlas start`, `atlas change`, `atlas mcp`)
 - Tag / GitHub release / publish of Atlas without explicit human approval
 

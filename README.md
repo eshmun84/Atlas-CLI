@@ -130,7 +130,7 @@ Project-local (under the product repo):
 | `.opencode/agents/atlas-*.md` | Atlas runtime agents (when OpenCode selected) |
 | Skill projections | Cursor/OpenCode skill surfaces for pinned Skills v1 packages |
 | Hooks projections | Cursor native hooks / OpenCode hooks plugin when selected |
-| `.cursor/mcp.json` / `opencode.json` | Atlas-owned MCP entries merged when selected (developer entries preserved). `opencode.jsonc` is **not** merged — OpenCode MCP reconcile blocks if JSONC is present |
+| `.cursor/mcp.json` / `.opencode/opencode.json` | Atlas-owned MCP projections from canonical desired state (developer entries in root `opencode.json` / non-Atlas Cursor keys preserved). `.opencode/opencode.jsonc` blocks OpenCode MCP reconcile until JSONC-safe merging exists |
 
 Atlas Home (under `$ATLAS_HOME` / `~/.atlas`):
 
@@ -152,7 +152,7 @@ Explicit Review → Apply. Recomputes the plan before Apply. Restores missing/br
 
 ## Configure
 
-Configure Apply saves `.atlas/config.yaml` (and may create optional `docs/atlas/README.md` once when selected on Init and still missing). Does **not** rematerialize general runtime assets (`AGENTS.md`, rules, agents). **Does** reconcile Atlas-owned MCP projections when MCP/adapters change. Custom remote MCP supports auth modes: none, environment header (`env` + optional prefix such as `Bearer `), external OAuth, provider managed — references only, never raw secrets. No Skills marketplace UI and no Context Graph checkbox.
+Configure Apply saves `.atlas/config.yaml` (and may create optional `docs/atlas/README.md` once when selected on Init and still missing). When adapters change it reconciles Atlas-owned `AGENTS.md`, rules, agents, MCP, Skills, and Hooks for the selected set (unknown/user-owned adapter content is preserved; zero adapters is rejected before mutation). Atlas Managed MCP V1 is **Context7 + Chrome DevTools** only (opt-in); other MCPs are developer-managed. Governance file storage (`Keep local` / `Version with project`) is independent of Git hosting. Verification evidence is inherent governance behavior. At least one supported agent (Cursor or OpenCode) is required for Init/Configure Apply. No Skills marketplace UI and no Context Graph checkbox.
 
 ## Context Economy (v0)
 
@@ -175,7 +175,7 @@ Future direction (not implemented):
 
 ## Memory
 
-Supported today: explicit/proactive governed retrieval, Memory Skill, CLI, governed persistence, diagnostics, and use inside Context Composition. Native automatic Memory injection via adapter/host hooks is **deferred**. The production hooks action registry remains empty for those automatic actions.
+Supported today: explicit/proactive governed retrieval, Memory Skill, CLI, governed persistence, diagnostics, and use inside Context Composition. Native automatic Memory injection via adapter/host hooks is **deferred**. The production hooks registry includes Context Economy / Code Intelligence *maintenance* Actions (Phase B: `session.start` admission + detached Home worker) but must not register Memory inject Actions — see [docs/automatic-context-lifecycle.md](docs/automatic-context-lifecycle.md).
 
 ## Source control boundary
 
@@ -228,8 +228,9 @@ Optional Home purge (destructive — back up first if you need Memory/CodeGraph/
 - MCP projections without secret manager / live connection verification
 - No Core Git remote/PR/merge/tag/release automation beyond Init local bootstrap
 - `delivery_assist` is a legacy/deferred config key (not an editable Core capability)
-- Configure Apply updates `.atlas/config.yaml` and MCP projections; use Runtime Repair to rematerialize non-MCP runtime files
-- OpenCode MCP: Atlas merges only `opencode.json`. If `opencode.jsonc` exists, OpenCode MCP reconciliation is blocked until JSONC-safe merging exists
+- Configure Apply updates `.atlas/config.yaml` and reconciles Atlas-owned adapter/MCP projections; use Runtime Repair for unrelated drift
+- OpenCode MCP: Atlas projects managed MCP into `.opencode/opencode.json` (OpenCode directory config layer). Root `opencode.json` remains user-owned; Atlas strips only legacy Atlas-managed keys from it. If `.opencode/opencode.jsonc` exists, OpenCode MCP reconciliation is blocked until JSONC-safe merging exists
+- Adapter changes fully reproject Atlas-owned runtime/MCP/skills/hooks from Atlas canonical state (agent-agnostic); governance storage (`local_only` / `versioned`) covers all Atlas-managed project artifacts including managed MCP; secrets are never versioned
 - No git tag / GitHub release / publish of Atlas itself unless a human explicitly approves later
 
 ## Validation
