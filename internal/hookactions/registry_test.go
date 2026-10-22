@@ -17,8 +17,8 @@ import (
 
 func TestRegistry_RegistrationsStable(t *testing.T) {
 	regs := hookactions.Registrations()
-	if len(regs) != 2 {
-		t.Fatalf("len=%d", len(regs))
+	if len(regs) != 3 {
+		t.Fatalf("len=%d want 3", len(regs))
 	}
 	reg, err := hooks.NewRegistry(regs)
 	if err != nil {
@@ -41,7 +41,7 @@ func TestRegistry_RegistrationsStable(t *testing.T) {
 			t.Fatalf("%s timeout unset", id)
 		}
 	}
-	if !ids[hookactions.ActionIDContextEconomy] || !ids[hookactions.ActionIDCodeIntel] {
+	if !ids[hookactions.ActionIDContextEconomy] || !ids[hookactions.ActionIDCodeIntel] || !ids[hookactions.ActionIDPostCode] {
 		t.Fatalf("ids=%v", ids)
 	}
 }
@@ -56,8 +56,8 @@ func TestRegistry_NoMemoryActions(t *testing.T) {
 
 func TestRegistry_DefaultRegistryIncludesMaintenance(t *testing.T) {
 	reg := hooksengine.DefaultRegistry()
-	if reg.Len() != 2 {
-		t.Fatalf("DefaultRegistry len=%d want 2", reg.Len())
+	if reg.Len() != 3 {
+		t.Fatalf("DefaultRegistry len=%d want 3", reg.Len())
 	}
 	for _, r := range reg.All() {
 		if strings.HasPrefix(r.Action.ID(), "memory.") {

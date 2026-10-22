@@ -111,8 +111,15 @@ func admitSessionMaintenance(ctx context.Context, ev hooks.Event, resolve Resolv
 	if err != nil {
 		return hooks.Result{Outcome: hooks.OutcomeSkipped}, nil
 	}
+	// Phase C.2b: recover dirty post-code work without altering Phase B admit
+	// semantics. Best-effort; never changes the returned Result.
+	defer func() { _ = EnsurePostCodeSchedulerIfDirty(ref) }()
+
 	if payloadID := strings.TrimSpace(ev.Payload.ProjectID); payloadID != "" && payloadID != ref.ProjectID {
 		return hooks.Result{Outcome: hooks.OutcomeFailed}, fmt.Errorf("%w: id mismatch", errAdmitProject)
+	}
+	if err := openCodeSessionAllowed(ev.Adapter, ref.Root, ev.Payload.SessionDirectory); err != nil {
+		return hooks.Result{Outcome: hooks.OutcomeFailed}, err
 	}
 
 	sessionID := strings.TrimSpace(ev.Payload.SessionID)

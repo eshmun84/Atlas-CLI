@@ -339,6 +339,7 @@ func TestPhaseB2_CursorOpenCodeParallelOneSpawn(t *testing.T) {
 					OccurredAt: time.Now().UTC().Format(time.RFC3339),
 					Payload: hooksengine.PayloadInput{
 						ProjectID: ref.ProjectID, SessionID: "s",
+						SessionDirectory: openCodeSessionDir(ad, ref.Root),
 					},
 				},
 			})

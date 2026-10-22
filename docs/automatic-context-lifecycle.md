@@ -36,7 +36,8 @@ Package: `internal/hookactions`.
 | `task.start` (Cursor only, conditional) | Cursor `beforeSubmitPrompt` when the conversation has not yet been successfully admitted | **Fallback (B.8)** — admit + maintain once per session |
 | `session.resume` | **Not supported** — neither Cursor nor OpenCode bridge declares/emits a native resume event. Actions do **not** subscribe. Canonical `hooks.EventSessionResume` remains for future mapping only. | No automation |
 
-Not automated: tool events, OpenCode `session.prompt` / non-Cursor `task.start`, Status, Doctor, Configure, Repair, Context Compose.
+Not automated on session path: OpenCode `session.prompt` / non-Cursor `task.start`, Status, Doctor, Configure, Repair, Context Compose.
+Post-code tool events are Phase **C.2c** (below).
 
 **Honest contract:** do not invent provider events. Canonical translation stays
 `sessionStart → session.start` and `beforeSubmitPrompt → task.start`. Maintenance
@@ -146,8 +147,7 @@ Observability write failures never block the agent session.
 ### Still manual
 
 - TUI Context Economy Update / Code Intelligence Refresh (override / force full).
-- Init does **not** seed CE or CodeGraph (Phase C candidate).
-- Post-code-change refresh (Phase C).
+- Init does **not** seed CE or CodeGraph (Phase C candidate — deferred).
 
 ### Limitations
 
@@ -163,13 +163,92 @@ Observability write failures never block the agent session.
 | CE index/capsule/pack | Atlas | `$ATLAS_HOME/projects/<id>/context/` |
 | CodeGraph DB + metadata | Atlas | `$ATLAS_HOME/projects/<id>/codegraph/` |
 | Maintain lock / lease / last / session fence | Atlas | `$ATLAS_HOME/projects/<id>/state/` |
+| Maintain pending / pending.lock / post-code owner | Atlas | `$ATLAS_HOME/projects/<id>/state/` |
 | Product source tree | Developer | untouched |
 | Status / Doctor | Atlas read-only | never call maintenance Actions |
 
-## Phase C — Deferred
+## Phase C.2b — Post-code infrastructure (**IMPLEMENTED**)
 
-Not implemented: debounced refresh after code-changing tool events; Init-time
-seed; native `session.resume` adapter mapping; Status/Doctor automation.
+Home-only queue + finite detached scheduler (no daemon):
+
+| Artifact | Role |
+| --- | --- |
+| `maintain-pending.yaml` | Generations, due_at, owner token/fence/lease |
+| `pending.lock` | Serialize pending mutations |
+| Post-code scheduler | Debounce → CE then CI → commit gen0; reclaim on lease expiry |
+
+Session fence (`session-maintain.yaml`) is **not** used for post-code work.
+`session.start` admission best-effort calls `EnsurePostCodeSchedulerIfDirty`
+(recovery only; does not change Phase B outcomes).
+
+## Phase C.2c — Automatic post-code trigger (**IMPLEMENTED** — simulated/integration)
+
+### Events
+
+| Adapter | Native event | Canonical |
+| --- | --- | --- |
+| Cursor | `postToolUse` | `tool.after_execution` |
+| OpenCode | `tool.execute.after` | `tool.after_execution` |
+
+Action: `context.postcode.maintain` (`ModeNonBlocking`, `fail_continue`,
+`AdmissionTimeout`). Flow: allowlist → resolve project →
+`BumpPendingAndEnsureScheduler` → return. **Never waits for CE/CI.**
+
+### Allowlist (closed, exact match, per adapter)
+
+| Adapter | Allowed `tool_name` | Evidence |
+| --- | --- | --- |
+| Cursor | `Write`, `Delete` | Cursor hooks docs matchers; Claude `Edit` → Cursor `Write` |
+| OpenCode | `write`, `edit`, `apply_patch` | [opencode.ai/docs/tools](https://opencode.ai/docs/tools/) |
+
+**Excluded (non-exhaustive):** `Shell` / `bash`, reads (`Read`/`read`,
+`Grep`/`grep`, …), MCP tools, Task, unknown names, error/failed/denied/
+cancelled status, empty `tool_name`, triggers disabled.
+
+No argv/command regex. Case-sensitive names (Cursor PascalCase ≠ OpenCode
+lowercase). Cross-adapter name reuse is not accepted.
+
+### Possible mutation semantics
+
+An allowed event is a **possible** filesystem mutation signal, not a confirmed
+content change. CE/CI fingerprints remain the freshness authority; gen0 commit
+rules from C.2b still apply when edits arrive during maintain.
+
+### Recovery
+
+- Dirty pending + no vigente owner → `EnsurePostCodeSchedulerIfDirty` (tool path
+  or `session.start` defer).
+- Spawn failure → Action `failed` (fail-open to agent); ownership cleared; work
+  remains dirty for later recovery.
+- Corrupt pending → quarantine + dirty epoch (FIX-01/04); fail-closed for Atlas
+  state mutations.
+
+### Observability
+
+Same Home artifacts as C.2b (`maintain-pending.yaml`, `maintain-last.yaml` when
+the scheduler runs CE/CI). No tool bodies, prompts, file contents, or secrets
+are stored from the hook payload.
+
+### Adapter validation status
+
+| Check | Cursor | OpenCode |
+| --- | --- | --- |
+| Native → canonical projection (unit) | **PASS** | **PASS** |
+| Action → pending (integration/simulated) | **PASS** | **PASS** |
+| Physical agent E2E (real Cursor/OpenCode session) | **NOT VERIFIED** | **NOT VERIFIED** |
+
+### Limitations (C.2c)
+
+- Shell/bash-driven edits are intentionally ignored (no command reinterpretation).
+- Cursor `postToolUseFailure` is not projected today; failed tools do not bump.
+- Tab/file-edit-specific Cursor events (`afterFileEdit` / `TabWrite`) are not
+  wired; only `postToolUse` → `tool.after_execution`.
+- Physical E2E with live agents is out of this slice’s automated evidence.
+
+## Phase C — Still deferred
+
+Init-time CE/CodeGraph seed; native `session.resume` adapter mapping;
+Status/Doctor automation.
 
 ## Explicitly out of scope
 

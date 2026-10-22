@@ -35,16 +35,19 @@ const (
 // NativePayload is a bounded decode of OpenCode plugin stdin JSON.
 // Sensitive fields (prompt/tool args/output) are dropped immediately if present.
 type NativePayload struct {
-	HookEventName string          `json:"hook_event_name"`
-	SessionID     string          `json:"session_id"`
-	TaskID        string          `json:"task_id"`
-	ToolName      string          `json:"tool_name"`
-	ToolCallID    string          `json:"tool_call_id"`
-	Status        string          `json:"status"`
-	Reason        string          `json:"reason"`
-	Prompt        json.RawMessage `json:"prompt"`
-	ToolInput     json.RawMessage `json:"tool_input"`
-	ToolOutput    json.RawMessage `json:"tool_output"`
+	HookEventName string `json:"hook_event_name"`
+	SessionID     string `json:"session_id"`
+	TaskID        string `json:"task_id"`
+	ToolName      string `json:"tool_name"`
+	ToolCallID    string `json:"tool_call_id"`
+	// SessionDirectory is the verified OpenCode session directory.
+	// Required before any maintenance write. Not inferred from the plugin cwd.
+	SessionDirectory string          `json:"session_directory"`
+	Status           string          `json:"status"`
+	Reason           string          `json:"reason"`
+	Prompt           json.RawMessage `json:"prompt"`
+	ToolInput        json.RawMessage `json:"tool_input"`
+	ToolOutput       json.RawMessage `json:"tool_output"`
 }
 
 // CanonicalDispatch is the adapter-neutral envelope for hooksengine.Request.
@@ -92,6 +95,7 @@ func DecodeNative(r io.Reader) (NativePayload, error) {
 	p.TaskID = strings.TrimSpace(p.TaskID)
 	p.ToolName = strings.TrimSpace(p.ToolName)
 	p.ToolCallID = strings.TrimSpace(p.ToolCallID)
+	p.SessionDirectory = strings.TrimSpace(p.SessionDirectory)
 	p.Status = strings.TrimSpace(p.Status)
 	p.Reason = strings.TrimSpace(p.Reason)
 	// Drop sensitive/large fields immediately.
@@ -100,6 +104,9 @@ func DecodeNative(r io.Reader) (NativePayload, error) {
 	p.ToolOutput = nil
 	if p.HookEventName == "" {
 		return NativePayload{}, fmt.Errorf("opencode hooks: hook_event_name required")
+	}
+	if SupportsNative(p.HookEventName) && p.SessionDirectory == "" {
+		return NativePayload{}, fmt.Errorf("opencode hooks: session_directory required")
 	}
 	return p, nil
 }
@@ -125,11 +132,14 @@ func TranslateToCanonical(p NativePayload, occurredAt time.Time) (CanonicalDispa
 		occurredAt = occurredAt.UTC()
 	}
 
+	if p.SessionDirectory == "" {
+		return CanonicalDispatch{}, false, fmt.Errorf("opencode hooks: session_directory required")
+	}
 	ev := hooks.Event{
 		ID:         newOccurrenceID(p.HookEventName),
 		OccurredAt: occurredAt,
 		Adapter:    adapters.OpenCode,
-		Payload:    hooks.Payload{},
+		Payload:    hooks.Payload{SessionDirectory: p.SessionDirectory},
 	}
 
 	switch p.HookEventName {

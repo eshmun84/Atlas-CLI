@@ -1,5 +1,6 @@
-// Command materializehome ensures Atlas Home layout and mirrors bundled assets.
-// Used by `make install` so a clean install leaves ATLAS_HOME machine-ready.
+// Command materializehome mirrors bundled assets into Atlas Home.
+// It is not the installer: it does not publish a binary and it does not roll back.
+// Local installation is `make install` (scripts/installlocal).
 //
 // Respects ATLAS_HOME when set; otherwise uses ~/.atlas.
 package main

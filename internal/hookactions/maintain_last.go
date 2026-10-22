@@ -56,6 +56,14 @@ type MaintainLastRecord struct {
 	ErrorCode     string `yaml:"error_code"`
 	PID           int    `yaml:"pid,omitempty"`
 	SessionID     string `yaml:"session_id,omitempty"`
+	Trigger       string `yaml:"trigger,omitempty"`
+	Generation    int64  `yaml:"generation,omitempty"`
+}
+
+type maintainLastOpts struct {
+	SessionID  string
+	Trigger    string
+	Generation int64
 }
 
 func maintainLastRel(projectID string) string {
@@ -156,6 +164,10 @@ func markPriorIncompleteIfNeeded(homePath, projectID string) {
 }
 
 func beginMaintainLast(homePath, projectID, sessionID string) (MaintainLastRecord, time.Time) {
+	return beginMaintainLastEx(homePath, projectID, maintainLastOpts{SessionID: sessionID})
+}
+
+func beginMaintainLastEx(homePath, projectID string, opts maintainLastOpts) (MaintainLastRecord, time.Time) {
 	markPriorIncompleteIfNeeded(homePath, projectID)
 	started := time.Now().UTC()
 	rec := MaintainLastRecord{
@@ -167,13 +179,19 @@ func beginMaintainLast(homePath, projectID, sessionID string) (MaintainLastRecor
 		CIOutcome:     MaintainOutcomePending,
 		ErrorCode:     MaintainErrNone,
 		PID:           os.Getpid(),
-		SessionID:     strings.TrimSpace(sessionID),
+		SessionID:     strings.TrimSpace(opts.SessionID),
+		Trigger:       strings.TrimSpace(opts.Trigger),
+		Generation:    opts.Generation,
 	}
 	_ = writeMaintainLast(homePath, projectID, rec)
 	return rec, started
 }
 
 func finishMaintainLast(homePath, projectID, sessionID string, started time.Time, ce, ci, errCode string) {
+	finishMaintainLastEx(homePath, projectID, maintainLastOpts{SessionID: sessionID}, started, ce, ci, errCode)
+}
+
+func finishMaintainLastEx(homePath, projectID string, opts maintainLastOpts, started time.Time, ce, ci, errCode string) {
 	finished := time.Now().UTC()
 	dur := finished.Sub(started).Milliseconds()
 	if dur < 0 {
@@ -182,7 +200,7 @@ func finishMaintainLast(homePath, projectID, sessionID string, started time.Time
 	if errCode == "" {
 		errCode = MaintainErrNone
 	}
-	sid := strings.TrimSpace(sessionID)
+	sid := strings.TrimSpace(opts.SessionID)
 	rec := MaintainLastRecord{
 		SchemaVersion: 1,
 		Status:        MaintainStatusComplete,
@@ -194,6 +212,8 @@ func finishMaintainLast(homePath, projectID, sessionID string, started time.Time
 		ErrorCode:     errCode,
 		PID:           os.Getpid(),
 		SessionID:     sid,
+		Trigger:       strings.TrimSpace(opts.Trigger),
+		Generation:    opts.Generation,
 	}
 	_ = writeMaintainLast(homePath, projectID, rec)
 	finalizeSessionAfterWorker(homePath, projectID, sid, errCode)

@@ -63,6 +63,7 @@ func TestDispatch_ProductionOpenCodeWithoutBridgeUnsupported(t *testing.T) {
 	eng, projectID := seedEngine(t, hooksengine.DefaultRegistry(), nil)
 	req := validSessionRequest(projectID)
 	req.Adapter = string(adapters.OpenCode)
+	req.Event.Payload.SessionDirectory = eng.Env.Root
 	resp := eng.Dispatch(context.Background(), req)
 	// ClassHooks is enabled, but package tests do not register the CLI bridge.
 	if resp.Status != hooksengine.StatusUnsupportedEvent {
@@ -427,8 +428,8 @@ func TestDispatch_RejectedInputNoFilesystemMutation(t *testing.T) {
 
 func TestDefaultRegistryMaintenancePhaseA(t *testing.T) {
 	reg := hooksengine.DefaultRegistry()
-	if reg.Len() != 2 {
-		t.Fatalf("Phase A DefaultRegistry len=%d want 2 maintenance Actions", reg.Len())
+	if reg.Len() != 3 {
+		t.Fatalf("DefaultRegistry len=%d want 3 maintenance Actions", reg.Len())
 	}
 	// Memory automatic injection Actions remain deferred.
 	for _, regn := range reg.All() {
@@ -441,7 +442,7 @@ func TestDefaultRegistryMaintenancePhaseA(t *testing.T) {
 	for _, regn := range reg.All() {
 		ids[regn.Action.ID()] = true
 	}
-	if !ids["context.economy.maintain"] || !ids["codeintel.refresh.maintain"] {
+	if !ids["context.economy.maintain"] || !ids["codeintel.refresh.maintain"] || !ids["context.postcode.maintain"] {
 		t.Fatalf("missing maintenance ids: %v", ids)
 	}
 }

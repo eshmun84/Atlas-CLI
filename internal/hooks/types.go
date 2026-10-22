@@ -79,11 +79,15 @@ const DefaultActionTimeout = 5 * time.Second
 // Fields are event-contract data only. The Hooks foundation does not persist
 // Payload (including TaskSummary) to Memory, disk, or any other store.
 type Payload struct {
-	ProjectID  string
-	SessionID  string
-	TaskID     string
-	ToolName   string
-	ToolCallID string
+	ProjectID string
+	// SessionDirectory is the OpenCode session directory (OpenCode 2.0.20
+	// Location.Ref or session.get location.directory). Empty for Cursor.
+	// OpenCode maintenance requires it to match the resolved project root.
+	SessionDirectory string
+	SessionID        string
+	TaskID           string
+	ToolName         string
+	ToolCallID       string
 	// Status is optional outcome vocabulary for completion/after-tool events
 	// (e.g. success|failure|cancelled). Empty when not applicable.
 	Status string

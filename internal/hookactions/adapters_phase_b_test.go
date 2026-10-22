@@ -55,8 +55,9 @@ func TestPhaseB_OpenCodeBridgeDeclaresSessionStart(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	d, ok, err := adapteropencode.TranslateToCanonical(adapteropencode.NativePayload{
-		HookEventName: adapteropencode.NativeSessionCreated,
-		SessionID:     "s1",
+		HookEventName:    adapteropencode.NativeSessionCreated,
+		SessionDirectory: "/tmp/proj",
+		SessionID:        "s1",
 	}, now)
 	if err != nil || !ok || d.Event.Type != hooks.EventSessionStart {
 		t.Fatalf("translate=%#v ok=%v err=%v", d, ok, err)
@@ -92,6 +93,7 @@ func TestPhaseB_AdapterTransitionSameProject(t *testing.T) {
 				OccurredAt: time.Now().UTC().Format(time.RFC3339),
 				Payload: hooksengine.PayloadInput{
 					ProjectID: ref.ProjectID, SessionID: "s",
+					SessionDirectory: openCodeSessionDir(ad, ref.Root),
 				},
 			},
 		})

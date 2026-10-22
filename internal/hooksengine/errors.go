@@ -13,7 +13,8 @@ var (
 	ErrNotInitialized = errors.New("hooksengine: atlas project not initialized")
 	// ErrUnsafeFilesystem reports a fail-closed path safety refusal.
 	ErrUnsafeFilesystem = errors.New("hooksengine: unsafe filesystem")
-	// ErrProjectMismatch reports payload project_id ≠ resolved project identity.
+	// ErrProjectMismatch reports a payload project_id or OpenCode session
+	// directory that does not match the resolved project.
 	ErrProjectMismatch = errors.New("hooksengine: project identity mismatch")
 	// ErrInvalidAdapter reports an unknown or empty adapter id.
 	ErrInvalidAdapter = errors.New("hooksengine: invalid adapter")

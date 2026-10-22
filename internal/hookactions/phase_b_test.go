@@ -299,6 +299,13 @@ func TestPhaseB_NoSourceMutation(t *testing.T) {
 	}
 }
 
+func openCodeSessionDir(adapter adapters.ID, root string) string {
+	if adapter == adapters.OpenCode {
+		return root
+	}
+	return ""
+}
+
 func TestPhaseB_CursorAndOpenCodeAdapters(t *testing.T) {
 	hookactions.SetTriggersEnabled(true)
 	hookactions.SetSpawner(hookactions.AsyncInlineSpawner)
@@ -332,6 +339,7 @@ func TestPhaseB_CursorAndOpenCodeAdapters(t *testing.T) {
 					OccurredAt: time.Now().UTC().Format(time.RFC3339),
 					Payload: hooksengine.PayloadInput{
 						ProjectID: ref.ProjectID, SessionID: "s1",
+						SessionDirectory: openCodeSessionDir(tc.adapter, ref.Root),
 					},
 				},
 			})

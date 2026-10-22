@@ -45,7 +45,7 @@ func (e Engine) Dispatch(ctx context.Context, req Request) Response {
 		return errorResponse(status, msg, "", "", "", "")
 	}
 
-	ev, adapterID, err := e.buildEvent(req, ref.ProjectID)
+	ev, adapterID, err := e.buildEvent(req, ref.Root, ref.ProjectID)
 	if err != nil {
 		status, msg := classify(err)
 		resp := errorResponse(status, msg, ref.ProjectID, string(adapterID), req.Event.ID, req.Event.Type)
@@ -90,7 +90,7 @@ func (e Engine) capabilityFor(id adapters.ID) hooks.Capability {
 	return negotiateAdapter(id, bridge)
 }
 
-func (e Engine) buildEvent(req Request, resolvedProjectID string) (hooks.Event, adapters.ID, error) {
+func (e Engine) buildEvent(req Request, resolvedRoot, resolvedProjectID string) (hooks.Event, adapters.ID, error) {
 	if err := validateSchemaVersion(req.SchemaVersion); err != nil {
 		return hooks.Event{}, "", err
 	}
@@ -115,6 +115,12 @@ func (e Engine) buildEvent(req Request, resolvedProjectID string) (hooks.Event, 
 	if payloadProject == "" {
 		payloadProject = resolvedProjectID
 	}
+	sessionDirectory := strings.TrimSpace(req.Event.Payload.SessionDirectory)
+	if adapterID == adapters.OpenCode {
+		if err := hookactions.SessionDirectoryMatches(resolvedRoot, sessionDirectory); err != nil {
+			return hooks.Event{}, adapterID, fmt.Errorf("%w: %v", ErrProjectMismatch, err)
+		}
+	}
 
 	ev := hooks.Event{
 		ID:         req.Event.ID,
@@ -123,6 +129,7 @@ func (e Engine) buildEvent(req Request, resolvedProjectID string) (hooks.Event, 
 		Adapter:    adapterID,
 		Payload: hooks.Payload{
 			ProjectID:        payloadProject,
+			SessionDirectory: sessionDirectory,
 			SessionID:        req.Event.Payload.SessionID,
 			TaskID:           req.Event.Payload.TaskID,
 			ToolName:         req.Event.Payload.ToolName,

@@ -47,6 +47,7 @@ type EventInput struct {
 // rejected by the decoder — opaque extension keys are forbidden.
 type PayloadInput struct {
 	ProjectID        string `json:"project_id,omitempty"`
+	SessionDirectory string `json:"session_directory,omitempty"`
 	SessionID        string `json:"session_id,omitempty"`
 	TaskID           string `json:"task_id,omitempty"`
 	ToolName         string `json:"tool_name,omitempty"`

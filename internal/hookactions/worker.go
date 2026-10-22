@@ -71,6 +71,7 @@ func RunWorker(ctx context.Context, ref ProjectRef) error {
 
 // MaybeRunInternalMaintain is the process entry for detached workers.
 // Returns handled=true when this process is an internal maintain worker.
+// Modes: session (default / Phase B) and post_code_scheduler (Phase C.2b).
 func MaybeRunInternalMaintain(stdout, stderr io.Writer) (handled bool, err error) {
 	if strings.TrimSpace(os.Getenv(EnvInternalMaintain)) != "1" {
 		return false, nil
@@ -78,11 +79,14 @@ func MaybeRunInternalMaintain(stdout, stderr io.Writer) (handled bool, err error
 	_ = stdout
 	root := strings.TrimSpace(os.Getenv(envMaintainRoot))
 	homePath := strings.TrimSpace(os.Getenv(envMaintainHome))
-	sessionID := strings.TrimSpace(os.Getenv(envMaintainSession))
 	if root == "" {
 		fmt.Fprintln(stderr, "hookactions: internal maintain missing root")
 		return true, fmt.Errorf("hookactions: internal maintain missing root")
 	}
+	if handled, err := maybeRunPostCodeScheduler(stderr, root, homePath); handled {
+		return true, err
+	}
+	sessionID := strings.TrimSpace(os.Getenv(envMaintainSession))
 	if homePath != "" {
 		_ = os.Setenv("ATLAS_HOME", homePath)
 	}

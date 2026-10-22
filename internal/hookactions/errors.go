@@ -13,7 +13,17 @@ var (
 	errAdmitSpawn       = errors.New("hookactions: maintain worker spawn failed")
 	errAdmitProject     = errors.New("hookactions: maintain project invalid")
 	errAdmitUnexpected  = errors.New("hookactions: maintain admission unexpected error")
+
+	// errPendingCorrupt is returned when maintain-pending.yaml exists but cannot
+	// be trusted (parse failure or incompatible schema). Callers must not treat
+	// this as an empty queue and must not overwrite the evidence file.
+	errPendingCorrupt = errors.New("hookactions: maintain-pending corrupt or incompatible")
 )
+
+// ErrPendingCorrupt reports whether err indicates untrusted pending state.
+func ErrPendingCorrupt(err error) bool {
+	return errors.Is(err, errPendingCorrupt)
+}
 
 // AdmitClass is an internal classification for diagnostics and tests.
 type AdmitClass string

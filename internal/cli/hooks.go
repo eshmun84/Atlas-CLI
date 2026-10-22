@@ -183,6 +183,7 @@ func engineRequestFromEvent(schemaVersion int, adapter string, ev hooks.Event) h
 			OccurredAt: ev.OccurredAt.UTC().Format(time.RFC3339Nano),
 			Payload: hooksengine.PayloadInput{
 				ProjectID:        ev.Payload.ProjectID,
+				SessionDirectory: ev.Payload.SessionDirectory,
 				SessionID:        ev.Payload.SessionID,
 				TaskID:           ev.Payload.TaskID,
 				ToolName:         ev.Payload.ToolName,

@@ -25,7 +25,18 @@
 //   - Per-session fence: session-maintain.yaml under Atlas Home (admitted vs
 //     complete; cleared on spawn/worker failure for controlled recovery).
 //
-// Phase C (deferred): post-code-change refresh, Init seed, native resume.
+// Phase C.2b (post-code infrastructure):
+//   - maintain-pending.yaml + pending.lock under Atlas Home
+//   - Generation bump / ownership token+fence / finite scheduler
+//   - session.start best-effort EnsurePostCodeSchedulerIfDirty recovery
+//
+// Phase C.2c (post-code production trigger):
+//   - context.postcode.maintain on tool.after_execution
+//   - Cursor postToolUse / OpenCode tool.execute.after
+//   - Closed per-adapter allowlist (possible mutation, not confirmed edit)
+//   - BumpPendingAndEnsureScheduler; hook returns without waiting for CE/CI
+//
+// Phase C still deferred: Init seed, native resume.
 //
 // Boundaries:
 //   - Home-only payloads (no large context / graph.db in the product repo).

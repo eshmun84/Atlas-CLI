@@ -213,6 +213,73 @@ func TestRunNative_DenyPropagationAndNoPromptLeak(t *testing.T) {
 	}
 }
 
+func TestTranslateToCanonical_ToolUseID(t *testing.T) {
+	now := time.Date(2026, 10, 21, 23, 0, 0, 0, time.UTC)
+	const (
+		callID = "call-ed199ee1-8765-4eb0-b631-dd5f84abb6b2-34"
+		fcID   = "fc_5d211f72-be2c-9ab3-827c-ef80c05626f1_0"
+	)
+	compound := callID + "\n" + fcID
+	longID := strings.Repeat("a", 129)
+
+	cases := []struct {
+		name    string
+		event   string
+		tool    string
+		useID   string
+		wantID  string
+		wantRaw bool
+	}{
+		{name: "write compound newline", event: cursor.NativePostToolUse, tool: "Write", useID: compound, wantID: callID},
+		{name: "write compound crlf", event: cursor.NativePostToolUse, tool: "Write", useID: callID + "\r\n" + fcID, wantID: callID},
+		{name: "write simple", event: cursor.NativePostToolUse, tool: "Write", useID: "call-16c26c7f-6b30-4afe-9077-205c1206c56c-25", wantID: "call-16c26c7f-6b30-4afe-9077-205c1206c56c-25", wantRaw: true},
+		{name: "write empty", event: cursor.NativePostToolUse, tool: "Write", useID: "", wantID: "", wantRaw: true},
+		{name: "write trailing newline already valid", event: cursor.NativePostToolUse, tool: "Write", useID: callID + "\n", wantID: callID + "\n", wantRaw: true},
+		{name: "write path segment", event: cursor.NativePostToolUse, tool: "Write", useID: "../secret", wantID: ""},
+		{name: "write absolute", event: cursor.NativePostToolUse, tool: "Write", useID: "/tmp/tool", wantID: ""},
+		{name: "write backslash", event: cursor.NativePostToolUse, tool: "Write", useID: `a\b`, wantID: ""},
+		{name: "write too long", event: cursor.NativePostToolUse, tool: "Write", useID: longID, wantID: ""},
+		{name: "write control", event: cursor.NativePostToolUse, tool: "Write", useID: "call\x01id", wantID: ""},
+		{name: "write first invalid second valid", event: cursor.NativePostToolUse, tool: "Write", useID: "../no\n" + fcID, wantID: fcID},
+		{name: "write both segments invalid", event: cursor.NativePostToolUse, tool: "Write", useID: "../a\n/tmp/x", wantID: ""},
+		{name: "preToolUse compound", event: cursor.NativePreToolUse, tool: "Write", useID: compound, wantID: callID},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, ok, err := cursor.TranslateToCanonical(cursor.NativePayload{
+				HookEventName: tc.event,
+				ToolName:      tc.tool,
+				ToolUseID:     tc.useID,
+			}, now)
+			if err != nil || !ok {
+				t.Fatalf("ok=%v err=%v", ok, err)
+			}
+			if req.Event.Payload.ToolCallID != tc.wantID {
+				t.Fatalf("tool_call_id=%q want %q", req.Event.Payload.ToolCallID, tc.wantID)
+			}
+			if tc.wantRaw && req.Event.Payload.ToolCallID != tc.useID {
+				t.Fatalf("valid id was rewritten: got %q", req.Event.Payload.ToolCallID)
+			}
+			if strings.Contains(req.Event.Payload.ToolCallID, "\n") && !tc.wantRaw {
+				t.Fatalf("normalized id still contains a newline: %q", req.Event.Payload.ToolCallID)
+			}
+			if err := hooks.ValidateEvent(req.Event); err != nil {
+				t.Fatalf("normalized event rejected: %v", err)
+			}
+			if tc.useID == compound && strings.Contains(req.Event.Payload.ToolCallID, fcID) {
+				t.Fatal("compound id must not be joined into a new identifier")
+			}
+		})
+	}
+}
+
+func TestTranslateResponse_PostToolUseHidesDispatchStatus(t *testing.T) {
+	res := cursor.TranslateResponse(cursor.NativePostToolUse, "invalid_event")
+	if res.ExitCode != 0 || string(res.Body) != "{}" {
+		t.Fatalf("postToolUse response=%s exit=%d", res.Body, res.ExitCode)
+	}
+}
+
 func TestHooksBridge_DeclaredEvents(t *testing.T) {
 	b := cursor.NewHooksBridge()
 	if b.AdapterID() != adapters.Cursor {

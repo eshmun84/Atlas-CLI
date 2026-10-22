@@ -18,6 +18,7 @@ func TestDecodeNative_RejectsMalformed(t *testing.T) {
 		``,
 		`null`,
 		`[]`,
+		`{"hook_event_name":"session.created","session_id":"s1"}`,
 		`{"hook_event_name":"session.created"}{"x":1}`,
 		string([]byte{0xff, 0xfe}),
 		`{"hook_event_name":"session.created","session_id":"s1","x":` + strings.Repeat("a", opencode.MaxNativeBytes) + `}`,
@@ -39,7 +40,7 @@ func TestTranslateToCanonical_AllEvents(t *testing.T) {
 	}{
 		{
 			name: "session.created",
-			raw:  `{"hook_event_name":"session.created","session_id":"s1"}`,
+			raw:  `{"hook_event_name":"session.created","session_id":"s1","session_directory":"/tmp/proj"}`,
 			want: hooks.EventSessionStart,
 			check: func(t *testing.T, d opencode.CanonicalDispatch) {
 				if d.Event.Payload.SessionID != "s1" {
@@ -50,7 +51,7 @@ func TestTranslateToCanonical_AllEvents(t *testing.T) {
 		},
 		{
 			name: "session.prompt",
-			raw:  `{"hook_event_name":"session.prompt","session_id":"s1"}`,
+			raw:  `{"hook_event_name":"session.prompt","session_id":"s1","session_directory":"/tmp/proj"}`,
 			want: hooks.EventTaskStart,
 			check: func(t *testing.T, d opencode.CanonicalDispatch) {
 				if d.Event.Payload.TaskSummaryState != hooks.TaskSummaryAbsent {
@@ -67,7 +68,7 @@ func TestTranslateToCanonical_AllEvents(t *testing.T) {
 		},
 		{
 			name: "tool.execute.before",
-			raw:  `{"hook_event_name":"tool.execute.before","tool_name":"read","tool_call_id":"c1","session_id":"s1"}`,
+			raw:  `{"hook_event_name":"tool.execute.before","tool_name":"read","tool_call_id":"c1","session_id":"s1","session_directory":"/tmp/proj"}`,
 			want: hooks.EventBeforeToolExecution,
 			check: func(t *testing.T, d opencode.CanonicalDispatch) {
 				if d.Event.Payload.ToolName != "read" || d.Event.Payload.ToolCallID != "c1" {
@@ -78,7 +79,7 @@ func TestTranslateToCanonical_AllEvents(t *testing.T) {
 		},
 		{
 			name: "tool.execute.after",
-			raw:  `{"hook_event_name":"tool.execute.after","tool_name":"read","status":"error"}`,
+			raw:  `{"hook_event_name":"tool.execute.after","tool_name":"read","status":"error","session_directory":"/tmp/proj"}`,
 			want: hooks.EventAfterToolExecution,
 			check: func(t *testing.T, d opencode.CanonicalDispatch) {
 				if d.Event.Payload.Status != "error" {
@@ -89,7 +90,7 @@ func TestTranslateToCanonical_AllEvents(t *testing.T) {
 		},
 		{
 			name: "session.compaction",
-			raw:  `{"hook_event_name":"session.compaction","session_id":"s1","reason":"compaction"}`,
+			raw:  `{"hook_event_name":"session.compaction","session_id":"s1","reason":"compaction","session_directory":"/tmp/proj"}`,
 			want: hooks.EventBeforeContextCompaction,
 			check: func(t *testing.T, d opencode.CanonicalDispatch) {
 				if d.Event.Payload.Reason != "compaction" {
@@ -159,7 +160,7 @@ func TestRunNative_DenyAndFailOpen(t *testing.T) {
 	var out bytes.Buffer
 	err := opencode.RunNative(context.Background(), func(context.Context, opencode.CanonicalDispatch) string {
 		return opencode.StatusDenied
-	}, strings.NewReader(`{"hook_event_name":"tool.execute.before","tool_name":"bash"}`), &out)
+	}, strings.NewReader(`{"hook_event_name":"tool.execute.before","tool_name":"bash","session_directory":"/tmp/proj"}`), &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +179,7 @@ func TestRunNative_DenyAndFailOpen(t *testing.T) {
 }
 
 func TestDecodeNative_DropsSensitiveFields(t *testing.T) {
-	raw := `{"hook_event_name":"session.prompt","session_id":"s1","prompt":"SECRET","tool_input":{"x":1},"tool_output":"OUT"}`
+	raw := `{"hook_event_name":"session.prompt","session_id":"s1","session_directory":"/tmp/proj","prompt":"SECRET","tool_input":{"x":1},"tool_output":"OUT"}`
 	p, err := opencode.DecodeNative(strings.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)

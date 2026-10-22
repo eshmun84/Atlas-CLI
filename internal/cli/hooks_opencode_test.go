@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -61,7 +62,10 @@ func TestExecute_HooksOpenCode_ToolDeny(t *testing.T) {
 
 	prevIn := cli.HooksInput
 	cli.HooksInput = func() io.Reader {
-		return strings.NewReader(`{"hook_event_name":"tool.execute.before","tool_name":"bash","tool_call_id":"c1","session_id":"s1"}`)
+		return strings.NewReader(fmt.Sprintf(
+			`{"hook_event_name":"tool.execute.before","tool_name":"bash","tool_call_id":"c1","session_id":"s1","session_directory":%q}`,
+			root,
+		))
 	}
 	defer func() { cli.HooksInput = prevIn }()
 
@@ -146,7 +150,10 @@ func TestExecute_HooksOpenCode_ObservationalPrompt(t *testing.T) {
 
 	prevIn := cli.HooksInput
 	cli.HooksInput = func() io.Reader {
-		return strings.NewReader(`{"hook_event_name":"session.prompt","session_id":"s9","prompt":"DO-NOT-LEAK"}`)
+		return strings.NewReader(fmt.Sprintf(
+			`{"hook_event_name":"session.prompt","session_id":"s9","session_directory":%q,"prompt":"DO-NOT-LEAK"}`,
+			root,
+		))
 	}
 	defer func() { cli.HooksInput = prevIn }()
 

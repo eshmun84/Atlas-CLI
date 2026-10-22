@@ -71,6 +71,7 @@ func trimRequest(req *Request) {
 	req.Event.OccurredAt = strings.TrimSpace(req.Event.OccurredAt)
 	p := &req.Event.Payload
 	p.ProjectID = strings.TrimSpace(p.ProjectID)
+	p.SessionDirectory = strings.TrimSpace(p.SessionDirectory)
 	p.SessionID = strings.TrimSpace(p.SessionID)
 	p.TaskID = strings.TrimSpace(p.TaskID)
 	p.ToolName = strings.TrimSpace(p.ToolName)

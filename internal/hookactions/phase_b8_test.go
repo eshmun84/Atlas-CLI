@@ -581,6 +581,7 @@ func TestPhaseB8_CursorOnlyOpenCodeUnaffected(t *testing.T) {
 			Payload: hooksengine.PayloadInput{
 				ProjectID: ref.ProjectID, SessionID: "sess-oc", TaskID: "t1",
 				TaskSummaryState: string(hooks.TaskSummaryAbsent),
+				SessionDirectory: ref.Root,
 			},
 		},
 	})

@@ -3,9 +3,10 @@ package hookactions
 import "sync/atomic"
 
 // TriggersEnabled controls whether registered maintenance Actions perform
-// session admission (and spawn Home maintenance) when invoked via hooks.Action.Run.
+// admission (session spawn or post-code bump/scheduler) when invoked via
+// hooks.Action.Run.
 //
-// Phase B default is true: session.start / session.resume admit maintenance.
+// Default is true (Phase B session + Phase C.2c post-code).
 // Direct Maintain* helpers always run inline and ignore this flag.
 //
 // Tests may call SetTriggersEnabled(false) to restore Phase A skip behavior.

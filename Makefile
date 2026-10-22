@@ -4,19 +4,23 @@ BINARY := bin/atlas
 PREFIX ?= $(HOME)/.local
 VERSION ?=
 
+# Same ldflags for the published binary and for installlocal, so Home's
+# atlas_version matches the binary. Empty when VERSION is unset (source default).
+VERSION_LDFLAGS :=
+ifneq ($(VERSION),)
+VERSION_LDFLAGS := -ldflags "-X github.com/eshmun84/Atlas-CLI/internal/version.Version=$(VERSION)"
+endif
+
 build:
-	@if [ -n "$(VERSION)" ]; then \
-		go build -ldflags "-X github.com/eshmun84/Atlas-CLI/internal/version.Version=$(VERSION)" -o $(BINARY) ./cmd/atlas; \
-	else \
-		go build -o $(BINARY) ./cmd/atlas; \
-	fi
+	go build $(VERSION_LDFLAGS) -o $(BINARY) ./cmd/atlas
 
 # Local install for Alpha validation. Defaults to ~/.local/bin when that tree exists
 # in the environment; smoke uses a temporary PREFIX and never publishes.
 # Stages the binary, materializes Atlas Home (ATLAS_HOME or ~/.atlas), then
-# renames into place so a Home failure cannot publish a new definitive binary.
+# renames into place. A failure before publish leaves the previous binary in place
+# and restores the Home mirror snapshot when this install mutated it.
 install: build
-	go run ./scripts/installlocal -binary="$(BINARY)" -prefix="$(PREFIX)"
+	go run $(VERSION_LDFLAGS) ./scripts/installlocal -binary="$(BINARY)" -prefix="$(PREFIX)"
 
 test:
 	go test ./...

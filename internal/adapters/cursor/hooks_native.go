@@ -175,7 +175,7 @@ func TranslateToCanonical(p NativePayload, occurredAt time.Time) (CanonicalDispa
 			return CanonicalDispatch{}, false, fmt.Errorf("cursor hooks: tool_name required")
 		}
 		ev.Payload.ToolName = p.ToolName
-		ev.Payload.ToolCallID = p.ToolUseID
+		ev.Payload.ToolCallID = normalizeCursorToolUseID(p.ToolUseID)
 		ev.Payload.SessionID = session
 	case NativePostToolUse:
 		ev.Type = hooks.EventAfterToolExecution
@@ -183,7 +183,7 @@ func TranslateToCanonical(p NativePayload, occurredAt time.Time) (CanonicalDispa
 			return CanonicalDispatch{}, false, fmt.Errorf("cursor hooks: tool_name required")
 		}
 		ev.Payload.ToolName = p.ToolName
-		ev.Payload.ToolCallID = p.ToolUseID
+		ev.Payload.ToolCallID = normalizeCursorToolUseID(p.ToolUseID)
 		ev.Payload.Status = "success"
 		ev.Payload.SessionID = session
 	case NativePreCompact:
@@ -239,6 +239,48 @@ func trimID(id string) string {
 	return id
 }
 
+// normalizeCursorToolUseID maps Cursor tool_use_id onto the optional ToolCallID
+// contract. hooks.ValidateEvent is unchanged.
+//
+// A value that already validates is returned unchanged.
+// Cursor IDE 3.20.10 joins two identifiers with an interior newline
+// ("call-…\nfc_…"). Segments are split on newline only. The first segment that
+// itself validates is selected. When none validates, the result is empty:
+// ToolCallID is optional, and this function does not invent a replacement.
+func normalizeCursorToolUseID(raw string) string {
+	if cursorToolCallIDAccepted(raw) {
+		return raw
+	}
+	for _, seg := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '\n' || r == '\r'
+	}) {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		if cursorToolCallIDAccepted(seg) {
+			return seg
+		}
+	}
+	return ""
+}
+
+// cursorToolCallIDAccepted reports whether id can be stored in Payload.ToolCallID.
+// The probe event is otherwise valid, so a rejection is the tool_call_id contract.
+func cursorToolCallIDAccepted(id string) bool {
+	ev := hooks.Event{
+		ID:         "cursor-tool-id-probe",
+		Type:       hooks.EventAfterToolExecution,
+		OccurredAt: time.Unix(0, 0).UTC(),
+		Payload: hooks.Payload{
+			ToolName:   "Write",
+			ToolCallID: id,
+			Status:     "success",
+		},
+	}
+	return hooks.ValidateEvent(ev) == nil
+}
+
 // NativeResult is Cursor-facing stdout JSON plus process exit guidance.
 type NativeResult struct {
 	Body     json.RawMessage
@@ -270,6 +312,9 @@ func TranslateResponse(nativeEvent, status string) NativeResult {
 		}
 		return nativeOK(map[string]any{"permission": "allow"})
 	case NativePostToolUse, NativePreCompact:
+		// Cursor requires {}. Dispatch status, including invalid_event, is not
+		// part of this response. Surfacing it needs a separate observability
+		// record and is intentionally not added here.
 		return nativeOK(map[string]any{})
 	default:
 		return nativeOK(map[string]any{})

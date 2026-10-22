@@ -9,9 +9,11 @@ import (
 // Registrations returns the Atlas-owned maintenance Action registrations.
 // Order is irrelevant: hooks.NewRegistry sorts by action ID.
 //
-// Phase B: TriggersEnabled defaults to true. Action.Run admits session
-// maintenance (fast) and spawns a detached worker; timeouts here bound
-// admission only. Direct Maintain* helpers remain available for workers/tests.
+// Phase B: TriggersEnabled defaults to true. Session Actions admit quickly and
+// spawn a detached worker; timeouts here bound admission only.
+// Phase C.2c: PostCodeAction admits on tool.after_execution (allowlisted tools)
+// via BumpPendingAndEnsureScheduler — never waits for CE/CI.
+// Direct Maintain* helpers remain available for workers/tests.
 func Registrations() []hooks.Registration {
 	return []hooks.Registration{
 		{
@@ -21,6 +23,11 @@ func Registrations() []hooks.Registration {
 		},
 		{
 			Action:        &CodeIntelAction{},
+			FailurePolicy: hooks.FailContinue,
+			Timeout:       AdmissionTimeout,
+		},
+		{
+			Action:        &PostCodeAction{},
 			FailurePolicy: hooks.FailContinue,
 			Timeout:       AdmissionTimeout,
 		},
