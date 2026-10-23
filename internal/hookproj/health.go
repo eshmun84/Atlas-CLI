@@ -37,9 +37,12 @@ type ProjectionStatus struct {
 // HookHealth is a read-only hooks projection snapshot.
 type HookHealth struct {
 	// Configured is true when at least one selected adapter supports ClassHooks.
-	Configured  bool
-	Projections []ProjectionStatus
-	CheckedAt   time.Time
+	Configured bool
+	// OwnershipError is set when hooks ownership metadata cannot be read.
+	// Reconcile fails closed in that case, so projections must not be repairable.
+	OwnershipError string
+	Projections    []ProjectionStatus
+	CheckedAt      time.Time
 }
 
 // InspectInput drives read-only hooks health evaluation.

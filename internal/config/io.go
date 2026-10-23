@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,11 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 	"gopkg.in/yaml.v3"
 )
+
+// ErrNotProjectDocument reports that .atlas/config.yaml is not a V1 project
+// document. LoadAt may then read the legacy Config shape. A recognized project
+// document that fails validation is not a legacy config.
+var ErrNotProjectDocument = errors.New("not a persisted project document")
 
 // LoadAt reads and validates Config from .atlas/config.yaml under root using
 // symlink-safe contained reads. Symlink parents/leaves are refused.
@@ -20,7 +26,10 @@ func LoadAt(root string) (Config, error) {
 		}
 		return cfg, nil
 	}
-	// Fall back to legacy Config shape via the same contained bytes.
+	if !errors.Is(err, ErrNotProjectDocument) {
+		return Config{}, err
+	}
+	// Fall back to legacy Config shape only when the file is not a project document.
 	data, readErr := fsafety.ReadFileContained(root, FileConfig)
 	if readErr != nil {
 		return Config{}, fmt.Errorf("load config: %w", readErr)
@@ -51,7 +60,7 @@ func parseProjectDocument(data []byte) (ProjectDocument, error) {
 		return ProjectDocument{}, fmt.Errorf("parse config: %w", err)
 	}
 	if !persisted.IsProjectDocument() {
-		return ProjectDocument{}, fmt.Errorf("load config: not a persisted project document")
+		return ProjectDocument{}, fmt.Errorf("load config: %w", ErrNotProjectDocument)
 	}
 	if err := ValidateProjectDocument(persisted); err != nil {
 		return ProjectDocument{}, err

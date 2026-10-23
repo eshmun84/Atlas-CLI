@@ -112,6 +112,10 @@ type ProjectionStatus struct {
 type SkillHealth struct {
 	CatalogReadable bool
 	CatalogError    string
+	// OwnershipError is set when skill ownership metadata or project identity
+	// cannot be read. Reconcile fails closed in that case, so projections must
+	// not be reported as missing and repairable.
+	OwnershipError  string
 	Available       []Metadata
 	Enabled         []Pin
 	Projections     []ProjectionStatus

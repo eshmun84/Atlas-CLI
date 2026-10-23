@@ -286,58 +286,66 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 	}
 	addGitignoreRepairTargets(&plan, root, health)
 
-	for _, proj := range health.Skills.Projections {
-		switch proj.State {
-		case "missing", "stale", "drifted":
-			if !proj.Owned && proj.State != "missing" {
-				continue // unknown surfaces: conflict path only
+	if health.Skills.OwnershipError != "" {
+		plan.Warnings = append(plan.Warnings, "skills ownership unreadable; projections not repairable")
+	} else {
+		for _, proj := range health.Skills.Projections {
+			switch proj.State {
+			case "missing", "stale", "drifted":
+				if !proj.Owned && proj.State != "missing" {
+					continue // unknown surfaces: conflict path only
+				}
+				action := RepairActionCreate
+				if proj.State != "missing" {
+					action = RepairActionReplace
+				}
+				addRepairTarget(&plan, RuntimeRepairTarget{
+					Path:    proj.RootRel + "/SKILL.md",
+					Action:  action,
+					Kind:    RepairKindSkill,
+					Reason:  "Atlas-owned skill projection " + proj.State,
+					Adapter: proj.Adapter,
+					Backup:  action == RepairActionReplace,
+				})
+				plan.Drift = append(plan.Drift, "skill "+proj.State+": "+proj.RootRel)
+			case "conflict":
+				plan.Warnings = append(plan.Warnings, "skill projection conflict preserved: "+proj.RootRel)
 			}
-			action := RepairActionCreate
-			if proj.State != "missing" {
-				action = RepairActionReplace
-			}
-			addRepairTarget(&plan, RuntimeRepairTarget{
-				Path:    proj.RootRel + "/SKILL.md",
-				Action:  action,
-				Kind:    RepairKindSkill,
-				Reason:  "Atlas-owned skill projection " + proj.State,
-				Adapter: proj.Adapter,
-				Backup:  action == RepairActionReplace,
-			})
-			plan.Drift = append(plan.Drift, "skill "+proj.State+": "+proj.RootRel)
-		case "conflict":
-			plan.Warnings = append(plan.Warnings, "skill projection conflict preserved: "+proj.RootRel)
 		}
 	}
 
 	// Hooks: only plan targets Reconcile can restore (missing/stale).
 	// Drifted/conflict/malformed are preserved and reported as warnings —
 	// Reconcile refuses automatic rewrite of digest-drifted owned artifacts.
-	for _, proj := range health.Hooks.Projections {
-		switch proj.State {
-		case "missing", "stale":
-			if !proj.Repairable {
-				continue
+	if health.Hooks.OwnershipError != "" {
+		plan.Warnings = append(plan.Warnings, "hooks ownership unreadable; projections not repairable")
+	} else {
+		for _, proj := range health.Hooks.Projections {
+			switch proj.State {
+			case "missing", "stale":
+				if !proj.Repairable {
+					continue
+				}
+				action := RepairActionCreate
+				if proj.State == "stale" {
+					action = RepairActionReplace
+				}
+				path := proj.PathRel
+				if path == "" {
+					continue
+				}
+				addRepairTarget(&plan, RuntimeRepairTarget{
+					Path:    path,
+					Action:  action,
+					Kind:    RepairKindHook,
+					Reason:  "Atlas-owned hooks projection " + proj.State,
+					Adapter: proj.Adapter,
+					Backup:  action == RepairActionReplace,
+				})
+				plan.Drift = append(plan.Drift, "hooks "+proj.State+": "+path)
+			case "drifted", "conflict", "malformed":
+				plan.Warnings = append(plan.Warnings, "hooks projection "+proj.State+" preserved: "+proj.PathRel)
 			}
-			action := RepairActionCreate
-			if proj.State == "stale" {
-				action = RepairActionReplace
-			}
-			path := proj.PathRel
-			if path == "" {
-				continue
-			}
-			addRepairTarget(&plan, RuntimeRepairTarget{
-				Path:    path,
-				Action:  action,
-				Kind:    RepairKindHook,
-				Reason:  "Atlas-owned hooks projection " + proj.State,
-				Adapter: proj.Adapter,
-				Backup:  action == RepairActionReplace,
-			})
-			plan.Drift = append(plan.Drift, "hooks "+proj.State+": "+path)
-		case "drifted", "conflict", "malformed":
-			plan.Warnings = append(plan.Warnings, "hooks projection "+proj.State+" preserved: "+proj.PathRel)
 		}
 	}
 
@@ -394,7 +402,7 @@ func BuildRuntimeRepairPlan(root string, health Health) RuntimeRepairPlan {
 		plan.Warnings = append(plan.Warnings, ".atlas/state.yaml missing; Apply will refresh state metadata")
 	}
 
-	if len(plan.Targets) == 0 {
+	if len(plan.Targets) == 0 && health.Hooks.OwnershipError == "" && health.Skills.OwnershipError == "" {
 		plan.Healthy = true
 	}
 	return plan

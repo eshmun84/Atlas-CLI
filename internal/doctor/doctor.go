@@ -392,6 +392,9 @@ func evaluateRuntime(h runtime.Health) []Check {
 		repairableSkills := countOwnedSkillRepairables(h.Skills)
 		unownedStaleOrDrifted := countUnownedSkillNonMissing(h.Skills)
 		switch {
+		case h.Skills.OwnershipError != "":
+			checks = append(checks, fail("skills ownership", "unreadable: "+h.Skills.OwnershipError, RepairManual,
+				"Fix Atlas Home skills ownership manually; Runtime Repair does not reconcile skill projections while ownership is unreadable"))
 		case counts["conflict"] > 0:
 			checks = append(checks, fail("skills projections", fmt.Sprintf("%d conflict(s) preserved", counts["conflict"]), RepairManual,
 				"Resolve skill projection conflicts manually; Atlas preserves project-owned conflicts"))

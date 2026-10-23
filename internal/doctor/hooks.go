@@ -19,6 +19,10 @@ func evaluateHooks(result inspect.Inspection) []Check {
 		}}
 	}
 	h := result.Runtime.Hooks
+	if h.OwnershipError != "" {
+		return []Check{fail("hooks ownership", "unreadable: "+h.OwnershipError, RepairManual,
+			"Fix Atlas Home hooks ownership manually; Runtime Repair does not restore hook projections while ownership is unreadable")}
+	}
 	if !h.Configured {
 		return []Check{{
 			Severity: SeverityInfo,

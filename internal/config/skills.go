@@ -73,10 +73,20 @@ func ReconcileSkillProjections(root string, doc ProjectDocument, reclaimUnowned 
 func InspectSkillHealth(root string, doc ProjectDocument) skills.SkillHealth {
 	homePath, err := home.Resolve()
 	if err != nil {
-		return skills.SkillHealth{CatalogReadable: false, CatalogError: err.Error()}
+		return skills.SkillHealth{
+			CatalogReadable: false,
+			CatalogError:    err.Error(),
+			OwnershipError:  err.Error(),
+		}
 	}
-	projectID, _ := home.ProjectID(root, doc.Project.Name)
-	own, _ := skills.LoadOwnership(homePath, projectID)
+	projectID, idErr := home.ProjectID(root, doc.Project.Name)
+	if idErr != nil {
+		return skillOwnershipUnavailable(homePath, idErr)
+	}
+	own, ownErr := skills.LoadOwnership(homePath, projectID)
+	if ownErr != nil {
+		return skillOwnershipUnavailable(homePath, ownErr)
+	}
 	expected, _ := RenderSkillRegistry(doc, homePath)
 	return skills.Inspect(skills.InspectInput{
 		Root:             root,
@@ -89,6 +99,19 @@ func InspectSkillHealth(root string, doc ProjectDocument) skills.SkillHealth {
 		ExpectedRegistry: expected,
 		RegistryRel:      FileSkillRegistry,
 	})
+}
+
+func skillOwnershipUnavailable(homePath string, err error) skills.SkillHealth {
+	h := skills.SkillHealth{OwnershipError: err.Error()}
+	catalog, catalogErr := skills.DiscoverCatalog(homePath)
+	if catalogErr != nil {
+		h.CatalogReadable = false
+		h.CatalogError = catalogErr.Error()
+		return h
+	}
+	h.CatalogReadable = true
+	h.Available = catalog
+	return h
 }
 
 // AtlasOwnedSkillPaths returns Atlas-owned skill projection roots for an adapter

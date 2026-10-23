@@ -25,23 +25,16 @@ func HookProjectors() map[adapters.ID]hookproj.Projector {
 func InspectHookHealth(root string, doc ProjectDocument) hookproj.HookHealth {
 	homePath, err := home.Resolve()
 	if err != nil {
-		return hookproj.HookHealth{
-			Projections: []hookproj.ProjectionStatus{{
-				State:   hookproj.StateMalformed,
-				Message: err.Error(),
-			}},
-		}
+		return hookOwnershipUnavailable(doc, err)
 	}
 	projectID, idErr := home.ProjectID(root, doc.Project.Name)
 	if idErr != nil {
-		return hookproj.HookHealth{
-			Projections: []hookproj.ProjectionStatus{{
-				State:   hookproj.StateMalformed,
-				Message: idErr.Error(),
-			}},
-		}
+		return hookOwnershipUnavailable(doc, idErr)
 	}
-	own, _ := hookproj.LoadOwnership(homePath, projectID)
+	own, ownErr := hookproj.LoadOwnership(homePath, projectID)
+	if ownErr != nil {
+		return hookOwnershipUnavailable(doc, ownErr)
+	}
 	return hookproj.Inspect(hookproj.InspectInput{
 		Root:       root,
 		HomePath:   homePath,
@@ -50,6 +43,17 @@ func InspectHookHealth(root string, doc ProjectDocument) hookproj.HookHealth {
 		Projectors: HookProjectors(),
 		Ownership:  own,
 	})
+}
+
+func hookOwnershipUnavailable(doc ProjectDocument, err error) hookproj.HookHealth {
+	h := hookproj.HookHealth{OwnershipError: err.Error()}
+	for _, adapter := range normalizeSelectedAdapters(doc.Adapters.Selected) {
+		if adapters.Supports(adapters.ID(adapter), adapters.ClassHooks) {
+			h.Configured = true
+			break
+		}
+	}
+	return h
 }
 
 // ReconcileHookProjections materializes/removes Atlas-owned native hook projections.
