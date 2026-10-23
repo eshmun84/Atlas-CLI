@@ -67,16 +67,27 @@ func BumpPendingAndEnsureScheduler(ref ProjectRef) error {
 	if !TriggersAreEnabled() {
 		return nil
 	}
+	recoveryAttempted := false
 	if _, err := BumpPendingEdit(ref.Home, ref.ProjectID); err != nil {
-		return err
+		if !pendingCorruptionRecoverable(err) {
+			return err
+		}
+		recoveryAttempted = true
+		if err := QuarantineAndResetCorruptPending(ref.Home, ref.ProjectID); err != nil {
+			return err
+		}
 	}
-	return EnsurePostCodeSchedulerIfDirty(ref)
+	return ensurePostCodeSchedulerIfDirty(ref, !recoveryAttempted)
 }
 
 // EnsurePostCodeSchedulerIfDirty spawns a scheduler when pending work exists and
 // no owner is vigente. Safe to call from session.start recovery; does not alter
 // Phase B admission outcomes.
 func EnsurePostCodeSchedulerIfDirty(ref ProjectRef) error {
+	return ensurePostCodeSchedulerIfDirty(ref, true)
+}
+
+func ensurePostCodeSchedulerIfDirty(ref ProjectRef, allowRecovery bool) error {
 	if !TriggersAreEnabled() {
 		return nil
 	}
@@ -87,7 +98,16 @@ func EnsurePostCodeSchedulerIfDirty(ref ProjectRef) error {
 	}
 	res, err := ReserveOwner(ref.Home, ref.ProjectID)
 	if err != nil {
-		return err
+		if !allowRecovery || !pendingCorruptionRecoverable(err) {
+			return err
+		}
+		if err := QuarantineAndResetCorruptPending(ref.Home, ref.ProjectID); err != nil {
+			return err
+		}
+		res, err = ReserveOwner(ref.Home, ref.ProjectID)
+		if err != nil {
+			return err
+		}
 	}
 	if !res.Reserved {
 		return nil
@@ -199,11 +219,19 @@ func runPostCodeMaintainCycle(ctx context.Context, ref ProjectRef, token string,
 	if err != nil {
 		return err
 	}
+	ready, err := prepareSchedulerLease(ref.Home, ref.ProjectID)
+	if err != nil {
+		_ = ReleaseMaintainLock(lock)
+		return err
+	}
+	if !ready {
+		_ = ReleaseMaintainLock(lock)
+		return errMaintainBusy
+	}
 	defer func() {
-		clearMaintainLease(ref.Home, ref.ProjectID)
+		clearMaintainLeaseOwned(ref.Home, ref.ProjectID, "")
 		_ = ReleaseMaintainLock(lock)
 	}()
-	_ = writeMaintainLease(ref.Home, ref.ProjectID, leaseStateRunning)
 
 	gen0, ok, err := BeginMaintainCapture(ref.Home, ref.ProjectID, token, fence)
 	if err != nil {
@@ -257,7 +285,10 @@ func runPostCodeMaintainCycle(ctx context.Context, ref ProjectRef, token string,
 	if doc, lerr := loadPending(ref.Home, ref.ProjectID); lerr == nil {
 		stillOwns = ownsPending(doc, token, fence)
 	}
-	success := stillOwns && operationalSuccess(ceOut, ciOut) && maintainCtx.Err() == nil
+	success := stillOwns &&
+		operationalSuccess(ceOut, ciOut) &&
+		(errCode == "" || errCode == MaintainErrNone) &&
+		maintainCtx.Err() == nil
 	if !success && errCode == MaintainErrNone {
 		if !stillOwns {
 			errCode = MaintainErrCancelled
@@ -276,6 +307,55 @@ func runPostCodeMaintainCycle(ctx context.Context, ref ProjectRef, token string,
 	// CommitGeneration no-ops when fenced out; never advances processed for stale S1.
 	_, _ = CommitGeneration(ref.Home, ref.ProjectID, token, fence, gen0, success, errCode)
 	return nil
+}
+
+// prepareSchedulerLease runs with maintain.lock held and pending.lock acquired
+// second. A fresh Phase B admission always wins; stale admission state is
+// reconciled as retryable before Phase C installs its legacy running marker.
+func prepareSchedulerLease(homePath, projectID string) (bool, error) {
+	ready := false
+	err := withPendingLock(homePath, projectID, func() error {
+		if err := recoverMalformedLeaseLocked(homePath, projectID); err != nil {
+			return err
+		}
+		if err := recoverMalformedSessionLocked(homePath, projectID); err != nil {
+			return err
+		}
+		lease, ok, err := readMaintainLease(homePath, projectID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			leaseID := lease.AdmissionID
+			if leaseID != "" && !validAdmissionID(leaseID) {
+				if !invalidLeaseRecoverable(lease, time.Now().UTC()) {
+					return errInvalidPersistedAdmissionID
+				}
+				if err := quarantineInvalidMaintainLeaseLocked(homePath, projectID); err != nil {
+					return fmt.Errorf("%w: %v", errInvalidPersistedAdmissionID, err)
+				}
+				ok = false
+			}
+		}
+		if ok && strings.TrimSpace(lease.State) == leaseStateAdmitted && leaseBlocksAdmission(lease, time.Now().UTC()) {
+			return nil
+		}
+		if ok {
+			leaseID := lease.AdmissionID
+			if leaseID != "" {
+				if err := markAdmissionSessionsRetryableLocked(homePath, projectID, leaseID, admissionErrWorkerInterrupted); err != nil {
+					return err
+				}
+			}
+			clearMaintainLeaseOwnedLocked(homePath, projectID, leaseID)
+		}
+		if err := writeMaintainLease(homePath, projectID, leaseStateRunning, ""); err != nil {
+			return err
+		}
+		ready = true
+		return nil
+	})
+	return ready, err
 }
 
 // executeMaintainServices runs CE then CI without acquiring maintain.lock.
@@ -352,6 +432,16 @@ func maybeRunPostCodeScheduler(stderr io.Writer, root, homePath string) (handled
 	}
 	ref, err := ResolveAt(root, homePath)
 	if err != nil {
+		projectID := strings.TrimSpace(os.Getenv(envMaintainProjectID))
+		if validInternalProjectID(projectID) {
+			_, _ = ClearOwnReservation(homePath, projectID, token, fence)
+		}
+		return true, nil
+	}
+	if projectID := strings.TrimSpace(os.Getenv(envMaintainProjectID)); projectID != "" && ref.ProjectID != projectID {
+		if validInternalProjectID(projectID) {
+			_, _ = ClearOwnReservation(homePath, projectID, token, fence)
+		}
 		return true, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), absoluteProcessDeadline)

@@ -8,16 +8,16 @@ import (
 
 // Test helpers for Phase B.8 recovery paths and Phase C.2b seams.
 
-func BeginMaintainLastForTest(homePath, projectID, sessionID string) (MaintainLastRecord, time.Time) {
-	return beginMaintainLast(homePath, projectID, sessionID)
+func BeginMaintainLastForTest(homePath, projectID, sessionID, admissionID string) (MaintainLastRecord, time.Time) {
+	return beginMaintainLastEx(homePath, projectID, maintainLastOpts{SessionID: sessionID, AdmissionID: admissionID})
 }
 
-func FinishMaintainLastForTest(homePath, projectID, sessionID string, started time.Time, ce, ci, errCode string) {
-	finishMaintainLast(homePath, projectID, sessionID, started, ce, ci, errCode)
+func FinishMaintainLastForTest(homePath, projectID, sessionID, admissionID string, started time.Time, ce, ci, errCode string) {
+	finishMaintainLastEx(homePath, projectID, maintainLastOpts{SessionID: sessionID, AdmissionID: admissionID}, started, ce, ci, errCode)
 }
 
-func ClearMaintainLeaseForTest(homePath, projectID string) {
-	clearMaintainLease(homePath, projectID)
+func ClearMaintainLeaseForTest(homePath, projectID, admissionID string) {
+	clearMaintainLeaseOwned(homePath, projectID, admissionID)
 }
 
 // SetPendingClockForTest overrides pendingNow. Pass nil to restore.
@@ -36,6 +36,12 @@ func SetPendingSleepForTest(fn func(time.Duration)) {
 		return
 	}
 	pendingSleep = fn
+}
+
+// SetPendingLockBusyObserverForTest installs a deterministic contention
+// observer. Pass nil to restore production behavior.
+func SetPendingLockBusyObserverForTest(fn func()) {
+	pendingLockBusyObserver = fn
 }
 
 // SetAbsoluteProcessDeadlineForTest overrides scheduler wall-clock cap. 0 restores.

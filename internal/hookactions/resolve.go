@@ -19,6 +19,9 @@ type ProjectRef struct {
 	// SessionID is optional. Set during admission so the worker can finalize
 	// per-session fences (Phase B.8). Never used as a project identity.
 	SessionID string
+	// AdmissionID is an ephemeral ownership token for one Phase B lifecycle.
+	// Empty identifies legacy callers only; it is never synthesized on recovery.
+	AdmissionID string
 }
 
 // ResolveFunc resolves the workspace for a maintenance Action.
@@ -41,6 +44,9 @@ func ResolveAt(root, homePath string) (ProjectRef, error) {
 			return ProjectRef{}, fmt.Errorf("hookactions: working directory: %w", err)
 		}
 		root = wd
+	}
+	if err := config.RequireProjectSchemaCompatible(root); err != nil {
+		return ProjectRef{}, fmt.Errorf("hookactions: project schema: %w", err)
 	}
 	cfg, err := config.LoadAt(root)
 	if err != nil {

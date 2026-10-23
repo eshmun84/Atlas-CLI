@@ -20,8 +20,18 @@ import (
 const (
 	sessionMaintainName = "session-maintain.yaml"
 
-	sessionStateAdmitted = "admitted"
-	sessionStateComplete = "complete"
+	sessionStateAdmitted  = "admitted"
+	sessionStateComplete  = "complete"
+	sessionStateRetryable = "retryable"
+
+	admissionErrSpawnFailed       = "spawn_failed"
+	admissionErrLockBusy          = "lock_busy"
+	admissionErrLockFailed        = "lock_failed"
+	admissionErrResolveFailed     = "resolve_failed"
+	admissionErrCancelled         = "cancelled"
+	admissionErrTimeout           = "timeout"
+	admissionErrOwnershipLost     = "ownership_lost"
+	admissionErrWorkerInterrupted = "worker_interrupted"
 
 	// SessionAdmittedTTL bounds how long a successful spawn suppresses re-admit
 	// before the worker reports completion. Covers WorkerTimeout + grace so a
@@ -42,9 +52,11 @@ type sessionMaintainFile struct {
 }
 
 type sessionMaintainEntry struct {
-	State string `yaml:"state"`
-	At    string `yaml:"at"`
-	PID   int    `yaml:"pid,omitempty"`
+	State       string `yaml:"state"`
+	At          string `yaml:"at"`
+	PID         int    `yaml:"pid,omitempty"`
+	AdmissionID string `yaml:"admission_id,omitempty"`
+	ErrorCode   string `yaml:"error_code,omitempty"`
 }
 
 func sessionMaintainRel(projectID string) string {
@@ -70,16 +82,7 @@ func readSessionMaintain(homePath, projectID string) (sessionMaintainFile, error
 		}
 		return sessionMaintainFile{}, err
 	}
-	var doc sessionMaintainFile
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		// Corrupt → empty (fail-open reclaim).
-		return sessionMaintainFile{SchemaVersion: 1, Sessions: map[string]sessionMaintainEntry{}}, nil
-	}
-	if doc.Sessions == nil {
-		doc.Sessions = map[string]sessionMaintainEntry{}
-	}
-	doc.SchemaVersion = 1
-	return doc, nil
+	return classifySessionBytes(data)
 }
 
 func writeSessionMaintain(homePath, projectID string, doc sessionMaintainFile) error {
@@ -88,6 +91,13 @@ func writeSessionMaintain(homePath, projectID string, doc sessionMaintainFile) e
 	if homePath == "" || projectID == "" {
 		return fmt.Errorf("hookactions: session-maintain requires home and project id")
 	}
+	if err := guardSessionReplace(homePath, projectID); err != nil {
+		return err
+	}
+	return writeSessionMaintainRaw(homePath, projectID, doc)
+}
+
+func writeSessionMaintainRaw(homePath, projectID string, doc sessionMaintainFile) error {
 	doc.SchemaVersion = 1
 	if doc.Sessions == nil {
 		doc.Sessions = map[string]sessionMaintainEntry{}
@@ -109,12 +119,23 @@ func pruneSessionMaintain(doc *sessionMaintainFile, now time.Time) {
 		return
 	}
 	for sid, ent := range doc.Sessions {
+		// A non-cooperative identity is evidence, not an expired owner. Leave
+		// it for admission recovery, which quarantines the document first.
+		if !sessionIdentityCooperative(ent.AdmissionID) {
+			continue
+		}
 		at, ok := parseSessionAt(ent.At)
 		if !ok || now.Sub(at) > SessionRecordTTL {
 			delete(doc.Sessions, sid)
 		}
 	}
-	if len(doc.Sessions) <= MaxSessionMaintainEntries {
+	cooperative := 0
+	for _, ent := range doc.Sessions {
+		if sessionIdentityCooperative(ent.AdmissionID) {
+			cooperative++
+		}
+	}
+	if cooperative <= MaxSessionMaintainEntries {
 		return
 	}
 	type pair struct {
@@ -123,17 +144,22 @@ func pruneSessionMaintain(doc *sessionMaintainFile, now time.Time) {
 	}
 	items := make([]pair, 0, len(doc.Sessions))
 	for sid, ent := range doc.Sessions {
+		if !sessionIdentityCooperative(ent.AdmissionID) {
+			continue
+		}
 		at, ok := parseSessionAt(ent.At)
 		if !ok {
 			delete(doc.Sessions, sid)
+			cooperative--
 			continue
 		}
 		items = append(items, pair{sid: sid, at: at})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].at.Before(items[j].at) })
-	for len(doc.Sessions) > MaxSessionMaintainEntries && len(items) > 0 {
+	for cooperative > MaxSessionMaintainEntries && len(items) > 0 {
 		delete(doc.Sessions, items[0].sid)
 		items = items[1:]
+		cooperative--
 	}
 }
 
@@ -184,54 +210,117 @@ func sessionBlocksAdmission(homePath, projectID, sessionID string, now time.Time
 	}
 }
 
-func markSessionAdmitted(homePath, projectID, sessionID string) error {
+func markSessionAdmittedLocked(homePath, projectID, sessionID, admissionID string) error {
 	if !ValidSessionID(sessionID) {
 		return nil
+	}
+	if !validAdmissionID(admissionID) {
+		return fmt.Errorf("hookactions: invalid admission id")
 	}
 	doc, err := readSessionMaintain(homePath, projectID)
 	if err != nil {
 		return err
 	}
 	doc.Sessions[strings.TrimSpace(sessionID)] = sessionMaintainEntry{
-		State: sessionStateAdmitted,
-		At:    time.Now().UTC().Format(time.RFC3339Nano),
-		PID:   os.Getpid(),
+		State:       sessionStateAdmitted,
+		At:          time.Now().UTC().Format(time.RFC3339Nano),
+		PID:         os.Getpid(),
+		AdmissionID: admissionID,
 	}
 	return writeSessionMaintain(homePath, projectID, doc)
 }
 
-func markSessionComplete(homePath, projectID, sessionID string) {
+func markSessionCompleteOwned(homePath, projectID, sessionID, admissionID string) {
 	if !ValidSessionID(sessionID) {
 		return
 	}
-	doc, err := readSessionMaintain(homePath, projectID)
-	if err != nil {
-		return
-	}
-	doc.Sessions[strings.TrimSpace(sessionID)] = sessionMaintainEntry{
-		State: sessionStateComplete,
-		At:    time.Now().UTC().Format(time.RFC3339Nano),
-		PID:   os.Getpid(),
-	}
-	_ = writeSessionMaintain(homePath, projectID, doc)
+	_ = withPendingLock(homePath, projectID, func() error {
+		doc, err := readSessionMaintain(homePath, projectID)
+		if err != nil {
+			return err
+		}
+		sid := strings.TrimSpace(sessionID)
+		ent, ok := doc.Sessions[sid]
+		if !ok || !sessionOwnedBy(ent, admissionID) {
+			return nil
+		}
+		state := strings.TrimSpace(ent.State)
+		if state != sessionStateAdmitted &&
+			(state != sessionStateRetryable || strings.TrimSpace(ent.ErrorCode) != admissionErrWorkerInterrupted) {
+			return nil
+		}
+		ent.State = sessionStateComplete
+		ent.At = time.Now().UTC().Format(time.RFC3339Nano)
+		ent.PID = os.Getpid()
+		ent.ErrorCode = ""
+		doc.Sessions[sid] = ent
+		return writeSessionMaintain(homePath, projectID, doc)
+	})
 }
 
-// clearSessionMaintain removes a session fence so controlled retry is allowed
-// after spawn failure, worker failure, or incomplete interruption.
-func clearSessionMaintain(homePath, projectID, sessionID string) {
+func markSessionRetryableOwned(homePath, projectID, sessionID, admissionID, errorCode string) {
 	if !ValidSessionID(sessionID) {
 		return
 	}
+	_ = withPendingLock(homePath, projectID, func() error {
+		return markSessionStateOwnedLocked(homePath, projectID, sessionID, admissionID, sessionStateAdmitted, sessionStateRetryable, errorCode)
+	})
+}
+
+// markSessionStateOwnedLocked is a CAS over one session entry and its source
+// state. The caller must hold pending.lock. A tokenized caller cannot mutate a
+// legacy, foreign, or terminal entry.
+func markSessionStateOwnedLocked(homePath, projectID, sessionID, admissionID, expectedState, nextState, errorCode string) error {
 	doc, err := readSessionMaintain(homePath, projectID)
 	if err != nil {
-		return
+		return err
 	}
 	sid := strings.TrimSpace(sessionID)
-	if _, ok := doc.Sessions[sid]; !ok {
-		return
+	ent, ok := doc.Sessions[sid]
+	if !ok || !sessionOwnedBy(ent, admissionID) || strings.TrimSpace(ent.State) != expectedState {
+		return nil
 	}
-	delete(doc.Sessions, sid)
-	_ = writeSessionMaintain(homePath, projectID, doc)
+	ent.State = nextState
+	ent.At = time.Now().UTC().Format(time.RFC3339Nano)
+	ent.PID = os.Getpid()
+	ent.ErrorCode = strings.TrimSpace(errorCode)
+	doc.Sessions[sid] = ent
+	return writeSessionMaintain(homePath, projectID, doc)
+}
+
+func sessionOwnedBy(ent sessionMaintainEntry, admissionID string) bool {
+	if admissionID == "" {
+		return ent.AdmissionID == ""
+	}
+	return validAdmissionID(admissionID) &&
+		validAdmissionID(ent.AdmissionID) &&
+		ent.AdmissionID == admissionID
+}
+
+func markAdmissionSessionsRetryableLocked(homePath, projectID, admissionID, errorCode string) error {
+	if admissionID != "" && !validAdmissionID(admissionID) {
+		return fmt.Errorf("hookactions: invalid admission id")
+	}
+	doc, err := readSessionMaintain(homePath, projectID)
+	if err != nil {
+		return err
+	}
+	changed := false
+	for sid, ent := range doc.Sessions {
+		if !sessionOwnedBy(ent, admissionID) || strings.TrimSpace(ent.State) != sessionStateAdmitted {
+			continue
+		}
+		ent.State = sessionStateRetryable
+		ent.At = time.Now().UTC().Format(time.RFC3339Nano)
+		ent.PID = os.Getpid()
+		ent.ErrorCode = strings.TrimSpace(errorCode)
+		doc.Sessions[sid] = ent
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return writeSessionMaintain(homePath, projectID, doc)
 }
 
 // LoadSessionMaintainState returns the persisted state for a session (tests).

@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/eshmun84/Atlas-CLI/internal/config"
 	"github.com/eshmun84/Atlas-CLI/internal/memory"
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 )
@@ -52,6 +53,10 @@ func classify(err error) (status, message string) {
 		return StatusDisabled, "memory persistence is disabled"
 	case errors.Is(err, memory.ErrDatabaseNotFound):
 		return StatusUnavailable, "memory database unavailable"
+	case errors.Is(err, config.ErrProjectSchemaNewer),
+		errors.Is(err, config.ErrProjectSchemaOlder),
+		errors.Is(err, config.ErrProjectSchemaMalformed):
+		return StatusIncompatibleSchema, "project schema incompatible"
 	case errors.Is(err, memory.ErrSchemaIncompatible):
 		return StatusIncompatibleSchema, "memory schema incompatible"
 	case errors.Is(err, memory.ErrSymlinkDatabase),

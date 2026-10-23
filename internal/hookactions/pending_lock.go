@@ -12,6 +12,9 @@ import (
 	"github.com/eshmun84/Atlas-CLI/internal/project/fsafety"
 )
 
+// pendingLockBusyObserver is a deterministic test seam. Production nil.
+var pendingLockBusyObserver func()
+
 // TryAcquirePendingLock takes an exclusive non-blocking flock for pending RMW.
 // Callers must ReleasePendingLock. Never held across CE/CI work.
 func TryAcquirePendingLock(homePath, projectID string) (*os.File, error) {
@@ -26,7 +29,9 @@ func TryAcquirePendingLock(homePath, projectID string) (*os.File, error) {
 	}
 	rel := pendingLockRel(projectID)
 	abs := filepath.Join(homePath, filepath.FromSlash(rel))
-	f, err := os.OpenFile(abs, os.O_CREATE|os.O_RDWR, 0o600)
+	// Same no-follow leaf open as maintain.lock. Callers acquire maintain.lock
+	// first; this function never takes that lock.
+	f, err := openLifecycleLock(abs)
 	if err != nil {
 		return nil, fmt.Errorf("hookactions: open pending lock: %w", err)
 	}
@@ -54,6 +59,8 @@ func ReleasePendingLock(f *os.File) error {
 }
 
 // withPendingLock runs fn while holding pending.lock, retrying briefly on busy.
+// Lock hierarchy: maintain.lock may be acquired before pending.lock, never the
+// reverse. Therefore fn must not attempt to acquire maintain.lock.
 func withPendingLock(homePath, projectID string, fn func() error) error {
 	deadline := pendingNow().Add(2 * time.Second)
 	for {
@@ -64,6 +71,9 @@ func withPendingLock(homePath, projectID string, fn func() error) error {
 		}
 		if !errors.Is(err, errMaintainBusy) {
 			return err
+		}
+		if pendingLockBusyObserver != nil {
+			pendingLockBusyObserver()
 		}
 		if pendingNow().After(deadline) {
 			return errMaintainBusy

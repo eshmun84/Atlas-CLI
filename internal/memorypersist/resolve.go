@@ -41,6 +41,9 @@ func (e Env) resolveProject() (projectRef, error) {
 		root = wd
 	}
 
+	if err := config.RequireProjectSchemaCompatible(root); err != nil {
+		return projectRef{}, mapConfigLoadError(err)
+	}
 	cfg, err := config.LoadAt(root)
 	if err != nil {
 		return projectRef{}, mapConfigLoadError(err)

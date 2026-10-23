@@ -943,7 +943,7 @@ func TestC2B_FIX04_ConcurrentRecoverySerialized(t *testing.T) {
 	}
 }
 
-func TestC2B_FIX04_IncompatibleSchemaRequiresExplicitRecovery(t *testing.T) {
+func TestC2B_FIX04_IncompatibleSchemaCannotBeRecovered(t *testing.T) {
 	ref := c2bRef(t, "c2b-schema-rec")
 	path := hookactions.MaintainPendingPath(ref.Home, ref.ProjectID)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -960,27 +960,19 @@ func TestC2B_FIX04_IncompatibleSchemaRequiresExplicitRecovery(t *testing.T) {
 	if string(got) != string(raw) {
 		t.Fatal("silent overwrite of incompatible schema")
 	}
-	if err := hookactions.QuarantineAndResetCorruptPending(ref.Home, ref.ProjectID); err != nil {
-		t.Fatal(err)
+	if err := hookactions.QuarantineAndResetCorruptPending(ref.Home, ref.ProjectID); !hookactions.ErrPendingCorrupt(err) {
+		t.Fatalf("explicit recovery error=%v want incompatible pending", err)
 	}
 	ev, err := hookactions.ListMaintainPendingCorruptEvidence(ref.Home, ref.ProjectID)
-	if err != nil || len(ev) != 1 {
+	if err != nil || len(ev) != 0 {
 		t.Fatalf("evidence=%v err=%v", ev, err)
 	}
-	qraw, _ := os.ReadFile(ev[0])
-	if string(qraw) != string(raw) {
-		t.Fatal("schema evidence not preserved")
-	}
-	doc, err := hookactions.LoadMaintainPending(ref.Home, ref.ProjectID)
+	got, err = os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.PendingGeneration != 1 || doc.ProcessedGeneration != 0 {
-		t.Fatalf("explicit recovery dirty epoch: %+v", doc)
-	}
-	// Must not reconstruct historical gens 7/3.
-	if doc.PendingGeneration == 7 || doc.ProcessedGeneration == 3 {
-		t.Fatal("must not invent historical generations")
+	if string(got) != string(raw) {
+		t.Fatal("incompatible schema must remain byte-identical")
 	}
 }
 

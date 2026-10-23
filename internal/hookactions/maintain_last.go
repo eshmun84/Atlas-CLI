@@ -56,14 +56,16 @@ type MaintainLastRecord struct {
 	ErrorCode     string `yaml:"error_code"`
 	PID           int    `yaml:"pid,omitempty"`
 	SessionID     string `yaml:"session_id,omitempty"`
+	AdmissionID   string `yaml:"admission_id,omitempty"`
 	Trigger       string `yaml:"trigger,omitempty"`
 	Generation    int64  `yaml:"generation,omitempty"`
 }
 
 type maintainLastOpts struct {
-	SessionID  string
-	Trigger    string
-	Generation int64
+	SessionID   string
+	AdmissionID string
+	Trigger     string
+	Generation  int64
 }
 
 func maintainLastRel(projectID string) string {
@@ -159,8 +161,9 @@ func markPriorIncompleteIfNeeded(homePath, projectID string) {
 		rec.CIOutcome = MaintainOutcomeFailed
 	}
 	_ = writeMaintainLast(homePath, projectID, rec)
-	// Incomplete ≠ permanently maintained: allow controlled retry for that session.
-	clearSessionMaintain(homePath, projectID, rec.SessionID)
+	// Incomplete ≠ permanently maintained: allow controlled retry for that
+	// exact owner only. Legacy records can mutate only legacy session entries.
+	markSessionRetryableOwned(homePath, projectID, rec.SessionID, rec.AdmissionID, admissionErrWorkerInterrupted)
 }
 
 func beginMaintainLast(homePath, projectID, sessionID string) (MaintainLastRecord, time.Time) {
@@ -180,6 +183,7 @@ func beginMaintainLastEx(homePath, projectID string, opts maintainLastOpts) (Mai
 		ErrorCode:     MaintainErrNone,
 		PID:           os.Getpid(),
 		SessionID:     strings.TrimSpace(opts.SessionID),
+		AdmissionID:   strings.TrimSpace(opts.AdmissionID),
 		Trigger:       strings.TrimSpace(opts.Trigger),
 		Generation:    opts.Generation,
 	}
@@ -212,27 +216,32 @@ func finishMaintainLastEx(homePath, projectID string, opts maintainLastOpts, sta
 		ErrorCode:     errCode,
 		PID:           os.Getpid(),
 		SessionID:     sid,
+		AdmissionID:   strings.TrimSpace(opts.AdmissionID),
 		Trigger:       strings.TrimSpace(opts.Trigger),
 		Generation:    opts.Generation,
 	}
 	_ = writeMaintainLast(homePath, projectID, rec)
-	finalizeSessionAfterWorker(homePath, projectID, sid, errCode)
+	finalizeSessionAfterWorker(homePath, projectID, sid, opts.AdmissionID, errCode)
 }
 
 // finalizeSessionAfterWorker records that the worker finished an attempt for
 // this session. Operational CE/CI failures still mark complete so we do not
-// re-admit on every subsequent prompt. Timeout/cancel leave the fence cleared
-// for controlled retry; incomplete/interrupted is handled in
+// re-admit on every subsequent prompt. Timeout/cancel leave an observable
+// retryable fence; incomplete/interrupted is handled in
 // markPriorIncompleteIfNeeded (Phase B.8 scenario 5).
-func finalizeSessionAfterWorker(homePath, projectID, sessionID, errCode string) {
+func finalizeSessionAfterWorker(homePath, projectID, sessionID, admissionID, errCode string) {
 	if !ValidSessionID(sessionID) {
 		return
 	}
 	switch errCode {
-	case MaintainErrTimeout, MaintainErrCancelled:
-		clearSessionMaintain(homePath, projectID, sessionID)
+	case MaintainErrTimeout:
+		markSessionRetryableOwned(homePath, projectID, sessionID, admissionID, admissionErrTimeout)
+	case MaintainErrCancelled:
+		markSessionRetryableOwned(homePath, projectID, sessionID, admissionID, admissionErrCancelled)
+	case MaintainErrResolveFailed:
+		markSessionRetryableOwned(homePath, projectID, sessionID, admissionID, admissionErrResolveFailed)
 	default:
-		markSessionComplete(homePath, projectID, sessionID)
+		markSessionCompleteOwned(homePath, projectID, sessionID, admissionID)
 	}
 }
 

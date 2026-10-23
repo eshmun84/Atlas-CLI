@@ -1,29 +1,18 @@
 package memoryhealth
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
-
-	"golang.org/x/sys/unix"
 )
 
-// pathWritable reports whether path is writable by the current process
-// without opening SQLite (opening RW would create WAL/SHM sidecars).
+// pathWritable reports whether path appears writable by the current process.
+// It inspects permissions only: it never creates a path and never opens Memory
+// storage for writing, because a read-write SQLite open would create WAL/SHM
+// sidecars. A positive result is not a guarantee that a later write succeeds.
 func pathWritable(path string) bool {
 	path = filepath.Clean(strings.TrimSpace(path))
 	if path == "" || path == "." {
 		return false
 	}
-	if err := unix.Access(path, unix.W_OK); err != nil {
-		return false
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return false
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return false
-	}
-	return true
+	return pathWritablePlatform(path)
 }

@@ -14,6 +14,9 @@ import (
 
 const maintainLockName = "maintain.lock"
 
+// workerMaintainLockBusyObserver is a deterministic test seam. Production nil.
+var workerMaintainLockBusyObserver func()
+
 // maintainLockRel is the Home-relative lock leaf for one project.
 func maintainLockRel(projectID string) string {
 	return filepath.ToSlash(filepath.Join(home.DirProjects, projectID, home.ProjectDirState, maintainLockName))
@@ -34,7 +37,9 @@ func TryAcquireMaintainLock(homePath, projectID string) (*os.File, error) {
 	}
 	rel := maintainLockRel(projectID)
 	abs := filepath.Join(homePath, filepath.FromSlash(rel))
-	f, err := os.OpenFile(abs, os.O_CREATE|os.O_RDWR, 0o600)
+	// No-follow open rejects a symlink leaf. The stamp below is written only
+	// to the descriptor returned here, after the flock.
+	f, err := openLifecycleLock(abs)
 	if err != nil {
 		return nil, fmt.Errorf("hookactions: open maintain lock: %w", err)
 	}
@@ -74,6 +79,9 @@ func acquireMaintainLockForWorker(homePath, projectID string) (*os.File, error) 
 		}
 		if !errors.Is(err, errMaintainBusy) {
 			return nil, err
+		}
+		if workerMaintainLockBusyObserver != nil {
+			workerMaintainLockBusyObserver()
 		}
 		if time.Now().After(deadline) {
 			return nil, errMaintainBusy

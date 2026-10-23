@@ -22,9 +22,11 @@ const WorkerTimeout = 3 * time.Minute
 const EnvInternalMaintain = "ATLAS_INTERNAL_MAINTAIN"
 
 const (
-	envMaintainRoot    = "ATLAS_INTERNAL_MAINTAIN_ROOT"
-	envMaintainHome    = "ATLAS_INTERNAL_MAINTAIN_HOME"
-	envMaintainSession = "ATLAS_INTERNAL_MAINTAIN_SESSION"
+	envMaintainRoot        = "ATLAS_INTERNAL_MAINTAIN_ROOT"
+	envMaintainHome        = "ATLAS_INTERNAL_MAINTAIN_HOME"
+	envMaintainSession     = "ATLAS_INTERNAL_MAINTAIN_SESSION"
+	envMaintainProjectID   = "ATLAS_INTERNAL_MAINTAIN_PROJECT_ID"
+	envMaintainAdmissionID = "ATLAS_INTERNAL_MAINTAIN_ADMISSION_ID"
 )
 
 type admitSource string
@@ -141,11 +143,6 @@ func admitSessionMaintenance(ctx context.Context, ev hooks.Event, resolve Resolv
 		return hooks.Result{Outcome: hooks.OutcomeSkipped}, nil
 	}
 
-	now := time.Now().UTC()
-	if ValidSessionID(sessionID) && sessionBlocksAdmission(ref.Home, ref.ProjectID, sessionID, now) {
-		return hooks.Result{Outcome: hooks.OutcomeSkipped}, nil
-	}
-
 	lock, err := TryAcquireMaintainLock(ref.Home, ref.ProjectID)
 	if err != nil {
 		if errors.Is(err, errMaintainBusy) {
@@ -154,48 +151,152 @@ func admitSessionMaintenance(ctx context.Context, ev hooks.Event, resolve Resolv
 		return hooks.Result{Outcome: hooks.OutcomeFailed}, fmt.Errorf("%w: %v", errAdmitUnexpected, err)
 	}
 
-	// Re-check session fence under lock (another process may have admitted).
-	if ValidSessionID(sessionID) && sessionBlocksAdmission(ref.Home, ref.ProjectID, sessionID, time.Now().UTC()) {
-		_ = ReleaseMaintainLock(lock)
-		return hooks.Result{Outcome: hooks.OutcomeSkipped}, nil
-	}
-
-	if lease, ok, rerr := readMaintainLease(ref.Home, ref.ProjectID); rerr == nil && ok {
-		if leaseBlocksAdmission(lease, time.Now().UTC()) {
-			_ = ReleaseMaintainLock(lock)
-			return hooks.Result{Outcome: hooks.OutcomeSkipped}, nil
-		}
-		clearMaintainLease(ref.Home, ref.ProjectID)
-	}
-
-	if err := writeMaintainLease(ref.Home, ref.ProjectID, leaseStateAdmitted); err != nil {
+	admissionID, err := newAdmissionID()
+	if err != nil {
 		_ = ReleaseMaintainLock(lock)
 		return hooks.Result{Outcome: hooks.OutcomeFailed}, fmt.Errorf("%w: %v", errAdmitUnexpected, err)
 	}
-	if ValidSessionID(sessionID) {
-		if err := markSessionAdmitted(ref.Home, ref.ProjectID, sessionID); err != nil {
-			clearMaintainLease(ref.Home, ref.ProjectID)
-			_ = ReleaseMaintainLock(lock)
-			return hooks.Result{Outcome: hooks.OutcomeFailed}, fmt.Errorf("%w: %v", errAdmitUnexpected, err)
-		}
+	blocked, err := establishAdmissionLifecycle(ref.Home, ref.ProjectID, sessionID, admissionID, time.Now().UTC())
+	if err != nil {
+		_ = ReleaseMaintainLock(lock)
+		return hooks.Result{Outcome: hooks.OutcomeFailed}, fmt.Errorf("%w: %v", errAdmitUnexpected, err)
+	}
+	if blocked {
+		_ = ReleaseMaintainLock(lock)
+		return hooks.Result{Outcome: hooks.OutcomeSkipped}, nil
 	}
 
 	// Release before spawn so the worker never observes BUSY from this parent.
 	_ = ReleaseMaintainLock(lock)
 
 	if err := ctx.Err(); err != nil {
-		clearMaintainLease(ref.Home, ref.ProjectID)
-		clearSessionMaintain(ref.Home, ref.ProjectID, sessionID)
+		closeAdmissionRetryable(ref.Home, ref.ProjectID, sessionID, admissionID, admissionErrCancelled)
 		return hooks.Result{Outcome: hooks.OutcomeCancelled}, err
 	}
 
 	ref.SessionID = sessionID
+	ref.AdmissionID = admissionID
 	if err := currentSpawner()(ref); err != nil {
-		clearMaintainLease(ref.Home, ref.ProjectID)
-		clearSessionMaintain(ref.Home, ref.ProjectID, sessionID)
+		closeAdmissionRetryable(ref.Home, ref.ProjectID, sessionID, admissionID, admissionErrSpawnFailed)
 		return hooks.Result{Outcome: hooks.OutcomeFailed}, fmt.Errorf("%w: %v", errAdmitSpawn, err)
 	}
 	return hooks.Result{Outcome: hooks.OutcomeOK}, nil
+}
+
+// establishAdmissionLifecycle performs the lease→session write sequence under
+// pending.lock while the caller holds maintain.lock. There is deliberately no
+// inverse path: code holding pending.lock must never acquire maintain.lock.
+func establishAdmissionLifecycle(homePath, projectID, sessionID, admissionID string, now time.Time) (bool, error) {
+	blocked := false
+	err := withPendingLock(homePath, projectID, func() error {
+		if err := recoverMalformedLeaseLocked(homePath, projectID); err != nil {
+			return err
+		}
+		if err := recoverMalformedSessionLocked(homePath, projectID); err != nil {
+			return err
+		}
+		if err := recoverNonCooperativeSessionLocked(homePath, projectID); err != nil {
+			return err
+		}
+		lease, leaseOK, err := readMaintainLease(homePath, projectID)
+		if err != nil {
+			return err
+		}
+		if leaseOK {
+			leaseID := lease.AdmissionID
+			if leaseID != "" && !validAdmissionID(leaseID) {
+				if !invalidLeaseRecoverable(lease, now) {
+					return errInvalidPersistedAdmissionID
+				}
+				if err := quarantineInvalidMaintainLeaseLocked(homePath, projectID); err != nil {
+					return fmt.Errorf("%w: %v", errInvalidPersistedAdmissionID, err)
+				}
+				leaseOK = false
+			}
+		}
+		if leaseOK && leaseBlocksAdmission(lease, now) {
+			blocked = true
+			return nil
+		}
+		if leaseOK {
+			leaseID := lease.AdmissionID
+			if leaseID != "" {
+				if err := markAdmissionSessionsRetryableLocked(homePath, projectID, leaseID, admissionErrWorkerInterrupted); err != nil {
+					return err
+				}
+			}
+			clearMaintainLeaseOwnedLocked(homePath, projectID, leaseID)
+		}
+
+		if ValidSessionID(sessionID) {
+			doc, err := readSessionMaintain(homePath, projectID)
+			if err != nil {
+				return err
+			}
+			if ent, ok := doc.Sessions[strings.TrimSpace(sessionID)]; ok {
+				at, parsed := parseSessionAt(ent.At)
+				age := now.Sub(at)
+				if age < 0 {
+					age = 0
+				}
+				switch strings.TrimSpace(ent.State) {
+				case sessionStateComplete:
+					if parsed && age <= SessionRecordTTL {
+						blocked = true
+						return nil
+					}
+				case sessionStateAdmitted:
+					if parsed && age <= SessionAdmittedTTL {
+						blocked = true
+						return nil
+					}
+				}
+			}
+		}
+
+		if err := writeMaintainLease(homePath, projectID, leaseStateAdmitted, admissionID); err != nil {
+			return err
+		}
+		if ValidSessionID(sessionID) {
+			if err := markSessionAdmittedLocked(homePath, projectID, sessionID, admissionID); err != nil {
+				clearMaintainLeaseOwnedLocked(homePath, projectID, admissionID)
+				return err
+			}
+		}
+		return nil
+	})
+	return blocked, err
+}
+
+// closeAdmissionRetryable records the observable pre-body outcome first, then
+// clears only the matching lease. A crash between writes leaves a retryable
+// session plus a short-lived lease; later admission waits for lease expiry.
+func closeAdmissionRetryable(homePath, projectID, sessionID, admissionID, errorCode string) {
+	if !validAdmissionID(admissionID) || !validInternalProjectID(projectID) {
+		return
+	}
+	_ = withPendingLock(homePath, projectID, func() error {
+		lease, ok, err := readMaintainLease(homePath, projectID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			// A running lease may belong to another process executing the same
+			// admitted job. A pre-body loser must not close that worker's state.
+			if leaseOwnedBy(lease, admissionID) && strings.TrimSpace(lease.State) != leaseStateAdmitted {
+				return nil
+			}
+		}
+		if ValidSessionID(sessionID) {
+			if err := markSessionStateOwnedLocked(homePath, projectID, sessionID, admissionID, sessionStateAdmitted, sessionStateRetryable, errorCode); err != nil {
+				return err
+			}
+		}
+		if ok && leaseOwnedBy(lease, admissionID) {
+			clearMaintainLeaseOwnedLocked(homePath, projectID, admissionID)
+		}
+		return nil
+	})
 }
 
 func resolveForAdmission(ctx context.Context, resolve ResolveFunc) (ProjectRef, error) {

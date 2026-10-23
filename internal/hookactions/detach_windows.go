@@ -23,6 +23,8 @@ func spawnDetachedWorker(ref ProjectRef) error {
 		envMaintainMode+"="+maintainModeSession,
 		envMaintainRoot+"="+ref.Root,
 		envMaintainHome+"="+ref.Home,
+		envMaintainProjectID+"="+ref.ProjectID,
+		envMaintainAdmissionID+"="+ref.AdmissionID,
 	)
 	if ref.Home != "" {
 		cmd.Env = append(cmd.Env, "ATLAS_HOME="+ref.Home)
@@ -54,6 +56,7 @@ func spawnDetachedScheduler(ref ProjectRef, token string, fence int64) error {
 		envMaintainMode+"="+maintainModePostCode,
 		envMaintainRoot+"="+ref.Root,
 		envMaintainHome+"="+ref.Home,
+		envMaintainProjectID+"="+ref.ProjectID,
 		envMaintainToken+"="+strings.TrimSpace(token),
 		envMaintainFence+"="+fmt.Sprintf("%d", fence),
 	)

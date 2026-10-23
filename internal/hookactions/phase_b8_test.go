@@ -352,9 +352,9 @@ func TestPhaseB8_SpawnFailureAllowsRetry(t *testing.T) {
 	if hookactions.ClassifyAdmitError(err) != hookactions.AdmitClassSpawnFail {
 		t.Fatalf("class=%s", hookactions.ClassifyAdmitError(err))
 	}
-	_, ok, _ := hookactions.LoadSessionMaintainState(ref.Home, ref.ProjectID, "sess-sf")
-	if ok {
-		t.Fatal("spawn failure must clear session fence")
+	st, ok, _ := hookactions.LoadSessionMaintainState(ref.Home, ref.ProjectID, "sess-sf")
+	if !ok || st != "retryable" {
+		t.Fatalf("spawn failure must leave an observable retryable fence, state=%q ok=%v", st, ok)
 	}
 
 	hookactions.SetSpawner(func(ref hookactions.ProjectRef) error {
@@ -450,11 +450,13 @@ func TestPhaseB8_TimeoutClearsSessionForRetry(t *testing.T) {
 	write(t, filepath.Join(ref.Root, "go.mod"), "module demo\n")
 
 	var spawned atomic.Int32
+	var timeoutAdmissionID string
 	hookactions.SetSpawner(func(r hookactions.ProjectRef) error {
 		spawned.Add(1)
+		timeoutAdmissionID = r.AdmissionID
 		// Simulate worker timeout finalize path (no full CE/CI work).
-		_, started := hookactions.BeginMaintainLastForTest(r.Home, r.ProjectID, "sess-to")
-		hookactions.FinishMaintainLastForTest(r.Home, r.ProjectID, "sess-to", started,
+		_, started := hookactions.BeginMaintainLastForTest(r.Home, r.ProjectID, "sess-to", r.AdmissionID)
+		hookactions.FinishMaintainLastForTest(r.Home, r.ProjectID, "sess-to", r.AdmissionID, started,
 			hookactions.MaintainOutcomeTimeout, hookactions.MaintainOutcomePending, hookactions.MaintainErrTimeout)
 		return nil
 	})
@@ -469,11 +471,11 @@ func TestPhaseB8_TimeoutClearsSessionForRetry(t *testing.T) {
 	if err != nil || res.Outcome != hooks.OutcomeOK {
 		t.Fatalf("admit %#v err=%v", res, err)
 	}
-	_, ok, _ := hookactions.LoadSessionMaintainState(ref.Home, ref.ProjectID, "sess-to")
-	if ok {
-		t.Fatal("timeout must clear session fence")
+	st, ok, _ := hookactions.LoadSessionMaintainState(ref.Home, ref.ProjectID, "sess-to")
+	if !ok || st != "retryable" {
+		t.Fatalf("timeout must leave a retryable session fence, state=%q ok=%v", st, ok)
 	}
-	hookactions.ClearMaintainLeaseForTest(ref.Home, ref.ProjectID)
+	hookactions.ClearMaintainLeaseForTest(ref.Home, ref.ProjectID, timeoutAdmissionID)
 
 	hookactions.SetSpawner(func(ref hookactions.ProjectRef) error {
 		spawned.Add(1)
@@ -526,7 +528,11 @@ func TestPhaseB8_IncompleteClearsSession(t *testing.T) {
 	}
 	// Admit once so session fence exists, then simulate crash via maintain-last running.
 	hookactions.SetTriggersEnabled(true)
-	hookactions.SetSpawner(func(ref hookactions.ProjectRef) error { return nil })
+	var admitted hookactions.ProjectRef
+	hookactions.SetSpawner(func(ref hookactions.ProjectRef) error {
+		admitted = ref
+		return nil
+	})
 	hookactions.ResetAdmitStateForTest()
 	t.Cleanup(func() { hookactions.SetSpawner(nil); hookactions.ResetAdmitStateForTest() })
 
@@ -545,13 +551,13 @@ func TestPhaseB8_IncompleteClearsSession(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	write(t, path, "schema_version: 1\nstatus: running\nstarted_at: "+time.Now().UTC().Format(time.RFC3339Nano)+"\nduration_ms: 0\nce_outcome: pending\nci_outcome: pending\nerror_code: none\nsession_id: sess-inc\npid: 1\n")
+	write(t, path, "schema_version: 1\nstatus: running\nstarted_at: "+time.Now().UTC().Format(time.RFC3339Nano)+"\nduration_ms: 0\nce_outcome: pending\nci_outcome: pending\nerror_code: none\nsession_id: sess-inc\nadmission_id: "+admitted.AdmissionID+"\npid: 1\n")
 
 	// Next worker start marks incomplete and clears session fence.
-	_ = hookactions.InlineSpawner(mustRef(t, ref))
-	_, ok, _ := hookactions.LoadSessionMaintainState(ref.Home, ref.ProjectID, "sess-inc")
-	if ok {
-		t.Fatal("incomplete prior run must clear session fence")
+	_ = hookactions.InlineSpawner(admitted)
+	st, ok, _ := hookactions.LoadSessionMaintainState(ref.Home, ref.ProjectID, "sess-inc")
+	if !ok || st != "complete" {
+		t.Fatalf("recovered worker must complete its owned session, state=%q ok=%v", st, ok)
 	}
 }
 

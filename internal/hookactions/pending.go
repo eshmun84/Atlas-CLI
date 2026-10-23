@@ -3,6 +3,7 @@ package hookactions
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -169,22 +170,31 @@ func writeCorruptEvidenceExclusiveProd(homePath, projectID string, data []byte) 
 		if err != nil {
 			return "", err
 		}
-		f, err := os.OpenFile(abs, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		f, err := createExclusiveNoFollow(abs, 0o600)
 		if err != nil {
-			if os.IsExist(err) {
+			if os.IsExist(err) || errors.Is(err, fsafety.ErrSymlink) {
 				continue
 			}
 			return "", fmt.Errorf("hookactions: quarantine create: %w", err)
 		}
-		_, werr := f.Write(data)
-		cerr := f.Close()
-		if werr != nil {
-			_ = os.Remove(abs)
-			return "", fmt.Errorf("hookactions: quarantine write: %w", werr)
+		n, werr := f.Write(data)
+		if werr == nil && n != len(data) {
+			werr = fmt.Errorf("short write %d/%d", n, len(data))
 		}
-		if cerr != nil {
+		if werr == nil {
+			werr = fsafety.SyncFileDurable(f)
+		}
+		cerr := f.Close()
+		if werr != nil || cerr != nil {
 			_ = os.Remove(abs)
+			if werr != nil {
+				return "", fmt.Errorf("hookactions: quarantine write: %w", werr)
+			}
 			return "", fmt.Errorf("hookactions: quarantine close: %w", cerr)
+		}
+		if err := syncParentDir(abs); err != nil {
+			_ = os.Remove(abs)
+			return "", fmt.Errorf("hookactions: quarantine sync dir: %w", err)
 		}
 		return rel, nil
 	}
@@ -206,15 +216,33 @@ func loadPending(homePath, projectID string) (MaintainPendingDocument, error) {
 		}
 		return MaintainPendingDocument{}, err
 	}
+	doc, err := decodePending(data)
+	if err != nil {
+		return MaintainPendingDocument{}, err
+	}
+	return normalizePending(doc), nil
+}
+
+func decodePending(data []byte) (MaintainPendingDocument, error) {
+	var header struct {
+		SchemaVersion *int `yaml:"schema_version"`
+	}
+	if err := yaml.Unmarshal(data, &header); err != nil {
+		return MaintainPendingDocument{}, fmt.Errorf("%w: %w: parse", errPendingCorrupt, errPendingMalformed)
+	}
+	if header.SchemaVersion == nil {
+		return MaintainPendingDocument{}, fmt.Errorf("%w: %w: schema_version missing", errPendingCorrupt, errPendingMalformed)
+	}
+	if *header.SchemaVersion != pendingSchemaVersion {
+		return MaintainPendingDocument{}, fmt.Errorf("%w: %w: schema_version %d", errPendingCorrupt, errPendingSchemaIncompatible, *header.SchemaVersion)
+	}
+
 	var doc MaintainPendingDocument
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		// Corrupt: do not invent an empty queue; preserve evidence on disk.
-		return MaintainPendingDocument{}, fmt.Errorf("%w: parse", errPendingCorrupt)
+		return MaintainPendingDocument{}, fmt.Errorf("%w: %w: parse", errPendingCorrupt, errPendingMalformed)
 	}
-	if doc.SchemaVersion != pendingSchemaVersion {
-		return MaintainPendingDocument{}, fmt.Errorf("%w: schema_version %d", errPendingCorrupt, doc.SchemaVersion)
-	}
-	return normalizePending(doc), nil
+	return doc, nil
 }
 
 func normalizePending(doc MaintainPendingDocument) MaintainPendingDocument {
@@ -272,6 +300,7 @@ func savePending(homePath, projectID string, doc MaintainPendingDocument) error 
 // If quarantine fails, the primary file is left untouched.
 // Does not run CE/CI and does not hold pending.lock across maintain work.
 // No-op when the primary is absent or already valid.
+// Incompatible schemas are never quarantined or reset.
 func QuarantineAndResetCorruptPending(homePath, projectID string) error {
 	return withPendingLock(homePath, projectID, func() error {
 		homePath = strings.TrimSpace(homePath)
@@ -284,15 +313,10 @@ func QuarantineAndResetCorruptPending(homePath, projectID string) error {
 			}
 			return err
 		}
-		var doc MaintainPendingDocument
-		corrupt := false
-		if err := yaml.Unmarshal(data, &doc); err != nil {
-			corrupt = true
-		} else if doc.SchemaVersion != pendingSchemaVersion {
-			corrupt = true
-		}
-		if !corrupt {
+		if _, err := decodePending(data); err == nil {
 			return nil
+		} else if !pendingCorruptionRecoverable(err) {
+			return err
 		}
 
 		// A. Preserve evidence first — failure aborts without touching primary.
@@ -320,7 +344,7 @@ func QuarantineAndResetCorruptPending(homePath, projectID string) error {
 var writeRecoveryPendingPrimary = writeRecoveryPendingPrimaryProd
 
 func writeRecoveryPendingPrimaryProd(homePath, rel string, data []byte) error {
-	return fsafety.AtomicWriteContainedDir(homePath, rel, data, 0o600, home.DirPermHome, ".atlas-pending-*.tmp")
+	return fsafety.AtomicWriteContainedDirDurable(homePath, rel, data, 0o600, home.DirPermHome, ".atlas-pending-*.tmp")
 }
 
 // LoadMaintainPending reads pending state (tests / diagnostics).

@@ -1,6 +1,7 @@
 package memorypersist_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,13 +52,142 @@ func writeConfig(t *testing.T, root, name, persistMode string) {
 	if err := os.MkdirAll(filepath.Join(root, ".atlas"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.DefaultConfig(name)
-	cfg.Memory.Persistence.Mode = persistMode
-	data, err := yaml.Marshal(&cfg)
+	doc := config.BuildProjectDocument(config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: name,
+		ProjectMode: "existing",
+	}), config.EmptyMCPDraft())
+	doc.Memory.Persistence.Mode = persistMode
+	data, err := yaml.Marshal(&doc)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(config.FileConfig)), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAUD01_ProposeIncompatibleProjectSchemaNeverCreatesOrModifiesSQLite(t *testing.T) {
+	t.Run("future schema does not create database", func(t *testing.T) {
+		root, homePath, projectID := seedProject(t)
+		setMemoryProjectSchemaVersion(t, root, config.CurrentProjectSchemaVersion+1)
+		svc := memorypersist.Service{Env: memorypersist.Env{Root: root, Home: homePath}}
+
+		resp := svc.Propose(durableCandidate())
+		if resp.Status != memorypersist.StatusIncompatibleSchema ||
+			resp.Error == nil ||
+			resp.Error.Code != memorypersist.StatusIncompatibleSchema {
+			t.Fatalf("response=%#v", resp)
+		}
+		ok, err := memory.Exists(homePath, projectID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok {
+			t.Fatal("incompatible project schema created memory.db")
+		}
+	})
+
+	t.Run("future schema does not modify existing database", func(t *testing.T) {
+		root, homePath, projectID := seedProject(t)
+		svc := memorypersist.Service{Env: memorypersist.Env{Root: root, Home: homePath}}
+		if resp := svc.Propose(durableCandidate()); resp.Status != memorypersist.StatusAccepted {
+			t.Fatalf("seed response=%#v", resp)
+		}
+		rel, err := memory.DatabaseRel(projectID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dbPath := filepath.Join(homePath, filepath.FromSlash(rel))
+		before, err := os.ReadFile(dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		setMemoryProjectSchemaVersion(t, root, config.CurrentProjectSchemaVersion+1)
+		candidate := durableCandidate()
+		candidate.TopicKey = "memory.storage.incompatible"
+		resp := svc.Propose(candidate)
+		if resp.Status != memorypersist.StatusIncompatibleSchema {
+			t.Fatalf("response=%#v", resp)
+		}
+		after, err := os.ReadFile(dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(after) != string(before) {
+			t.Fatal("incompatible project schema modified existing memory.db")
+		}
+	})
+}
+
+func TestAUD01_ProposeMalformedProjectSchemaIsRecognizable(t *testing.T) {
+	root, homePath, projectID := seedProject(t)
+	setMemoryProjectSchemaVersion(t, root, -1)
+	svc := memorypersist.Service{Env: memorypersist.Env{Root: root, Home: homePath}}
+
+	resp := svc.Propose(durableCandidate())
+	if resp.Status != memorypersist.StatusIncompatibleSchema ||
+		resp.Error == nil ||
+		resp.Error.Code != memorypersist.StatusIncompatibleSchema {
+		t.Fatalf("response=%#v", resp)
+	}
+	ok, err := memory.Exists(homePath, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("malformed project schema created memory.db")
+	}
+}
+
+func TestAUD01_ProposeLegacyProjectSchemaRemainsCompatible(t *testing.T) {
+	root, homePath, _ := seedProject(t)
+	setMemoryProjectSchemaVersion(t, root, 0)
+	svc := memorypersist.Service{Env: memorypersist.Env{Root: root, Home: homePath}}
+
+	resp := svc.Propose(durableCandidate())
+	if resp.Status != memorypersist.StatusAccepted {
+		t.Fatalf("response=%#v", resp)
+	}
+}
+
+func TestAUD01_ProjectSchemaSentinelsRemainWrapped(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		version int
+		want    error
+	}{
+		{name: "future", version: config.CurrentProjectSchemaVersion + 1, want: config.ErrProjectSchemaNewer},
+		{name: "malformed", version: -1, want: config.ErrProjectSchemaMalformed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root, _, _ := seedProject(t)
+			setMemoryProjectSchemaVersion(t, root, test.version)
+			err := config.RequireProjectSchemaCompatible(root)
+			if !errors.Is(err, test.want) {
+				t.Fatalf("error=%v want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func setMemoryProjectSchemaVersion(t *testing.T, root string, version int) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(config.FileConfig))
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc config.ProjectDocument
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc.SchemaVersion = version
+	raw, err = yaml.Marshal(&doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
