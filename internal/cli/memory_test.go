@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -435,12 +436,146 @@ func writeCLIConfig(t *testing.T, root, name string) {
 	if err := os.MkdirAll(filepath.Join(root, ".atlas"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Memory Propose mutates Home. AUD-01 admits that only for a project
+	// document. DefaultConfig is the transitional Config shape and is not a
+	// second mutable policy.
+	doc := config.BuildProjectDocument(config.BuildConfigDraft(config.ConfigModeInit, config.ProjectSetupInput{
+		ProjectName: name,
+		ProjectMode: "existing",
+	}), config.EmptyMCPDraft())
+	doc.Memory.Persistence.Mode = config.MemoryPersistenceGoverned
+	data, err := yaml.Marshal(&doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(config.FileConfig)), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExecute_MemoryPropose_SchemaGateStillRefusesUnsafeConfig(t *testing.T) {
+	prevTUI := cli.RunTUI
+	cli.RunTUI = func(tui.Options) error { t.Fatal("tui"); return nil }
+	defer func() { cli.RunTUI = prevTUI }()
+
+	body := `{
+		"type":"decision",
+		"title":"Prefer SQLite Memory Core",
+		"content":"Atlas stores durable project Memory in SQLite under Atlas Home, not in the product repository.",
+		"origin":"atlas_lifecycle",
+		"explicitness":"explicit"
+	}`
+
+	t.Run("transitional config shape", func(t *testing.T) {
+		root := t.TempDir()
+		homePath := t.TempDir()
+		writeLegacyCLIConfig(t, root, "propose-legacy")
+		if _, err := config.LoadAt(root); err != nil {
+			t.Fatalf("legacy Config must remain readable: %v", err)
+		}
+		if _, err := config.LoadProjectDocumentAt(root); !errors.Is(err, config.ErrNotProjectDocument) {
+			t.Fatalf("legacy Config must not be a project document: %v", err)
+		}
+		gateErr := config.RequireProjectSchemaCompatible(root)
+		if gateErr == nil || !errors.Is(gateErr, config.ErrNotProjectDocument) {
+			t.Fatalf("schema gate = %v", gateErr)
+		}
+		if errors.Is(gateErr, config.ErrProjectSchemaNewer) || errors.Is(gateErr, config.ErrProjectSchemaOlder) || errors.Is(gateErr, config.ErrProjectSchemaMalformed) {
+			t.Fatalf("transitional Config is not schema skew: %v", gateErr)
+		}
+
+		resp := proposeCLI(t, root, homePath, body)
+		if resp.Status == memorypersist.StatusAccepted || resp.Status == memorypersist.StatusUpdated || resp.Status == memorypersist.StatusDuplicate || resp.Observation != nil {
+			t.Fatalf("legacy config must not persist: %#v", resp)
+		}
+		assertNoMemoryDB(t, root, homePath, "propose-legacy")
+	})
+
+	t.Run("future schema", func(t *testing.T) {
+		root := t.TempDir()
+		homePath := t.TempDir()
+		writeCLIConfig(t, root, "propose-future")
+		setCLIProjectSchema(t, root, config.CurrentProjectSchemaVersion+1)
+		gateErr := config.RequireProjectSchemaCompatible(root)
+		if !errors.Is(gateErr, config.ErrProjectSchemaNewer) {
+			t.Fatalf("schema gate = %v", gateErr)
+		}
+
+		resp := proposeCLI(t, root, homePath, body)
+		if resp.Status != memorypersist.StatusIncompatibleSchema || resp.Observation != nil {
+			t.Fatalf("future schema must be refused: %#v", resp)
+		}
+		assertNoMemoryDB(t, root, homePath, "propose-future")
+	})
+}
+
+func proposeCLI(t *testing.T, root, homePath, body string) memorypersist.Response {
+	t.Helper()
+	prevPersist := cli.MemoryPersistService
+	cli.MemoryPersistService = func() memorypersist.Service {
+		return memorypersist.Service{Env: memorypersist.Env{Root: root, Home: homePath}}
+	}
+	defer func() { cli.MemoryPersistService = prevPersist }()
+	prevIn := cli.MemoryProposeInput
+	cli.MemoryProposeInput = func() io.Reader { return strings.NewReader(body) }
+	defer func() { cli.MemoryProposeInput = prevIn }()
+
+	var stdout bytes.Buffer
+	_ = cli.Execute(&stdout, nil, []string{"memory", "propose", "--json"})
+	var resp memorypersist.Response
+	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
+		t.Fatalf("json: %v (%s)", err, stdout.String())
+	}
+	return resp
+}
+
+func assertNoMemoryDB(t *testing.T, root, homePath, name string) {
+	t.Helper()
+	projectID, err := home.ProjectID(root, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := memory.Exists(homePath, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("schema gate created memory.db")
+	}
+}
+
+func writeLegacyCLIConfig(t *testing.T, root, name string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, ".atlas"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.DefaultConfig(name)
 	data, err := yaml.Marshal(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(config.FileConfig)), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setCLIProjectSchema(t *testing.T, root string, version int) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(config.FileConfig))
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc config.ProjectDocument
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc.SchemaVersion = version
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, out, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
