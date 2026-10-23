@@ -1,4 +1,10 @@
-//go:build unix
+//go:build unix && qa04_physical
+
+// Physical scheduler recovery against one installed Atlas binary.
+// Excluded from go test ./... because it requires that binary and signals
+// the process group it starts.
+//
+//	go test -tags qa04_physical ./internal/hookactions -run TestQA04_Stage2C_WorkerInterruptRecovery -count=1
 
 package hookactions_test
 

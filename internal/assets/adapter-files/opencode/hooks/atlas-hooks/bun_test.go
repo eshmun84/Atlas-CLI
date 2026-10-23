@@ -1,3 +1,9 @@
+//go:build opencode_bun
+
+// Opt-in Bun runtime for the OpenCode plugin asset.
+// Excluded from go test ./... A missing bun binary fails this test.
+//
+//	go test -tags opencode_bun ./internal/assets/adapter-files/opencode/hooks/atlas-hooks -count=1
 package atlashooks_test
 
 import (
@@ -7,12 +13,10 @@ import (
 	"testing"
 )
 
-// TestBunPluginRuntime runs Bun subprocess tests for the OpenCode plugin asset.
-// Skips when bun is not installed (local optional tooling).
 func TestBunPluginRuntime(t *testing.T) {
 	bun, err := exec.LookPath("bun")
 	if err != nil {
-		t.Skip("bun not on PATH; install bun to run OpenCode plugin runtime tests")
+		t.Fatalf("opencode_bun requires bun on PATH: %v", err)
 	}
 	dir, err := os.Getwd()
 	if err != nil {

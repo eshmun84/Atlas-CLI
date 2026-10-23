@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"github.com/eshmun84/Atlas-CLI/internal/home"
+	"github.com/eshmun84/Atlas-CLI/internal/testharness"
 )
 
 // Isolate Atlas Home for all TUI package tests so Discover/Status never touch ~/.atlas.
 // Materialize a healthy Home so Init Apply tests match the Slice 1 install contract.
 func TestMain(m *testing.M) {
+	installed := testharness.Install(testharness.Options{CursorStub: true})
 	dir, err := os.MkdirTemp("", "atlas-home-tui-*")
 	if err != nil {
 		panic(err)
@@ -21,5 +23,6 @@ func TestMain(m *testing.M) {
 	}
 	code := m.Run()
 	_ = os.RemoveAll(dir)
+	installed.Cleanup()
 	os.Exit(code)
 }
